@@ -4,7 +4,7 @@
 //! domain state in `zimged-core`. `ui()` polls background work, then lays out the panels.
 
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 
 use zimged_codec::{DisplayImage, Size, fit_within};
 use zimged_platform::{Config, Platform};
@@ -60,6 +60,9 @@ pub(crate) struct ShownImage {
     /// The display-size decode (§5.2), re-decoded larger if the canvas outgrows it (a resize, or a
     /// HiDPI scale factor the startup decode couldn't know).
     display: egui::TextureHandle,
+    /// `display`'s pixels, shared with egui (no copy). Tests read them; so will the on-screen
+    /// composite (§7.2).
+    display_pixels: Arc<egui::ColorImage>,
     /// The full-resolution decode, once zoomed past the display-size one (§7.2). Capped at the GPU's
     /// largest texture.
     full: Option<egui::TextureHandle>,
@@ -326,11 +329,13 @@ impl ZimgedApp {
         let file_name = file_name(&path);
         match result {
             Ok(image) => {
+                let (display, display_pixels) = upload(ctx, &image, Pixels::Display);
                 self.shown = Some(ShownImage {
                     path,
                     file_name,
                     original_size: image.original_size,
-                    display: upload(ctx, &image, Pixels::Display),
+                    display,
+                    display_pixels,
                     full: None,
                     requested: image.size,
                 });
@@ -361,9 +366,12 @@ impl ZimgedApp {
         if upgrade.pending.path() != shown.path || image.original_size != shown.original_size {
             return;
         }
-        let texture = upload(ctx, &image, upgrade.pixels);
+        let (texture, pixels) = upload(ctx, &image, upgrade.pixels);
         match upgrade.pixels {
-            Pixels::Display => shown.display = texture,
+            Pixels::Display => {
+                shown.display = texture;
+                shown.display_pixels = pixels;
+            }
             Pixels::Full => shown.full = Some(texture),
         }
     }
@@ -458,6 +466,15 @@ impl ZimgedApp {
         self.pending.is_none().then_some(EMPTY_WINDOW_HINT)
     }
 
+    /// A pixel of the display-size decode on screen (after orientation and colour conversion):
+    /// `None` when no Image is shown or `(x, y)` is outside it.
+    pub fn shown_pixel(&self, x: u32, y: u32) -> Option<egui::Color32> {
+        let pixels = &self.shown.as_ref()?.display_pixels;
+        let [w, h] = pixels.size;
+        let (x, y) = (x as usize, y as usize);
+        (x < w && y < h).then(|| pixels.pixels[y * w + x])
+    }
+
     fn status_bar(&self) -> status_bar::StatusBar<'_> {
         status_bar::StatusBar {
             file_name: self.shown.as_ref().map(|s| s.file_name.as_str()),
@@ -542,11 +559,16 @@ fn file_name(path: &Path) -> String {
         .into_owned()
 }
 
-fn upload(ctx: &egui::Context, image: &DisplayImage, kind: Pixels) -> egui::TextureHandle {
-    let pixels = egui::ColorImage::from_rgb(
-        [image.size.width as usize, image.size.height as usize],
-        &image.rgb,
-    );
+fn upload(
+    ctx: &egui::Context,
+    image: &DisplayImage,
+    kind: Pixels,
+) -> (egui::TextureHandle, Arc<egui::ColorImage>) {
+    let size = [image.size.width as usize, image.size.height as usize];
+    let pixels = Arc::new(match &image.pixels {
+        zimged_codec::Pixels::Rgb(rgb) => egui::ColorImage::from_rgb(size, rgb),
+        zimged_codec::Pixels::Rgba(rgba) => egui::ColorImage::from_rgba_unmultiplied(size, rgba),
+    });
     let (name, options) = match kind {
         Pixels::Display => ("image", egui::TextureOptions::LINEAR),
         // Drawn anywhere from just above the display size down: mipmaps keep it from aliasing.
@@ -558,7 +580,7 @@ fn upload(ctx: &egui::Context, image: &DisplayImage, kind: Pixels) -> egui::Text
             },
         ),
     };
-    ctx.load_texture(name, pixels, options)
+    (ctx.load_texture(name, pixels.clone(), options), pixels)
 }
 
 fn texture_size(texture: &egui::TextureHandle) -> Size {

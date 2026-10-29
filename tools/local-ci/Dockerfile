@@ -23,9 +23,10 @@ ARG RUST_VERSION
 FROM rust:${RUST_VERSION}-slim-bookworm
 
 ARG RUST_VERSION
-# git: the self-test of the guard scripts builds throwaway repositories.
+# git: the self-test of the guard scripts builds throwaway repositories. cmake, make, g++, meson,
+# ninja and nasm: libavif-sys builds libavif and dav1d from source (the `avif` feature, §5.1).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
+    && apt-get install -y --no-install-recommends git cmake make g++ meson ninja-build nasm \
     && rm -rf /var/lib/apt/lists/* \
     && rustup toolchain install "${RUST_VERSION}" --profile minimal \
          --component rustfmt --component clippy \
