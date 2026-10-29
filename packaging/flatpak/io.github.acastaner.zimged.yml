@@ -4,7 +4,7 @@
 # flatpak stages this file next to that tarball as zimged-linux.tar.gz.
 id: io.github.acastaner.zimged
 runtime: org.freedesktop.Platform
-runtime-version: '25.08'
+runtime-version: '26.08'
 sdk: org.freedesktop.Sdk
 command: zimged
 rename-desktop-file: zimged.desktop
