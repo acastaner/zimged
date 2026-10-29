@@ -32,6 +32,10 @@ toml = "1"
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal", "wayland"] }
 pollster = "0.4"
 tempfile = "3"
+# Prebuilt Skia binaries are downloaded at build time (binary-cache). The default features plus
+# textlayout match a published binary set (`jpegd-jpege-pdf-textlayout`), so no C++ toolchain is
+# needed; another feature set can force a from-source build (LLVM, Python, Ninja).
+skia-safe = { version = "0.156", features = ["textlayout"] }
 libc = "0.2"
 unicode-normalization = "0.1"
 # Sibling ordering on Windows (StrCmpLogicalW, the NoStrCmpLogical policy) and macOS (§3.2).

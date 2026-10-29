@@ -7,6 +7,7 @@
 use egui::{Event, Key, KeyboardShortcut, Modifiers, MouseWheelUnit};
 
 use crate::Command;
+use crate::tools::ToolId;
 
 const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
 
@@ -46,6 +47,7 @@ pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>) -> Vec<Command>
             if input.consume_key(Modifiers::NONE, Key::ArrowLeft) {
                 commands.push(Command::PreviousSibling);
             }
+            editor_keys(input, &mut commands);
         }
         // Ctrl+wheel (egui's zoom modifier) and touchpad pinch.
         let factor = input.zoom_delta();
@@ -65,6 +67,27 @@ pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>) -> Vec<Command>
     });
     wheel(ctx, &mut commands);
     commands
+}
+
+/// The editor's keys: History (§4.8), Delete (§4.2) and the tool keys (§4.1). Match the most
+/// specific modifiers first: egui ignores extra Shift and Alt when matching.
+fn editor_keys(input: &mut egui::InputState, commands: &mut Vec<Command>) {
+    if input.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
+        || input.consume_key(Modifiers::COMMAND, Key::Y)
+    {
+        commands.push(Command::Redo);
+    }
+    if input.consume_key(Modifiers::COMMAND, Key::Z) {
+        commands.push(Command::Undo);
+    }
+    if input.consume_key(Modifiers::NONE, Key::Delete) {
+        commands.push(Command::Delete);
+    }
+    for tool in ToolId::ALL {
+        if input.consume_key(Modifiers::NONE, tool.key()) {
+            commands.push(Command::SelectTool(tool));
+        }
+    }
 }
 
 /// §3.1: wheel down is the next Sibling, wheel up the previous one. Ctrl+wheel zooms instead
