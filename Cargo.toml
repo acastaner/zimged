@@ -23,6 +23,8 @@ egui_kittest = { version = "0.37", features = ["eframe"] }
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 fast_image_resize = "6"
 directories = "6"
+serde = { version = "1", features = ["derive"] }
+toml = "1"
 tempfile = "3"
 
 [profile.release]

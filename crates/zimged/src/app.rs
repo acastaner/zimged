@@ -9,8 +9,9 @@ use zimged_codec::{DisplayImage, Size};
 use zimged_platform::{Config, Platform};
 
 use crate::Command;
+use crate::config_save::ConfigSaver;
 use crate::decode::{DecodeResult, PendingDecode};
-use crate::ui::{canvas, status_bar};
+use crate::ui::{canvas, menu_bar, status_bar};
 
 /// Everything the startup path (or a test) hands the app.
 pub struct Launch {
@@ -79,6 +80,7 @@ pub struct ZimgedApp {
     #[expect(dead_code, reason = "used by the clipboard, trash and dialog tickets")]
     platform: Platform,
     config: Config,
+    config_saver: ConfigSaver,
     pending: Option<PendingDecode>,
     shown: Option<ShownImage>,
     /// "Can't open <name>: <reason>" (§5.2), shown on the canvas instead of an image.
@@ -95,6 +97,7 @@ impl ZimgedApp {
             pending.wake(&cc.egui_ctx);
         }
         Self {
+            config_saver: ConfigSaver::new(launch.platform.config.clone()),
             platform: launch.platform,
             config: launch.config,
             pending: launch.first_image,
@@ -109,12 +112,57 @@ impl ZimgedApp {
     pub fn execute(&mut self, command: Command) {
         match command {
             Command::Open(path) => self.open(&path),
+            Command::SetAllowMultipleInstances(allow) => {
+                self.update_config(|config| config.allow_multiple_instances = allow);
+            }
         }
     }
 
-    /// Is background work still pending (a decode, …)? Tests wait for this to clear.
+    /// The settings in effect (§8.3), including changes not yet written to `config.toml`.
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
+    /// Is background work still pending (a decode, a config write, …)? Tests wait for this to clear.
     pub fn is_busy(&self) -> bool {
-        self.pending.is_some()
+        self.pending.is_some() || self.config_saver.is_busy()
+    }
+
+    /// Change the settings and schedule a (debounced) write of `config.toml`.
+    fn update_config(&mut self, change: impl FnOnce(&mut Config)) {
+        let before = self.config.clone();
+        change(&mut self.config);
+        if self.config != before {
+            self.config_saver.changed();
+        }
+    }
+
+    /// Remember the window's restored size and maximised state (§2, §8.3). A fullscreen or
+    /// minimised window isn't recorded.
+    fn track_window(&mut self, ctx: &egui::Context) {
+        let (inner, maximised, fullscreen, minimised) = ctx.input(|i| {
+            let viewport = i.viewport();
+            (
+                viewport.inner_rect,
+                viewport.maximized,
+                viewport.fullscreen,
+                viewport.minimized,
+            )
+        });
+        if fullscreen == Some(true) || minimised == Some(true) {
+            return;
+        }
+        self.update_config(|config| {
+            if let Some(maximised) = maximised {
+                config.window.maximised = maximised;
+            }
+            if !config.window.maximised
+                && let Some(inner) = inner
+            {
+                config.window.width = inner.width().round();
+                config.window.height = inner.height().round();
+            }
+        });
     }
 
     fn open(&mut self, path: &Path) {
@@ -194,7 +242,15 @@ impl eframe::App for ZimgedApp {
             self.after_first_paint(&ctx);
         }
         self.poll_decode(&ctx);
+        self.track_window(&ctx);
+        self.config_saver.poll(&ctx, &self.config);
 
+        let menu = menu_bar::MenuBar {
+            allow_multiple_instances: self.config.allow_multiple_instances,
+        };
+        if let Some(command) = menu_bar::show(ui, &menu) {
+            self.execute(command);
+        }
         status_bar::show(ui, &self.status_bar());
         self.canvas = Some(canvas::show(ui, self.shown.as_ref(), self.error.as_deref()));
 
@@ -208,6 +264,10 @@ impl eframe::App for ZimgedApp {
             }
             ctx.request_repaint();
         }
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.config_saver.flush(&self.config);
     }
 }
 

@@ -107,6 +107,21 @@ impl TestApp {
         }
     }
 
+    /// Resize (or maximise) the window the way the OS does: the new size and maximised state arrive
+    /// as viewport info with the next frame, which this runs.
+    pub fn resize_window(&mut self, size: egui::Vec2, maximised: bool) {
+        self.harness.set_size(size);
+        let viewport = self
+            .harness
+            .input_mut()
+            .viewports
+            .entry(egui::ViewportId::ROOT)
+            .or_default();
+        viewport.inner_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size));
+        viewport.maximized = Some(maximised);
+        self.harness.run();
+    }
+
     /// The text of a status-bar field, found by its accessibility label (e.g. "File name").
     ///
     /// Status-bar fields are `Role::Label` nodes whose accessible name is the field's label and
