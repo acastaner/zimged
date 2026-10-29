@@ -22,4 +22,6 @@ pub enum Command {
     ZoomFit,
     /// Enter or leave fullscreen (F11, §2).
     ToggleFullscreen,
+    /// View → *Allow multiple instances* (§8.3, §8.4). Persisted; takes effect at the next start.
+    SetAllowMultipleInstances(bool),
 }

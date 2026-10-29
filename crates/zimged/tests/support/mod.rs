@@ -147,6 +147,21 @@ impl TestApp {
         self.settle();
     }
 
+    /// Resize (or maximise) the window the way the OS does: the new size and maximised state arrive
+    /// as viewport info with the next frame, which this runs.
+    pub fn resize_window(&mut self, size: egui::Vec2, maximised: bool) {
+        self.harness.set_size(size);
+        let viewport = self
+            .harness
+            .input_mut()
+            .viewports
+            .entry(egui::ViewportId::ROOT)
+            .or_default();
+        viewport.inner_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size));
+        viewport.maximized = Some(maximised);
+        self.harness.run();
+    }
+
     /// Press Ctrl (Cmd on macOS) + `key`, as the user does. Takes effect on the next frame.
     pub fn press_ctrl(&mut self, key: egui::Key) {
         self.harness
