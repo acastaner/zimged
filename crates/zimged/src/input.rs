@@ -46,6 +46,9 @@ pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>) -> Vec<Command>
             if input.consume_key(Modifiers::NONE, Key::ArrowLeft) {
                 commands.push(Command::PreviousSibling);
             }
+            if input.consume_key(Modifiers::NONE, Key::Delete) {
+                commands.push(Command::Delete);
+            }
         }
         // Ctrl+wheel (egui's zoom modifier) and touchpad pinch.
         let factor = input.zoom_delta();

@@ -51,6 +51,13 @@ impl SiblingList {
             .partition_point(|s| self.order.compare(&s.name, &name) != Ordering::Greater);
         Err(index)
     }
+
+    /// Take `path` out of the list (it was trashed). Returns whether it was there.
+    pub fn remove(&mut self, path: &Path) -> bool {
+        let before = self.siblings.len();
+        self.siblings.retain(|s| s.path != path);
+        self.siblings.len() != before
+    }
 }
 
 fn display_name(path: &Path) -> String {

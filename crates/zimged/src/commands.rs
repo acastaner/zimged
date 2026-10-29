@@ -31,4 +31,7 @@ pub enum Command {
     ToggleFullscreen,
     /// View → *Allow multiple instances* (§8.3, §8.4). Persisted; takes effect at the next start.
     SetAllowMultipleInstances(bool),
+    /// Delete (§3.1, §4.2): remove the selected Annotations; with nothing selected, move the file
+    /// to the system trash and show the next Sibling.
+    Delete,
 }

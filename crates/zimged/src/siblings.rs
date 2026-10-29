@@ -39,6 +39,9 @@ pub struct Navigation {
     direction: Direction,
     /// The Sibling being moved to while its decode is pending.
     target: Option<PathBuf>,
+    /// Files trashed from the folder being scanned: left out of every scan of it, which may
+    /// predate the trashing.
+    trashed: Vec<PathBuf>,
 }
 
 impl Navigation {
@@ -49,18 +52,17 @@ impl Navigation {
             cache_cap,
             direction: Direction::Forward,
             target: None,
+            trashed: Vec::new(),
         }
     }
 
     /// Scan the directory of `shown`, the Image now on screen, and start the decode pool if it isn't
-    /// running yet. Only ever called after the first image is painted (§1.3).
+    /// running yet. Only ever called after the first image is painted (§1.3), or by
+    /// [`Self::ensure_started`].
     pub fn start(&mut self, ctx: &egui::Context, shown: &Path) {
-        let dir = shown
-            .parent()
-            .filter(|dir| !dir.as_os_str().is_empty())
-            .unwrap_or(Path::new("."))
-            .to_owned();
+        let dir = folder_of(shown);
         let waker = ctx.clone();
+        self.trashed.retain(|path| folder_of(path) == dir);
         self.scan = Scan::Running(PendingScan::spawn(
             dir,
             zimged_siblings::order::platform_order,
@@ -90,7 +92,13 @@ impl Navigation {
             && let Some(result) = pending.take()
         {
             crate::bench::mark("siblings_scanned");
-            self.scan = Scan::Done(result.ok());
+            let mut list = result.ok();
+            if let Some(list) = &mut list {
+                for path in &self.trashed {
+                    list.remove(path);
+                }
+            }
+            self.scan = Scan::Done(list);
             if let Some(shown) = shown {
                 self.keep_window(shown, display_box);
             }
@@ -162,6 +170,24 @@ impl Navigation {
         }
     }
 
+    /// Take a trashed file out of the Siblings, now and from any scan landing later. A move from
+    /// it afterwards goes to the Sibling that followed it (or preceded it, backward).
+    pub fn forget(&mut self, path: &Path) {
+        self.target = None;
+        if let Scan::Done(Some(list)) = &mut self.scan {
+            list.remove(path);
+        }
+        self.trashed.push(path.to_owned());
+    }
+
+    /// Scan the folder of `path` unless a scan has been started already (an Image that failed to
+    /// open at launch is never painted, so nothing else starts one).
+    pub fn ensure_started(&mut self, ctx: &egui::Context, path: &Path) {
+        if matches!(self.scan, Scan::NotStarted) {
+            self.start(ctx, path);
+        }
+    }
+
     /// Has the scan finished, so that moves work?
     pub fn is_scanned(&self) -> bool {
         matches!(self.scan, Scan::Done(_))
@@ -180,6 +206,13 @@ impl Navigation {
             .as_ref()
             .map_or_else(Default::default, Prefetcher::cached)
     }
+}
+
+fn folder_of(path: &Path) -> PathBuf {
+    path.parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
+        .to_owned()
 }
 
 fn window_paths(list: &SiblingList, index: usize, direction: Direction) -> Vec<PathBuf> {
