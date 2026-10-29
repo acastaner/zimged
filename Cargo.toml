@@ -34,6 +34,10 @@ pollster = "0.4"
 tempfile = "3"
 libc = "0.2"
 unicode-normalization = "0.1"
+# Sibling ordering on Windows (StrCmpLogicalW, the NoStrCmpLogical policy) and macOS (§3.2).
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Globalization", "Win32_System_Registry", "Win32_UI_Shell"] }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObjCRuntime"] }
 
 [profile.release]
 lto = "thin"
