@@ -10,6 +10,7 @@ use crate::view::Zoom;
 pub const LABEL_FILE_NAME: &str = "File name";
 pub const LABEL_PIXEL_SIZE: &str = "Pixel size";
 pub const LABEL_ZOOM: &str = "Zoom";
+pub const LABEL_POSITION: &str = "Sibling position";
 pub const LABEL_MESSAGE: &str = "Message";
 
 /// What the status bar shows this frame. `None` fields are left out.
@@ -17,9 +18,11 @@ pub struct StatusBar<'a> {
     pub file_name: Option<&'a str>,
     /// Unsaved changes: ` •` follows the file name.
     pub modified: bool,
+    /// `n / N`, or `? / ?` while the Siblings are being scanned.
+    pub position: Option<String>,
     pub pixel_size: Option<Size>,
     pub zoom: Option<Zoom>,
-    /// The message slot, last on the right.
+    /// The transient message slot ("Last image in folder", "View only: …", …).
     pub message: Option<&'a str>,
 }
 
@@ -34,7 +37,9 @@ pub fn show(ui: &mut egui::Ui, bar: &StatusBar<'_>) {
                 let marker = if bar.modified { " •" } else { "" };
                 field(ui, LABEL_FILE_NAME, &format!("{name}{marker}"));
             }
-            // The Sibling position `n / N` goes here (#15).
+            if let Some(position) = &bar.position {
+                field(ui, LABEL_POSITION, position);
+            }
             if let Some(size) = bar.pixel_size {
                 field(ui, LABEL_PIXEL_SIZE, &size.to_string());
             }

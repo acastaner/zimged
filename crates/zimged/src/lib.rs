@@ -11,6 +11,7 @@ pub mod decode;
 mod editor;
 mod input;
 mod pan;
+mod siblings;
 pub mod startup;
 pub mod tools;
 mod ui;

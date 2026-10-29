@@ -118,10 +118,21 @@ impl TestApp {
     }
 
     pub fn with_platform(platform: Platform) -> Self {
+        Self::from_launch(Launch::new(platform))
+    }
+
+    /// A headless App with no Image open, its [`Launch`] (in-memory platform) adjusted by `adjust`.
+    pub fn with_launch(adjust: impl FnOnce(&mut Launch)) -> Self {
+        let mut launch = Launch::new(Platform::in_memory());
+        adjust(&mut launch);
+        Self::from_launch(launch)
+    }
+
+    fn from_launch(launch: Launch) -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
         let harness = Harness::builder()
             .with_size(WINDOW)
-            .build_eframe(move |cc| ZimgedApp::new(cc, Launch::new(platform)));
+            .build_eframe(move |cc| ZimgedApp::new(cc, launch));
         Self { harness, dir }
     }
 
@@ -147,9 +158,59 @@ impl TestApp {
         Self { harness, dir }
     }
 
+    /// Like [`Self::launch`], but the first-image decode doesn't finish until the returned sender
+    /// sends (or is dropped), so a test can step frame by frame from the first image on. (Building
+    /// the harness runs frames until the app is idle, which would otherwise race the decode.)
+    pub fn launch_held(names: &[&str]) -> (Self, std::sync::mpsc::Sender<()>) {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = copy_fixtures(dir.path(), names);
+        let mut launch = Launch::new(Platform::in_memory());
+        let display_box = zimged::app::startup_display_box(&launch.config);
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        launch.first_image = Some(PendingDecode::spawn(path, move || {
+            let _ = held.recv();
+            display_box
+        }));
+        let harness = Harness::builder()
+            .with_size(WINDOW)
+            .build_eframe(move |cc| ZimgedApp::new(cc, launch));
+        (Self { harness, dir }, release)
+    }
+
     /// Copy the named fixtures into the temporary directory and return the path of the first copy.
     pub fn add_fixtures(&self, names: &[&str]) -> PathBuf {
         copy_fixtures(self.dir.path(), names)
+    }
+
+    /// Copy one fixture into the temporary directory under another name (to build a folder of
+    /// Siblings); returns the copy's path.
+    pub fn add_fixture_as(&self, fixture: &str, name: &str) -> PathBuf {
+        let to = self.dir.path().join(name);
+        std::fs::copy(fixture_path(fixture), &to).expect("copy fixture");
+        to
+    }
+
+    /// A headless App whose temporary directory holds a copy of `fixture` under each of `names`,
+    /// with `open` opened and the Sibling scan finished.
+    pub fn open_in_folder(fixture: &str, names: &[&str], open: &str) -> Self {
+        let mut app = Self::new();
+        for name in names {
+            app.add_fixture_as(fixture, name);
+        }
+        app.open(app.dir.path().join(open));
+        app
+    }
+
+    /// Turn the mouse wheel by `lines` notches over the canvas (negative: down) and wait until idle.
+    pub fn wheel(&mut self, lines: f32) {
+        self.harness.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, lines),
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Unknown,
+            modifiers: egui::Modifiers::NONE,
+        });
+        self.settle();
     }
 
     /// Start a headless App, copy the fixture into its temporary directory, open it (the same
@@ -172,8 +233,8 @@ impl TestApp {
     pub fn settle(&mut self) {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            // While busy, a result arriving mid-run causes a few extra repaints: don't count them
-            // against kittest's step limit. Once idle, `run` must settle.
+            // Background work (prefetch decodes) keeps asking for repaints while busy, so more
+            // than `max_steps` frames are fine here; the final `run` checks the app settles.
             let _ = self.harness.try_run();
             if !self.harness.state().is_busy() {
                 self.harness.run();

@@ -350,6 +350,27 @@ fn opening_another_image_clears_the_history() {
 }
 
 #[test]
+fn moving_to_another_sibling_clears_the_history() {
+    let mut app = TestApp::new();
+    let small = app.add_fixtures(&["large-2400x1600.jpg", "small-320x240.jpg"]);
+    let small = small.with_file_name("small-320x240.jpg");
+    app.open(small);
+    app.press(Key::R);
+    app.drag_px((40.0, 30.0), (140.0, 90.0));
+    assert!(app.doc().can_undo());
+
+    app.press(Key::ArrowLeft);
+    assert_eq!(app.status("File name"), "large-2400x1600.jpg");
+    assert!(app.doc().annotations().is_empty());
+    assert!(!app.doc().can_undo());
+
+    app.press(Key::ArrowRight);
+    assert_eq!(app.status("File name"), "small-320x240.jpg");
+    assert!(app.doc().annotations().is_empty());
+    assert!(!app.doc().can_undo());
+}
+
+#[test]
 fn the_file_name_shows_a_dot_while_there_are_unsaved_changes() {
     let mut app = app_with_image();
     assert_eq!(app.status("File name"), "small-320x240.jpg");

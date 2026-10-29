@@ -26,6 +26,10 @@ pub enum Command {
     /// when nothing is selected. `merge` folds it into the previous step when that changed the same
     /// property on the same Annotations (one widget interaction is one step).
     SetProperty { property: Property, merge: bool },
+    /// Show the next Sibling (§3.1: wheel down, →).
+    NextSibling,
+    /// Show the previous Sibling (§3.1: wheel up, ←).
+    PreviousSibling,
     /// Show the native open dialog and open the file chosen in it (Ctrl+O, §3.5).
     OpenDialog,
     /// Zoom in one step around the canvas centre (`+`, §3.1).

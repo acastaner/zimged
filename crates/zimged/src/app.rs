@@ -7,17 +7,20 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
+use std::time::{Duration, Instant};
 
 use zimged_codec::{DisplayImage, Size, fit_within};
 use zimged_core::Document;
 use zimged_platform::{Config, Platform};
 use zimged_render::Composite;
+use zimged_siblings::{Decoded, Direction};
 
 use crate::Command;
 use crate::config_save::ConfigSaver;
-use crate::decode::{DecodeResult, PendingDecode};
+use crate::decode::PendingDecode;
 use crate::editor::{DisplayPixels, Editor, MAX_EDIT_PIXELS, VIEW_ONLY_MESSAGE};
 use crate::pan::PanGesture;
+use crate::siblings::{Navigation, Step};
 use crate::tools::ToolId;
 use crate::ui::{canvas, menu_bar, property_bar, status_bar, tool_strip};
 use crate::view::{View, ZOOM_STEP, Zoom};
@@ -26,12 +29,17 @@ use crate::view::{View, ZOOM_STEP, Zoom};
 /// zoom in on their display-size pixels.
 const FULL_RESOLUTION_LIMIT: u64 = MAX_EDIT_PIXELS;
 
+/// How long a transient status-bar message stays up.
+const MESSAGE_DURATION: Duration = Duration::from_secs(3);
+
 /// Everything the startup path (or a test) hands the app.
 pub struct Launch {
     pub platform: Platform,
     pub config: Config,
     /// The first-image decode started at `main()` (§1.3), if a path was given.
     pub first_image: Option<PendingDecode>,
+    /// The display-size cache cap in bytes (§3.3). Tests lower it to watch eviction.
+    pub cache_cap: usize,
 }
 
 impl Launch {
@@ -42,6 +50,7 @@ impl Launch {
             platform,
             config,
             first_image: None,
+            cache_cap: zimged_siblings::prefetch::CACHE_CAP_BYTES,
         }
     }
 }
@@ -113,8 +122,8 @@ struct Upgrade {
 #[derive(Clone, Copy, PartialEq)]
 enum FirstPaint {
     Waiting,
-    /// The frame now being built draws the first image.
-    ThisFrame,
+    /// This frame (by `cumulative_frame_nr`) drew the first image.
+    Drawn(u64),
     /// The first image has been handed to the compositor and the after-first-paint work started.
     Done,
 }
@@ -129,6 +138,8 @@ pub struct ZimgedApp {
     config: Config,
     config_saver: ConfigSaver,
     pending: Option<PendingDecode>,
+    /// The file on screen (or that failed to open, when `error` is set).
+    path: Option<PathBuf>,
     shown: Option<ShownImage>,
     /// "Can't open <name>: <reason>" (§5.2), shown on the canvas instead of an image.
     error: Option<String>,
@@ -146,6 +157,11 @@ pub struct ZimgedApp {
     first_paint: FirstPaint,
     /// The open dialog while it is up: receives the chosen path, or `None` on Cancel.
     open_dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
+    navigation: Navigation,
+    /// The transient status-bar message and when it was posted.
+    message: Option<(&'static str, Instant)>,
+    /// Benchmark driver for Sibling switching (`tools/bench switch`).
+    bench_nav: Option<crate::bench::NavBench>,
     editor: Editor,
 }
 
@@ -162,6 +178,7 @@ impl ZimgedApp {
             platform: launch.platform,
             config: launch.config,
             pending: launch.first_image,
+            path: None,
             shown: None,
             error: None,
             upgrade: None,
@@ -173,6 +190,9 @@ impl ZimgedApp {
             canvas: None,
             first_paint: FirstPaint::Waiting,
             open_dialog: None,
+            navigation: Navigation::new(launch.cache_cap),
+            message: None,
+            bench_nav: crate::bench::NavBench::from_env(),
             editor: Editor::new(),
         }
     }
@@ -183,6 +203,8 @@ impl ZimgedApp {
             // first asks Save / Discard / Cancel (§6.4). Every open comes through here.
             Command::Open(path) => self.open(&path),
             Command::OpenDialog => self.show_open_dialog(),
+            Command::NextSibling => self.go(Direction::Forward),
+            Command::PreviousSibling => self.go(Direction::Backward),
             Command::ZoomIn => self.zoom(ZOOM_STEP, None),
             Command::ZoomOut => self.zoom(1.0 / ZOOM_STEP, None),
             Command::ZoomAround { factor, around } => self.zoom(factor, Some(around)),
@@ -240,13 +262,26 @@ impl ZimgedApp {
     }
 
     /// Is background work still pending (a decode, an answer from the open dialog, a config write,
-    /// …)? Tests wait for this to clear.
+    /// the Sibling scan, prefetch, …)? Tests wait for this to clear.
     pub fn is_busy(&self) -> bool {
         self.pending.is_some()
             || self.upgrade.is_some()
             || self.open_dialog.is_some()
             || self.config_saver.is_busy()
             || self.editor.is_busy()
+            || self.navigation.is_busy()
+    }
+
+    /// The files in the display-size cache (§3.3) and their total size in bytes.
+    pub fn cached_siblings(&self) -> (Vec<PathBuf>, usize) {
+        self.navigation.cached()
+    }
+
+    /// The box display-size decodes fit into: the canvas in physical pixels.
+    fn display_box(&self) -> Size {
+        self.canvas
+            .map(|c| c.area_px())
+            .unwrap_or_else(|| startup_display_box(&self.config))
     }
 
     /// Is the window fullscreen (or about to be)?
@@ -354,15 +389,39 @@ impl ZimgedApp {
     }
 
     fn open(&mut self, path: &Path) {
-        let display_box = self
-            .canvas
-            .map(|c| c.area_px())
-            .unwrap_or_else(|| startup_display_box(&self.config));
+        let display_box = self.display_box();
+        self.navigation.cancel();
+        self.message = None;
         // The previous Image stays on screen until the new one is decoded (§3.3).
         self.pending = Some(PendingDecode::spawn(path.to_owned(), move || display_box));
     }
 
+    /// Move to the next or previous Sibling (§3.1). #35: with unsaved changes this first asks
+    /// Save / Discard / Cancel (§6.4).
+    fn go(&mut self, direction: Direction) {
+        let Some(from) = self.path.clone() else {
+            return;
+        };
+        self.message = None;
+        match self.navigation.go(&from, direction, self.display_box()) {
+            Step::Show(path, decoded) => {
+                self.pending = None;
+                let ctx = self.ctx.clone();
+                self.show_decoded(&ctx, path, decoded);
+            }
+            Step::Pending => self.pending = None,
+            Step::End(message) => self.message = Some((message, Instant::now())),
+            Step::NotReady => {}
+        }
+    }
+
     fn poll_decode(&mut self, ctx: &egui::Context) {
+        if let Some((path, decoded)) = self
+            .navigation
+            .poll(self.path.as_deref(), self.display_box())
+        {
+            self.show_decoded(ctx, path, decoded);
+        }
         let Some(pending) = &self.pending else {
             return;
         };
@@ -372,12 +431,17 @@ impl ZimgedApp {
         };
         let path = pending.path().to_owned();
         self.pending = None;
-        self.show_decoded(ctx, path, result);
+        self.show_decoded(ctx, path.clone(), result.map(Arc::new).map_err(Arc::new));
+        if self.first_paint == FirstPaint::Done {
+            // A newly opened file: its folder is the new Sibling list.
+            self.navigation.start(ctx, &path);
+        }
     }
 
-    fn show_decoded(&mut self, ctx: &egui::Context, path: PathBuf, result: DecodeResult) {
+    fn show_decoded(&mut self, ctx: &egui::Context, path: PathBuf, decoded: Decoded) {
         let file_name = file_name(&path);
-        match result {
+        self.path = Some(path.clone());
+        match decoded {
             Ok(image) => {
                 self.editor.open(&path, image.original_size);
                 let (display, display_pixels) = upload(ctx, &image, Pixels::Display);
@@ -495,7 +559,40 @@ impl ZimgedApp {
 
     /// §1.3 step 5: runs once, on the frame after the first image was painted. The Sibling scan,
     /// directory watcher, prefetch, and UI font loading start from here, never before.
-    fn after_first_paint(&mut self, _ctx: &egui::Context) {}
+    fn after_first_paint(&mut self, ctx: &egui::Context) {
+        if let Some(path) = self.path.clone() {
+            self.navigation.start(ctx, &path);
+        }
+    }
+
+    /// `tools/bench switch`: flip through the Siblings and time each switch.
+    fn drive_bench(&mut self, ctx: &egui::Context) {
+        let Some(bench) = &mut self.bench_nav else {
+            return;
+        };
+        let scanned = self.navigation.is_scanned();
+        let Some(command) = bench.frame(ctx, scanned, self.path.as_deref()) else {
+            return;
+        };
+        self.execute(command);
+        let bench = self.bench_nav.as_mut().expect("checked above");
+        if self.message.is_some() {
+            bench.at_end(ctx);
+        }
+        bench.check(self.path.as_deref());
+    }
+
+    /// Drop the transient message once it has been up long enough.
+    fn expire_message(&mut self, ctx: &egui::Context) {
+        if let Some((_, posted)) = self.message {
+            let left = MESSAGE_DURATION.saturating_sub(posted.elapsed());
+            if left.is_zero() {
+                self.message = None;
+            } else {
+                ctx.request_repaint_after(left);
+            }
+        }
+    }
 
     /// What the canvas shows, as of the last frame: `None` when no Image is drawn.
     pub fn canvas(&self) -> Option<CanvasView> {
@@ -533,9 +630,14 @@ impl ZimgedApp {
         status_bar::StatusBar {
             file_name: self.shown.as_ref().map(|s| s.file_name.as_str()),
             modified: self.document().is_some_and(|d| d.is_modified()),
+            position: self.path.as_deref().map(|p| self.navigation.position(p)),
             pixel_size: self.shown.as_ref().map(|s| s.original_size),
             zoom: self.shown.as_ref().map(|_| self.view.zoom),
-            message: self.is_view_only().then_some(VIEW_ONLY_MESSAGE),
+            // The view-only notice stays until another Image; transient messages win.
+            message: self
+                .message
+                .map(|(text, _)| text)
+                .or(self.is_view_only().then_some(VIEW_ONLY_MESSAGE)),
         }
     }
 
@@ -569,7 +671,10 @@ impl eframe::App for ZimgedApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
-        if self.first_paint == FirstPaint::ThisFrame {
+        // A later frame, not a second pass of the same one: that frame has been painted.
+        if let FirstPaint::Drawn(frame) = self.first_paint
+            && ctx.cumulative_frame_nr() > frame
+        {
             self.first_paint = FirstPaint::Done;
             self.after_first_paint(&ctx);
         }
@@ -583,6 +688,8 @@ impl eframe::App for ZimgedApp {
         self.poll_decode(&ctx);
         self.poll_upgrade(&ctx);
         self.editor.poll(&ctx);
+        self.expire_message(&ctx);
+        self.drive_bench(&ctx);
         self.sync_fullscreen(&ctx);
         self.track_window(&ctx);
         self.config_saver.poll(&ctx, &self.config);
@@ -628,7 +735,7 @@ impl eframe::App for ZimgedApp {
             // Same convention as the spike: the mark is taken while building the frame that draws
             // the image; eframe paints and hands it to the compositor right after this returns.
             crate::bench::mark("first_image_painted");
-            self.first_paint = FirstPaint::ThisFrame;
+            self.first_paint = FirstPaint::Drawn(ctx.cumulative_frame_nr());
             if crate::bench::exit_after_first_paint() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
