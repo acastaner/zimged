@@ -32,7 +32,7 @@ Debian and RPM triggers update the desktop database, which only lists zimged und
    and run the benchmarks:
 
    ```bash
-   cargo build --release --locked -p zimged
+   cargo build --release --locked -p zimged --features avif
    tools/bench/bench.py fixture tools/bench/images
    tools/bench/bench.py cold tools/bench/images/IMG_0001.jpg --out packaging/release-notes/vX.Y.Z.bench-cold.json
    ```
@@ -46,7 +46,7 @@ Debian and RPM triggers update the desktop database, which only lists zimged und
 ## Building locally
 
 ```bash
-cargo build --release --locked -p zimged
+cargo build --release --locked -p zimged --features avif
 cargo install --locked cargo-deb@3.8.0 cargo-generate-rpm@0.21.1   # once
 packaging/linux/build.sh dist tarball deb rpm
 git archive --prefix=zimged-X.Y.Z/ -o /some/dir/source.tar.gz HEAD
@@ -55,4 +55,6 @@ flatpak-builder --user --force-clean build-dir dist/flatpak/io.github.acastaner.
 ```
 
 The release builds in `rust:<channel>-slim-bookworm`, the gate's base image, so its binary needs
-glibc 2.36 or later.
+glibc 2.36 or later. `--features avif` builds libavif and dav1d from source, which needs cmake,
+make, a C++ compiler, meson, ninja and nasm; they link statically, as does lcms2, so the packages
+gain no runtime dependency from them.

@@ -76,9 +76,12 @@ jobs:
     steps:
       - name: Install the build tools
         # git before checkout, so it is a real clone; dpkg-dev for cargo-deb's dpkg-shlibdeps.
+        # cmake, make, g++, meson, ninja and nasm: the `avif` feature builds libavif and dav1d from
+        # source and links them statically (#19, as in tools/local-ci/Dockerfile).
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git dpkg-dev
+          apt-get install -y --no-install-recommends ca-certificates curl git dpkg-dev \
+            cmake make g++ meson ninja-build nasm
 
       - uses: actions/checkout@v5
 
@@ -93,7 +96,7 @@ jobs:
         run: cargo install --locked cargo-deb@3.8.0 cargo-generate-rpm@0.21.1
 
       - name: Build zimged
-        run: cargo build --release --locked -p zimged
+        run: cargo build --release --locked -p zimged --features avif
 
       - name: Fetch the tag's source archive for the PKGBUILD
         env:

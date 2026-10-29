@@ -10,7 +10,8 @@ license=('GPL-3.0-or-later')
 # winit and glutin dlopen the Wayland, X11 and GL libraries, so they are listed by hand.
 depends=('gcc-libs' 'glibc' 'hicolor-icon-theme' 'libglvnd' 'libx11' 'libxcursor' 'libxi'
          'libxkbcommon' 'libxrandr' 'wayland')
-makedepends=('cargo')
+# cmake, meson, ninja and nasm build libavif and dav1d (linked statically) for AVIF read.
+makedepends=('cargo' 'cmake' 'meson' 'nasm' 'ninja')
 optdepends=('xdg-desktop-portal: native open and save dialogs')
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
 sha256sums=('@SHA256@')
@@ -25,7 +26,7 @@ build() {
   cd "${pkgname}-${pkgver}"
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=target
-  cargo build --frozen --release -p zimged
+  cargo build --frozen --release -p zimged --features avif
 }
 
 # No check(): zimged's tests run in the local gate, which every release has passed (spec §9).

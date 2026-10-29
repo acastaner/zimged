@@ -14,8 +14,8 @@ set -euo pipefail
 #                      first), for flatpak-builder
 #
 # Run from anywhere; it works in the repository root. It never builds zimged: run
-# `cargo build --release --locked -p zimged` first. The version is the workspace version in
-# Cargo.toml. Nothing here registers zimged as a *default* handler (spec §8.5).
+# `cargo build --release --locked -p zimged --features avif` first. The version is the workspace
+# version in Cargo.toml. Nothing here registers zimged as a *default* handler (spec §8.5).
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 here="${root}/packaging/linux"
@@ -35,7 +35,7 @@ binary="${root}/target/release/zimged"
 
 need_binary() {
   [[ -x "${binary}" ]] || {
-    echo "ERROR: ${binary} is missing: run cargo build --release --locked -p zimged first." >&2
+    echo "ERROR: ${binary} is missing: run cargo build --release --locked -p zimged --features avif first." >&2
     exit 1
   }
 }
