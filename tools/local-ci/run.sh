@@ -363,6 +363,8 @@ launch_clean_room() {
       echo "       Exit 137 is SIGKILL, not a failing test: the container was killed from outside" >&2
       echo "       (the OOM killer -- grep oom_kill /proc/vmstat -- or a manual kill)." >&2
       echo "       Re-run the gate on the same commit before suspecting the change." >&2
+    elif (( rc == 130 || rc == 143 )); then
+      echo "       Interrupted (SIGINT/SIGTERM), not a failing test. Re-run when ready." >&2
     else
       echo "       Fix it in a NEW commit (not an amend) and run the gate again." >&2
     fi
