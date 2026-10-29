@@ -10,6 +10,7 @@ use zimged_codec::{DisplayImage, Size, fit_within};
 use zimged_platform::{Config, Platform};
 
 use crate::Command;
+use crate::animation::Animation;
 use crate::config_save::ConfigSaver;
 use crate::decode::{DecodeResult, PendingDecode};
 use crate::pan::PanGesture;
@@ -68,6 +69,10 @@ pub(crate) struct ShownImage {
     full: Option<egui::TextureHandle>,
     /// The largest decode asked for so far, so a size that can't be bettered isn't asked for again.
     requested: Size,
+    /// A GIF or WebP whose frames haven't been looked at yet (§3.4): they are, after the first paint.
+    may_animate: bool,
+    /// Its frames, playing (or still decoding), until it turns out to be a still image.
+    animation: Option<Animation>,
 }
 
 impl ShownImage {
@@ -197,6 +202,10 @@ impl ZimgedApp {
             || self.upgrade.is_some()
             || self.open_dialog.is_some()
             || self.config_saver.is_busy()
+            || self
+                .shown
+                .as_ref()
+                .is_some_and(|s| s.animation.as_ref().is_some_and(Animation::is_decoding))
     }
 
     /// Is the window fullscreen (or about to be)?
@@ -338,6 +347,8 @@ impl ZimgedApp {
                     display_pixels,
                     full: None,
                     requested: image.size,
+                    may_animate: image.may_animate,
+                    animation: None,
                 });
                 self.upgrade = None;
                 self.error = None;
@@ -366,6 +377,10 @@ impl ZimgedApp {
         if upgrade.pending.path() != shown.path || image.original_size != shown.original_size {
             return;
         }
+        if shown.animation.is_some() {
+            // The animation's frames are drawn instead.
+            return;
+        }
         let (texture, pixels) = upload(ctx, &image, upgrade.pixels);
         match upgrade.pixels {
             Pixels::Display => {
@@ -388,6 +403,10 @@ impl ZimgedApp {
         let (Some(layout), Some(shown)) = (self.canvas, self.shown.as_mut()) else {
             return;
         };
+        if shown.may_animate || shown.animation.is_some() {
+            // An animation's frames are decoded at the display size only.
+            return;
+        }
         let Some(on_screen) = layout.image_px() else {
             return;
         };
@@ -415,6 +434,40 @@ impl ZimgedApp {
         let pending = PendingDecode::spawn(shown.path.clone(), move || max);
         pending.wake(ctx);
         self.upgrade = Some(Upgrade { pending, pixels });
+    }
+
+    /// Start decoding the frames of a GIF or WebP, after the first paint (§1.3).
+    fn start_animation(&mut self, ctx: &egui::Context) {
+        if self.first_paint != FirstPaint::Done {
+            return;
+        }
+        let (Some(layout), Some(shown)) = (self.canvas, self.shown.as_mut()) else {
+            return;
+        };
+        if !shown.may_animate {
+            return;
+        }
+        shown.may_animate = false;
+        shown.full = None;
+        shown.animation = Some(Animation::spawn(shown.path.clone(), layout.area_px(), ctx));
+    }
+
+    /// Move the animation on to the frame due now (§3.4); forget it once it turns out to be a still.
+    fn play_animation(&mut self, ctx: &egui::Context) {
+        let Some(shown) = self.shown.as_mut() else {
+            return;
+        };
+        let Some(animation) = shown.animation.as_mut() else {
+            return;
+        };
+        let now = ctx.input(|i| i.time);
+        if let Some(frame) = animation.tick(now, ctx) {
+            shown.display.set(frame.clone(), egui::TextureOptions::LINEAR);
+            shown.display_pixels = frame;
+        }
+        if animation.is_still() {
+            shown.animation = None;
+        }
     }
 
     /// Follow F11, and adopt a fullscreen change made by the window manager.
@@ -480,6 +533,13 @@ impl ZimgedApp {
             file_name: self.shown.as_ref().map(|s| s.file_name.as_str()),
             pixel_size: self.shown.as_ref().map(|s| s.original_size),
             zoom: self.shown.as_ref().map(|_| self.view.zoom),
+            // #38 adds the frozen state.
+            animation: self
+                .shown
+                .as_ref()
+                .and_then(|s| s.animation.as_ref())
+                .filter(|a| a.is_animated())
+                .map(|_| status_bar::AnimationState::Playing),
         }
     }
 }
@@ -501,6 +561,7 @@ impl eframe::App for ZimgedApp {
         self.poll_open_dialog();
         self.poll_decode(&ctx);
         self.poll_upgrade(&ctx);
+        self.play_animation(&ctx);
         self.sync_fullscreen(&ctx);
         self.track_window(&ctx);
         self.config_saver.poll(&ctx, &self.config);
@@ -524,6 +585,7 @@ impl eframe::App for ZimgedApp {
             self.canvas_message(),
         ));
         self.view = view;
+        self.start_animation(&ctx);
         self.request_pixels(&ctx);
 
         if self.first_paint == FirstPaint::Waiting && self.shown.is_some() {
@@ -564,11 +626,7 @@ fn upload(
     image: &DisplayImage,
     kind: Pixels,
 ) -> (egui::TextureHandle, Arc<egui::ColorImage>) {
-    let size = [image.size.width as usize, image.size.height as usize];
-    let pixels = Arc::new(match &image.pixels {
-        zimged_codec::Pixels::Rgb(rgb) => egui::ColorImage::from_rgb(size, rgb),
-        zimged_codec::Pixels::Rgba(rgba) => egui::ColorImage::from_rgba_unmultiplied(size, rgba),
-    });
+    let pixels = Arc::new(color_image(image));
     let (name, options) = match kind {
         Pixels::Display => ("image", egui::TextureOptions::LINEAR),
         // Drawn anywhere from just above the display size down: mipmaps keep it from aliasing.
@@ -581,6 +639,14 @@ fn upload(
         ),
     };
     (ctx.load_texture(name, pixels.clone(), options), pixels)
+}
+
+pub(crate) fn color_image(image: &DisplayImage) -> egui::ColorImage {
+    let size = [image.size.width as usize, image.size.height as usize];
+    match &image.pixels {
+        zimged_codec::Pixels::Rgb(rgb) => egui::ColorImage::from_rgb(size, rgb),
+        zimged_codec::Pixels::Rgba(rgba) => egui::ColorImage::from_rgba_unmultiplied(size, rgba),
+    }
 }
 
 fn texture_size(texture: &egui::TextureHandle) -> Size {
