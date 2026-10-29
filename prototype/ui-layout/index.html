@@ -1,0 +1,459 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. Answers the "UI layout mockup" ticket (acastaner/zimged#8):
+  three structurally different layouts for zimged's single window, switchable via ?variant=A|B|C.
+  Open this file in a browser. Shift+←/→ (or the bottom pill) cycles variants; plain ←/→ and the
+  wheel move between Siblings, as they will in the real app.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zimged UI prototype</title>
+<style>
+  :root {
+    --bg: #1e1f22; --chrome: #2b2d31; --chrome2: #35373c; --line: #44474d;
+    --text: #e6e6e6; --muted: #9a9ea6; --accent: #4c9aff; --warn: #f5a524;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; user-select: none; }
+  button { font: inherit; color: inherit; background: none; border: 1px solid transparent; border-radius: 4px; cursor: pointer; }
+  button:hover { background: var(--chrome2); }
+  button.on { background: var(--accent); color: #fff; }
+  select, input[type=number] { font: inherit; background: var(--chrome2); color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
+  input[type=number] { width: 52px; }
+  input[type=color] { width: 26px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; }
+  label.prop { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); white-space: nowrap; }
+  .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+
+  #app { position: absolute; inset: 0; display: grid; }
+  #stage { position: relative; overflow: hidden; background: #111214; min-width: 0; min-height: 0; }
+  #stage svg.img { position: absolute; left: 50%; top: 50%; transform-origin: center; }
+  .tool-icon { width: 30px; height: 30px; display: inline-grid; place-items: center; font-size: 15px; }
+
+  /* ---------- Variant A: Greenshot classic ---------- */
+  .vA { grid-template-rows: auto auto 1fr auto; grid-template-columns: auto 1fr; }
+  .vA .menubar { grid-column: 1 / 3; display: flex; gap: 2px; padding: 2px 6px; background: var(--chrome); border-bottom: 1px solid var(--line); }
+  .vA .menubar button { padding: 3px 8px; }
+  .vA .propbar { grid-column: 1 / 3; display: flex; align-items: center; gap: 8px; padding: 4px 8px; background: var(--chrome); border-bottom: 1px solid var(--line); min-height: 34px; }
+  .vA .toolstrip { display: flex; flex-direction: column; gap: 2px; padding: 4px; background: var(--chrome); border-right: 1px solid var(--line); }
+  .vA .statusbar { grid-column: 1 / 3; display: flex; gap: 16px; padding: 3px 10px; background: var(--chrome); border-top: 1px solid var(--line); color: var(--muted); }
+  .vA .statusbar .flash { color: var(--warn); }
+
+  /* ---------- Variant B: chromeless viewer-first ---------- */
+  .vB { grid-template: 1fr / 1fr; }
+  .vB .overlay { position: absolute; transition: opacity .25s; }
+  .vB.idle .overlay { opacity: 0; pointer-events: none; }
+  .vB .title { top: 0; left: 0; right: 0; padding: 8px 14px; background: linear-gradient(#000a, #0000); display: flex; gap: 12px; color: #ddd; }
+  .vB .palette { left: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 2px; padding: 5px; background: #2b2d31ee; border-radius: 10px; box-shadow: 0 4px 18px #0008; }
+  .vB .pop { left: 64px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: #2b2d31ee; border-radius: 10px; box-shadow: 0 4px 18px #0008; min-width: 170px; }
+  .vB .pop:empty { display: none; }
+  .vB .pop .hdr { font-weight: 600; color: var(--text); }
+  .vB .actions { right: 12px; top: 8px; display: flex; gap: 2px; }
+
+  /* ---------- Variant C: single top bar, contextual ---------- */
+  .vC { grid-template-rows: auto 1fr; }
+  .vC .topbar { display: flex; align-items: center; gap: 4px; padding: 3px 6px; background: var(--chrome); border-bottom: 1px solid var(--line); min-height: 40px; }
+  .vC .topbar .props { display: flex; align-items: center; gap: 8px; padding-left: 6px; }
+  .vC .topbar .spacer { flex: 1; }
+  .vC .topbar .name { color: var(--muted); padding: 0 8px; white-space: nowrap; }
+  .vC .edge { position: absolute; top: 0; bottom: 0; width: 64px; display: grid; place-items: center; font-size: 30px; color: #fff8; opacity: 0; transition: opacity .2s; cursor: pointer; }
+  .vC .edge:hover { opacity: 1; background: linear-gradient(90deg, #0006, #0000); }
+  .vC .edge.r:hover { background: linear-gradient(-90deg, #0006, #0000); }
+  .vC .edge.r { right: 0; } .vC .edge.l { left: 0; }
+  .vC .edge.disabled { display: none; }
+  .vC .glow-l { box-shadow: inset 6px 0 0 var(--warn); } .vC .glow-r { box-shadow: inset -6px 0 0 var(--warn); }
+
+  /* ---------- shared: selection handles, toast, dialog, switcher ---------- */
+  .handle { fill: #fff; stroke: var(--accent); }
+  #toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 70px; padding: 8px 14px; background: #000d; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+  .vA ~ #toast { bottom: 40px; }
+  #dialog { position: fixed; inset: 0; background: #0007; display: none; place-items: center; }
+  #dialog.show { display: grid; }
+  #dialog .box { background: var(--chrome); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; width: 380px; box-shadow: 0 10px 40px #000a; }
+  #dialog .box h3 { margin: 0 0 8px; font-size: 15px; }
+  #dialog .box p { margin: 0 0 16px; color: var(--muted); }
+  #dialog .row { display: flex; justify-content: flex-end; gap: 8px; }
+  #dialog .row button { padding: 5px 12px; border-color: var(--line); }
+  #dialog .row button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  #proto-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 10px; display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: #fff; color: #111; border-radius: 999px; box-shadow: 0 3px 14px #0009; z-index: 99; font-weight: 600; }
+  #proto-bar button { color: #111; padding: 2px 8px; border-radius: 999px; }
+  #proto-bar button:hover { background: #ddd; }
+  #proto-bar .lbl { min-width: 220px; text-align: center; }
+  #state { position: fixed; right: 8px; bottom: 54px; width: 300px; max-height: 50vh; overflow: auto; background: #fffffff0; color: #111; font: 11px/1.35 ui-monospace, monospace; padding: 8px; border-radius: 6px; white-space: pre; display: none; z-index: 99; }
+  #state.show { display: block; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast"></div>
+<div id="dialog"><div class="box"><h3></h3><p></p><div class="row"></div></div></div>
+<div id="state"></div>
+<div id="proto-bar">
+  <button id="pv" title="Previous variant (Shift+←)">◀</button>
+  <span class="lbl" id="plbl"></span>
+  <button id="pn" title="Next variant (Shift+→)">▶</button>
+  <button id="pstate" title="Show prototype state">state</button>
+</div>
+
+<script>
+// ---------------- model ----------------
+const VARIANTS = { A: 'Greenshot classic', B: 'Chromeless viewer-first', C: 'Single contextual top bar' };
+const TOOLS = [
+  { id: 'select', key: 'Escape', k: 'Esc', icon: '⬚', name: 'Select' },
+  { id: 'rect', key: 'r', k: 'R', icon: '▭', name: 'Rectangle' },
+  { id: 'ellipse', key: 'e', k: 'E', icon: '◯', name: 'Ellipse' },
+  { id: 'line', key: 'l', k: 'L', icon: '╱', name: 'Line' },
+  { id: 'arrow', key: 'a', k: 'A', icon: '➚', name: 'Arrow' },
+  { id: 'free', key: 'f', k: 'F', icon: '✎', name: 'Freehand' },
+  { id: 'text', key: 't', k: 'T', icon: 'T', name: 'Text' },
+  { id: 'counter', key: 'i', k: 'I', icon: '①', name: 'Step counter' },
+  { id: 'highlight', key: 'h', k: 'H', icon: '▨', name: 'Highlight' },
+  { id: 'obfuscate', key: 'o', k: 'O', icon: '▦', name: 'Obfuscate' },
+  { id: 'crop', key: 'c', k: 'C', icon: '⌗', name: 'Crop' },
+];
+// which style properties each tool exposes
+const PROPS = {
+  select: [], crop: [],
+  rect: ['stroke', 'fill', 'width', 'shadow'], ellipse: ['stroke', 'fill', 'width', 'shadow'],
+  line: ['stroke', 'width', 'shadow'], arrow: ['stroke', 'width', 'shadow'], free: ['stroke', 'width', 'shadow'],
+  text: ['font', 'size', 'stroke', 'fill', 'shadow'], counter: ['fill', 'size', 'shadow'],
+  highlight: ['hmode', 'stroke'], obfuscate: ['omode', 'strength'],
+};
+const SIBLINGS = [
+  { name: 'IMG_0412.jpg', w: 4000, h: 3000, hue: 205 },
+  { name: 'IMG_0413.jpg', w: 4000, h: 3000, hue: 30 },
+  { name: 'screenshot-2026-10-28.png', w: 1920, h: 1080, hue: 260, ui: true },
+  { name: 'party.gif', w: 800, h: 600, hue: 320, anim: true },
+  { name: 'IMG_0420.jpg', w: 3000, h: 4000, hue: 120 },
+  { name: 'diagram.webp', w: 1600, h: 1000, hue: 0, ui: true },
+];
+const S = {
+  variant: new URLSearchParams(location.search).get('variant') || 'A',
+  idx: 0, tool: 'select', zoom: 'fit', dirty: false, frozen: false, fullscreen: false,
+  annotations: [], selected: null, crop: null,
+  style: { stroke: '#e53935', fill: '#ffffff00', width: 3, shadow: true, font: 'Sans', size: 24, hmode: 'text', omode: 'pixelate', strength: 8 },
+  lastAction: 'opened IMG_0412.jpg',
+};
+if (!VARIANTS[S.variant]) S.variant = 'A';
+const tool = id => TOOLS.find(t => t.id === id);
+const cur = () => SIBLINGS[S.idx];
+
+// ---------------- shared widgets ----------------
+function propControls(layout) {
+  const keys = PROPS[S.tool] || [];
+  const st = S.style;
+  const c = {
+    stroke: `<label class="prop">Line <input type="color" data-p="stroke" value="${st.stroke.slice(0, 7)}"></label>`,
+    fill: `<label class="prop">Fill <input type="color" data-p="fill" value="${st.fill.slice(0, 7)}"><button data-nofill title="No fill">∅</button></label>`,
+    width: `<label class="prop">Thickness <input type="number" min="1" max="40" data-p="width" value="${st.width}"></label>`,
+    shadow: `<label class="prop"><input type="checkbox" data-p="shadow" ${st.shadow ? 'checked' : ''}> Shadow</label>`,
+    font: `<label class="prop">Font <select data-p="font">${['Sans', 'Serif', 'Mono'].map(f => `<option ${f === st.font ? 'selected' : ''}>${f}</option>`).join('')}</select></label>`,
+    size: `<label class="prop">Size <input type="number" min="8" max="200" data-p="size" value="${st.size}"></label>`,
+    hmode: `<label class="prop">Mode <select data-p="hmode">${['text', 'area', 'grayscale', 'magnify'].map(m => `<option ${m === st.hmode ? 'selected' : ''}>${m}</option>`).join('')}</select></label>`,
+    omode: `<label class="prop">Mode <select data-p="omode">${['pixelate', 'blur'].map(m => `<option ${m === st.omode ? 'selected' : ''}>${m}</option>`).join('')}</select></label>`,
+    strength: `<label class="prop">Strength <input type="number" min="2" max="40" data-p="strength" value="${st.strength}"></label>`,
+  };
+  let html = keys.map(k => c[k]).join(layout === 'col' ? '' : ' ');
+  if (S.tool === 'crop') html = S.crop
+    ? `<span class="prop">Crop ${Math.round(S.crop.w)}×${Math.round(S.crop.h)}</span> <button data-crop="apply">✓ Apply (Enter)</button> <button data-crop="cancel">✕ Cancel (Esc)</button>`
+    : `<span class="prop">Drag a crop region</span>`;
+  if (S.tool === 'select') html = S.selected != null
+    ? `<span class="prop">1 annotation selected</span> <button data-act="del">Delete</button> <button data-act="front">Bring to front</button>`
+    : `<span class="prop">Click an annotation to select it</span>`;
+  return html;
+}
+function toolButtons(withKeys) {
+  return TOOLS.map(t => `<button class="tool-icon ${S.tool === t.id ? 'on' : ''}" data-tool="${t.id}" title="${t.name} (${t.k})">${t.icon}</button>`).join('');
+}
+function info() {
+  const s = cur();
+  return {
+    name: s.name + (S.dirty ? ' •' : ''),
+    pos: `${S.idx + 1} / ${SIBLINGS.length}`,
+    dims: `${s.w}×${s.h}`,
+    zoom: S.zoom === 'fit' ? 'Fit' : Math.round(S.zoom * 100) + '%',
+    anim: s.anim ? (S.frozen ? '⏸ frozen at frame 1' : '▶ animated') : '',
+  };
+}
+const fileActions = `<button title="Save (Ctrl+S)" data-act="save">💾</button><button title="Save as (Ctrl+Shift+S)" data-act="saveas">⤓</button><button title="Copy (Ctrl+C)" data-act="copy">⧉</button><button title="Undo (Ctrl+Z)" data-act="undo">↶</button><button title="Rotate / flip / resize" data-act="imgops">⟳</button><button title="Move to trash (Del)" data-act="trash">🗑</button>`;
+
+// ---------------- layouts ----------------
+function shellA() {
+  const i = info();
+  return `<div class="menubar"><button>File</button><button>Edit</button><button>Image</button><button>View</button><button>Help</button>
+      <span style="flex:1"></span>${fileActions}</div>
+    <div class="propbar">${propControls('row')}</div>
+    <div class="toolstrip">${toolButtons()}</div>
+    <div id="stage"></div>
+    <div class="statusbar"><span>${i.name}</span><span>${i.pos}</span><span>${i.dims}</span><span>${i.zoom}</span><span>${i.anim}</span><span class="flash" id="flash"></span></div>`;
+}
+function shellB() {
+  const i = info();
+  const t = tool(S.tool);
+  const props = propControls('col');
+  return `<div id="stage"></div>
+    <div class="overlay title"><b>${i.name}</b><span>${i.pos}</span><span>${i.dims}</span><span>${i.zoom}</span><span>${i.anim}</span></div>
+    <div class="overlay palette">${toolButtons()}</div>
+    <div class="overlay pop">${S.tool === 'select' && S.selected == null ? '' : `<div class="hdr">${t.name}</div>${props.replace(/<\/label> ?/g, '</label>')}`}</div>
+    <div class="overlay actions">${fileActions}</div>`;
+}
+function shellC() {
+  const i = info();
+  return `<div class="topbar">${toolButtons()}<span class="sep"></span><div class="props">${propControls('row')}</div>
+      <span class="spacer"></span><span class="name">${i.name} · ${i.pos} · ${i.dims} · ${i.zoom} ${i.anim}</span>${fileActions}<button title="Menu">☰</button></div>
+    <div id="stage"><div class="edge l ${S.idx === 0 ? 'disabled' : ''}" data-nav="-1">‹</div><div class="edge r ${S.idx === SIBLINGS.length - 1 ? 'disabled' : ''}" data-nav="1">›</div></div>`;
+}
+
+// ---------------- image + annotations (SVG) ----------------
+const VW = 1600;
+function vh() { const s = cur(); return Math.round(VW * s.h / s.w); }
+function imageSVG() {
+  const s = cur(), H = vh();
+  let body = `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="hsl(${s.hue},60%,62%)"/><stop offset="1" stop-color="hsl(${(s.hue + 40) % 360},55%,28%)"/></linearGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="${S.style.strength}"/></filter>
+    <filter id="gray"><feColorMatrix type="saturate" values="0"/></filter>
+    <filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="4" dy="4" stdDeviation="3" flood-opacity=".5"/></filter>
+    <marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>`;
+  body += `<g id="content"><rect width="${VW}" height="${H}" fill="url(#g)"/>`;
+  if (s.ui) {
+    body += `<rect x="80" y="70" width="${VW - 160}" height="${H - 140}" rx="10" fill="#f4f4f6"/><rect x="80" y="70" width="${VW - 160}" height="50" rx="10" fill="#d9dbe1"/>`;
+    for (let r = 0; r < 9; r++) body += `<rect x="130" y="${170 + r * 70}" width="${300 + (r * 137) % 700}" height="22" rx="4" fill="#9aa0ad"/>`;
+  } else {
+    body += `<circle cx="${VW * .72}" cy="${H * .3}" r="${H * .1}" fill="#fff6c8"/>
+      <polygon points="0,${H} ${VW * .25},${H * .45} ${VW * .5},${H} " fill="#0005"/><polygon points="${VW * .3},${H} ${VW * .62},${H * .38} ${VW},${H}" fill="#0007"/>`;
+  }
+  if (s.anim) body += `<circle cx="200" cy="${H / 2}" r="80" fill="#fff"><animate attributeName="cx" values="200;1400;200" dur="2.4s" repeatCount="indefinite"/></circle>`;
+  body += `</g><g id="ann">${S.annotations.map((a, n) => annSVG(a, n)).join('')}</g>`;
+  if (S.crop) body += cropSVG(S.crop, H);
+  if (S.selected != null && S.annotations[S.selected]) body += handlesSVG(S.annotations[S.selected]);
+  return `<svg class="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VW} ${H}" width="${VW}" height="${H}">${body}</svg>`;
+}
+function box(a) { return { x: Math.min(a.x1, a.x2), y: Math.min(a.y1, a.y2), w: Math.abs(a.x2 - a.x1), h: Math.abs(a.y2 - a.y1) }; }
+function annSVG(a, n) {
+  const st = a.style, b = box(a), sh = st.shadow ? 'filter="url(#sh)"' : '';
+  const stroke = `stroke="${st.stroke}" stroke-width="${st.width}"`;
+  const fill = st.fill.length > 7 && st.fill.endsWith('00') ? 'none' : st.fill;
+  switch (a.type) {
+    case 'rect': return `<rect data-a="${n}" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="${fill}" ${stroke} ${sh}/>`;
+    case 'ellipse': return `<ellipse data-a="${n}" cx="${b.x + b.w / 2}" cy="${b.y + b.h / 2}" rx="${b.w / 2}" ry="${b.h / 2}" fill="${fill}" ${stroke} ${sh}/>`;
+    case 'line': return `<line data-a="${n}" x1="${a.x1}" y1="${a.y1}" x2="${a.x2}" y2="${a.y2}" ${stroke} stroke-linecap="round" ${sh}/>`;
+    case 'arrow': return `<line data-a="${n}" x1="${a.x1}" y1="${a.y1}" x2="${a.x2}" y2="${a.y2}" ${stroke} marker-end="url(#ah)" ${sh}/>`;
+    case 'free': return `<polyline data-a="${n}" points="${a.pts.map(p => p.join(',')).join(' ')}" fill="none" ${stroke} stroke-linejoin="round" stroke-linecap="round" ${sh}/>`;
+    case 'text': return `<text data-a="${n}" x="${a.x1}" y="${a.y1}" font-family="${st.font === 'Mono' ? 'monospace' : st.font === 'Serif' ? 'serif' : 'sans-serif'}" font-size="${st.size * 2}" fill="${st.stroke}" ${sh}>Text</text>`;
+    case 'counter': return `<g data-a="${n}" ${sh}><circle cx="${a.x1}" cy="${a.y1}" r="${st.size * 1.2}" fill="${fill === 'none' ? '#e53935' : fill}"/><text x="${a.x1}" y="${a.y1}" text-anchor="middle" dominant-baseline="central" font-size="${st.size * 1.3}" font-weight="700" fill="#fff">${a.num}</text></g>`;
+    case 'highlight': {
+      const H = vh(), outside = `M0,0H${VW}V${H}H0Z M${b.x},${b.y}v${b.h}h${b.w}v${-b.h}Z`;
+      if (st.hmode === 'text') return `<rect data-a="${n}" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="${st.stroke}" style="mix-blend-mode:multiply" opacity=".55"/>`;
+      if (st.hmode === 'area') return `<g data-a="${n}"><path d="${outside}" fill-rule="evenodd" fill="#000" opacity=".55"/><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="transparent"/></g>`;
+      if (st.hmode === 'grayscale') return `<g data-a="${n}"><clipPath id="c${n}"><path d="${outside}" clip-rule="evenodd"/></clipPath><use href="#content" filter="url(#gray)" clip-path="url(#c${n})"/><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="transparent"/></g>`;
+      const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      return `<g data-a="${n}"><clipPath id="c${n}"><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}"/></clipPath><g clip-path="url(#c${n})"><use href="#content" transform="translate(${cx},${cy}) scale(2) translate(${-cx},${-cy})"/></g><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="none" stroke="#fff" stroke-width="2"/></g>`;
+    }
+    case 'obfuscate': {
+      const pix = st.omode === 'pixelate';
+      return `<g data-a="${n}"><clipPath id="c${n}"><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}"/></clipPath><g clip-path="url(#c${n})"><use href="#content" filter="url(#blur)"/>${pix ? mosaic(b, st.strength * 3) : ''}</g></g>`;
+    }
+  }
+  return '';
+}
+function mosaic(b, s) {
+  let out = '';
+  for (let y = b.y; y < b.y + b.h; y += s) for (let x = b.x; x < b.x + b.w; x += s)
+    out += `<rect x="${x}" y="${y}" width="${s}" height="${s}" fill="#${((x * 7 + y * 13) % 3) ? 'fff' : '000'}" opacity=".12" stroke="#0002"/>`;
+  return out;
+}
+function cropSVG(c, H) {
+  return `<path d="M0,0H${VW}V${H}H0Z M${c.x},${c.y}v${c.h}h${c.w}v${-c.h}Z" fill-rule="evenodd" fill="#000" opacity=".6"/>
+    <rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" fill="none" stroke="#fff" stroke-dasharray="8 6" stroke-width="2"/>`;
+}
+function handlesSVG(a) {
+  const b = a.type === 'free' ? ptsBox(a.pts) : (a.type === 'text' || a.type === 'counter') ? { x: a.x1 - 30, y: a.y1 - 40, w: 90, h: 60 } : box(a);
+  const pts = [[0, 0], [.5, 0], [1, 0], [1, .5], [1, 1], [.5, 1], [0, 1], [0, .5]];
+  return `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="none" stroke="#4c9aff" stroke-dasharray="6 4" stroke-width="1.5"/>` +
+    pts.map(([u, v]) => `<rect class="handle" x="${b.x + u * b.w - 6}" y="${b.y + v * b.h - 6}" width="12" height="12" stroke-width="2"/>`).join('');
+}
+function ptsBox(p) { const xs = p.map(q => q[0]), ys = p.map(q => q[1]); const x = Math.min(...xs), y = Math.min(...ys); return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y }; }
+
+// ---------------- render ----------------
+const app = document.getElementById('app');
+function render() {
+  app.className = 'v' + S.variant + (S.variant === 'B' && idle ? ' idle' : '');
+  app.innerHTML = { A: shellA, B: shellB, C: shellC }[S.variant]();
+  if (S.fullscreen) app.querySelectorAll('.menubar,.propbar,.toolstrip,.statusbar,.topbar').forEach(e => e.style.display = 'none');
+  const stage = document.getElementById('stage');
+  stage.insertAdjacentHTML('afterbegin', imageSVG());
+  layoutImage();
+  const svg = stage.querySelector('svg.img');
+  if (cur().anim && S.frozen) { svg.pauseAnimations(); svg.setCurrentTime(0); }
+  document.getElementById('plbl').textContent = `${S.variant} (${VARIANTS[S.variant]})`;
+  document.getElementById('state').textContent = JSON.stringify({ ...S, annotations: S.annotations.map(a => a.type + (a.num ? '#' + a.num : '')), sibling: cur().name }, null, 1);
+}
+function layoutImage() {
+  const stage = document.getElementById('stage'), svg = stage.querySelector('svg.img');
+  const fit = Math.min(stage.clientWidth / VW, stage.clientHeight / vh()) * 0.97;
+  const z = S.zoom === 'fit' ? fit : S.zoom;
+  svg.style.transform = `translate(-50%,-50%) scale(${z})`;
+}
+window.addEventListener('resize', () => layoutImage());
+
+// ---------------- toast & dialog ----------------
+let toastT;
+function toast(msg) {
+  const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1600);
+  S.lastAction = msg;
+}
+function dialog(title, text, buttons) {
+  const d = document.getElementById('dialog');
+  d.querySelector('h3').textContent = title; d.querySelector('p').textContent = text;
+  const row = d.querySelector('.row'); row.innerHTML = '';
+  buttons.forEach(([label, fn, primary]) => {
+    const b = document.createElement('button'); b.textContent = label; if (primary) b.className = 'primary';
+    b.onclick = () => { d.classList.remove('show'); fn && fn(); render(); }; row.appendChild(b);
+  });
+  d.classList.add('show');
+}
+const dialogOpen = () => document.getElementById('dialog').classList.contains('show');
+
+// ---------------- actions ----------------
+function edited() {
+  S.dirty = true;
+  if (cur().anim && !S.frozen) { S.frozen = true; toast('Animation frozen at frame 1 for editing'); }
+}
+function save(after) {
+  const done = () => { S.dirty = false; toast(`Saved ${cur().name}`); after && after(); };
+  if (cur().anim && S.frozen) {
+    dialog('Overwrite animated image?', `Saving will replace the animated file "${cur().name}" with a still image. All frames except the first will be lost.`,
+      [['Cancel'], ['Save As…', () => { toast('Save As dialog (native)'); }], ['Overwrite', done, true]]);
+  } else done();
+}
+function go(d) {
+  const ni = S.idx + d;
+  if (ni < 0 || ni >= SIBLINGS.length) return edgeHint(d < 0 ? 'first' : 'last');
+  const move = () => { S.idx = ni; S.annotations = []; S.selected = null; S.crop = null; S.dirty = false; S.frozen = false; S.zoom = 'fit'; S.lastAction = 'opened ' + cur().name; render(); };
+  if (S.dirty) dialog('Save changes?', `"${cur().name}" has unsaved changes.`,
+    [['Cancel'], ['Discard', move], ['Save', () => save(move), true]]);
+  else move();
+}
+function edgeHint(which) {
+  const msg = which === 'first' ? 'First image in folder' : `Last image in folder (${SIBLINGS.length} of ${SIBLINGS.length})`;
+  if (S.variant === 'A') { const f = document.getElementById('flash'); if (f) { f.textContent = msg; setTimeout(() => f.textContent = '', 1500); } S.lastAction = msg; }
+  else if (S.variant === 'C') { const st = document.getElementById('stage'); st.classList.add(which === 'first' ? 'glow-l' : 'glow-r'); setTimeout(() => st.classList.remove('glow-l', 'glow-r'), 350); toast(msg); }
+  else toast(msg);
+}
+function act(a) {
+  if (a === 'save') save();
+  else if (a === 'saveas') toast('Save As dialog (native)');
+  else if (a === 'copy') toast('Copied flattened image to clipboard');
+  else if (a === 'undo') { if (S.annotations.pop()) { S.selected = null; toast('Undo'); } }
+  else if (a === 'imgops') toast('Image menu: Rotate 90° ⟲ ⟳, Flip H/V, Resize…');
+  else if (a === 'del' && S.selected != null) { S.annotations.splice(S.selected, 1); S.selected = null; }
+  else if (a === 'front' && S.selected != null) { S.annotations.push(S.annotations.splice(S.selected, 1)[0]); S.selected = S.annotations.length - 1; }
+  else if (a === 'trash') { const n = cur().name; toast(`Moved ${n} to trash`); SIBLINGS.splice(S.idx, 1); S.idx = Math.min(S.idx, SIBLINGS.length - 1); S.annotations = []; S.dirty = false; }
+  render();
+}
+function setTool(id) { S.tool = id; if (id !== 'select') S.selected = null; if (id !== 'crop') S.crop = null; wake(); render(); }
+
+// ---------------- input ----------------
+function svgPt(e) {
+  const svg = document.querySelector('svg.img'); const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY;
+  const q = p.matrixTransform(svg.getScreenCTM().inverse()); return [q.x, q.y];
+}
+let drag = null;
+app.addEventListener('mousedown', e => {
+  const t = e.target;
+  if (t.closest('[data-tool]')) return setTool(t.closest('[data-tool]').dataset.tool);
+  if (t.closest('[data-act]')) return act(t.closest('[data-act]').dataset.act);
+  if (t.closest('[data-nav]')) return go(+t.closest('[data-nav]').dataset.nav);
+  if (t.closest('[data-crop]')) { if (t.closest('[data-crop]').dataset.crop === 'apply') { toast('Cropped (prototype: not applied)'); edited(); } S.crop = null; return render(); }
+  if (t.closest('[data-nofill]')) { S.style.fill = '#ffffff00'; return render(); }
+  if (!t.closest('svg.img') || e.button !== 0) return;
+  const [x, y] = svgPt(e);
+  if (S.tool === 'select') {
+    const hit = t.closest('[data-a]');
+    S.selected = hit ? +hit.dataset.a : null;
+    if (hit) drag = { move: true, x, y };
+    return render();
+  }
+  if (S.tool === 'text' || S.tool === 'counter') {
+    const num = S.annotations.filter(a => a.type === 'counter').length + 1;
+    S.annotations.push({ type: S.tool, x1: x, y1: y, x2: x, y2: y, num, style: { ...S.style } });
+    edited(); return render();
+  }
+  if (S.tool === 'crop') { drag = { crop: true, x, y }; return; }
+  const a = { type: S.tool, x1: x, y1: y, x2: x, y2: y, pts: [[x, y]], style: { ...S.style } };
+  S.annotations.push(a); drag = { a }; edited();
+});
+window.addEventListener('mousemove', e => {
+  wake();
+  if (!drag) return;
+  const [x, y] = svgPt(e);
+  if (drag.a) { drag.a.x2 = x; drag.a.y2 = y; if (drag.a.type === 'free') drag.a.pts.push([x, y]); }
+  else if (drag.crop) S.crop = { x: Math.min(drag.x, x), y: Math.min(drag.y, y), w: Math.abs(x - drag.x), h: Math.abs(y - drag.y) };
+  else if (drag.move) { const a = S.annotations[S.selected]; const dx = x - drag.x, dy = y - drag.y; a.x1 += dx; a.x2 += dx; a.y1 += dy; a.y2 += dy; if (a.pts) a.pts = a.pts.map(([p, q]) => [p + dx, q + dy]); drag.x = x; drag.y = y; S.dirty = true; }
+  const stage = document.getElementById('stage'); stage.querySelector('svg.img').remove(); stage.insertAdjacentHTML('afterbegin', imageSVG()); layoutImage();
+});
+window.addEventListener('mouseup', () => { if (drag) { drag = null; render(); } });
+app.addEventListener('input', e => {
+  const p = e.target.dataset.p; if (!p) return;
+  S.style[p] = e.target.type === 'checkbox' ? e.target.checked : e.target.type === 'number' ? +e.target.value : e.target.value;
+  if (S.selected != null) { S.annotations[S.selected].style[p] = S.style[p]; S.dirty = true; }
+  const stage = document.getElementById('stage'); stage.querySelector('svg.img').remove(); stage.insertAdjacentHTML('afterbegin', imageSVG()); layoutImage();
+});
+app.addEventListener('wheel', e => {
+  if (!e.target.closest('#stage')) return;
+  e.preventDefault();
+  if (e.ctrlKey) {
+    const stage = document.getElementById('stage');
+    const fit = Math.min(stage.clientWidth / VW, stage.clientHeight / vh()) * 0.97;
+    const z = (S.zoom === 'fit' ? fit : S.zoom) * (e.deltaY < 0 ? 1.15 : 1 / 1.15);
+    S.zoom = z; render();
+  } else go(e.deltaY > 0 ? 1 : -1);
+}, { passive: false });
+window.addEventListener('keydown', e => {
+  if (dialogOpen()) { if (e.key === 'Escape') document.querySelector('#dialog .row button').click(); return; }
+  if (e.target.matches?.('input,select,textarea')) return;
+  if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return cycleVariant(e.key === 'ArrowRight' ? 1 : -1);
+  if (e.key === 'ArrowRight') return go(1);
+  if (e.key === 'ArrowLeft') return go(-1);
+  if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); return act(e.shiftKey ? 'saveas' : 'save'); }
+  if (e.ctrlKey && e.key === 'c') return act('copy');
+  if (e.ctrlKey && e.key === 'v') return toast('Opened clipboard image in a new window');
+  if (e.ctrlKey && e.key === 'z') return act('undo');
+  if (e.key === 'Delete') return S.selected != null ? act('del') : act('trash');
+  if (e.key === 'F11') { e.preventDefault(); S.fullscreen = !S.fullscreen; return render(); }
+  if (e.key === '+' || e.key === '=') { S.zoom = (S.zoom === 'fit' ? 0.5 : S.zoom) * 1.15; return render(); }
+  if (e.key === '-') { S.zoom = (S.zoom === 'fit' ? 0.5 : S.zoom) / 1.15; return render(); }
+  if (e.key === '0') { S.zoom = 'fit'; return render(); }
+  if (e.key === 'Enter' && S.crop) { toast('Cropped (prototype: not applied)'); edited(); S.crop = null; return render(); }
+  if (e.key === 'Escape' && S.crop) { S.crop = null; return render(); }
+  const t = TOOLS.find(t => t.key === e.key || t.key === e.key.toLowerCase());
+  if (t && !e.ctrlKey && !e.metaKey) setTool(t.id);
+});
+
+// variant B hides chrome while you're just viewing
+let idle = false, idleT;
+function wake() {
+  if (S.variant !== 'B') return;
+  if (idle) { idle = false; app.classList.remove('idle'); }
+  clearTimeout(idleT);
+  idleT = setTimeout(() => { if (S.tool === 'select' && S.selected == null && !drag) { idle = true; app.classList.add('idle'); } }, 1800);
+}
+
+// ---------------- prototype switcher ----------------
+function cycleVariant(d) {
+  const keys = Object.keys(VARIANTS); S.variant = keys[(keys.indexOf(S.variant) + d + keys.length) % keys.length];
+  try { history.replaceState(null, '', '?variant=' + S.variant); } catch { /* file:// snapshots */ } idle = false; wake(); render();
+}
+document.getElementById('pv').onclick = () => cycleVariant(-1);
+document.getElementById('pn').onclick = () => cycleVariant(1);
+document.getElementById('pstate').onclick = () => document.getElementById('state').classList.toggle('show');
+
+render(); wake();
+</script>
+</body>
+</html>
