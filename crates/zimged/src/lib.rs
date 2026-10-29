@@ -8,6 +8,7 @@ pub mod bench;
 pub mod commands;
 mod config_save;
 pub mod decode;
+mod input;
 pub mod startup;
 mod ui;
 
