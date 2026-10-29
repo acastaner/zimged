@@ -2,1095 +2,465 @@
  "qt / wayland": {
   "cold": [
    {
-    "main": 6.49,
-    "decoded": 54.49,
-    "qapplication": 120.86,
-    "window_shown": 121.75,
-    "first_image_painted": 134.54
+    "main": 4.66,
+    "decoded": 53.99,
+    "qapplication": 126.22,
+    "window_shown": 127.2,
+    "first_image_painted": 140.9
    },
    {
-    "main": 5.7,
-    "decoded": 55.45,
-    "qapplication": 120.08,
-    "window_shown": 120.71,
-    "first_image_painted": 133.36
+    "main": 13.45,
+    "decoded": 75.31,
+    "qapplication": 133.45,
+    "window_shown": 134.03,
+    "first_image_painted": 146.85
    },
    {
-    "main": 7.04,
-    "decoded": 55.95,
-    "qapplication": 123.65,
-    "window_shown": 124.26,
-    "first_image_painted": 137.79
+    "main": 11.88,
+    "decoded": 68.63,
+    "qapplication": 136.99,
+    "window_shown": 137.57,
+    "first_image_painted": 152.12
    },
    {
-    "main": 5.42,
-    "decoded": 55.57,
-    "qapplication": 119.3,
-    "window_shown": 119.94,
-    "first_image_painted": 133.82
+    "main": 18.72,
+    "decoded": 70.03,
+    "qapplication": 148.01,
+    "window_shown": 148.62,
+    "first_image_painted": 161.5
    },
    {
-    "main": 4.5,
-    "decoded": 53.8,
-    "qapplication": 118.31,
-    "window_shown": 119.0,
-    "first_image_painted": 131.81
+    "main": 17.63,
+    "decoded": 67.32,
+    "qapplication": 137.19,
+    "window_shown": 137.75,
+    "first_image_painted": 151.41
    },
    {
-    "main": 6.86,
-    "decoded": 55.54,
-    "qapplication": 119.1,
-    "window_shown": 119.7,
-    "first_image_painted": 132.54
+    "main": 10.36,
+    "decoded": 69.59,
+    "qapplication": 133.72,
+    "window_shown": 134.29,
+    "first_image_painted": 147.15
    },
    {
-    "main": 6.97,
-    "decoded": 55.13,
-    "qapplication": 119.85,
-    "window_shown": 120.55,
-    "first_image_painted": 134.35
+    "main": 20.26,
+    "decoded": 81.12,
+    "qapplication": 161.14,
+    "window_shown": 161.7,
+    "first_image_painted": 175.37
    },
    {
-    "main": 7.17,
-    "decoded": 55.4,
-    "qapplication": 123.42,
-    "window_shown": 124.03,
-    "first_image_painted": 136.85
+    "main": 19.49,
+    "decoded": 73.1,
+    "qapplication": 143.84,
+    "window_shown": 144.41,
+    "first_image_painted": 158.65
    },
    {
-    "main": 5.19,
-    "decoded": 51.09,
-    "qapplication": 118.18,
-    "window_shown": 118.84,
-    "first_image_painted": 131.62
+    "main": 12.28,
+    "decoded": 75.12,
+    "qapplication": 140.19,
+    "window_shown": 140.79,
+    "first_image_painted": 153.98
    },
    {
-    "main": 5.06,
-    "decoded": 54.53,
-    "qapplication": 122.64,
-    "window_shown": 123.24,
-    "first_image_painted": 136.6
+    "main": 20.97,
+    "decoded": 90.08,
+    "qapplication": 164.0,
+    "window_shown": 164.61,
+    "first_image_painted": 177.91
    },
    {
-    "main": 5.08,
-    "decoded": 53.77,
-    "qapplication": 118.34,
-    "window_shown": 119.19,
-    "first_image_painted": 132.5
+    "main": 21.58,
+    "decoded": 78.4,
+    "qapplication": 137.01,
+    "window_shown": 137.58,
+    "first_image_painted": 151.18
    },
    {
-    "main": 7.01,
-    "decoded": 57.06,
-    "qapplication": 136.62,
-    "window_shown": 137.27,
-    "first_image_painted": 150.59
+    "main": 14.77,
+    "decoded": 80.03,
+    "qapplication": 155.29,
+    "window_shown": 156.14,
+    "first_image_painted": 172.18
    },
    {
-    "main": 5.81,
-    "decoded": 55.45,
-    "qapplication": 127.71,
-    "window_shown": 128.3,
-    "first_image_painted": 142.33
+    "main": 22.23,
+    "decoded": 81.02,
+    "qapplication": 155.42,
+    "window_shown": 156.02,
+    "first_image_painted": 168.37
    },
    {
-    "main": 6.97,
-    "decoded": 60.88,
-    "qapplication": 131.03,
-    "window_shown": 132.11,
-    "first_image_painted": 146.44
+    "main": 13.08,
+    "decoded": 64.45,
+    "qapplication": 132.78,
+    "window_shown": 133.41,
+    "first_image_painted": 147.54
    },
    {
-    "main": 4.98,
-    "decoded": 55.71,
-    "qapplication": 126.76,
-    "window_shown": 127.88,
-    "first_image_painted": 135.83
+    "main": 20.31,
+    "decoded": 92.43,
+    "qapplication": 160.17,
+    "window_shown": 161.18,
+    "first_image_painted": 174.85
    }
   ],
   "nav": {
    "flip every 200 ms": [
-    3.74,
-    3.28,
-    3.17,
-    3.18,
-    3.39,
-    3.25,
-    3.37,
-    3.72,
-    3.79,
-    3.49,
-    3.64,
-    3.81,
-    3.01,
-    3.51,
-    3.02,
-    3.12,
-    3.49,
-    3.74,
-    3.31,
-    3.47,
-    3.47,
-    3.24,
-    3.34,
-    3.37,
-    3.25
+    8.12,
+    7.48,
+    11.06,
+    7.27,
+    10.38,
+    7.25,
+    7.97,
+    4.66,
+    10.61,
+    7.83,
+    7.35,
+    7.16,
+    7.87,
+    10.93,
+    11.74,
+    7.46,
+    6.39,
+    17.2,
+    10.89,
+    10.44,
+    11.18,
+    11.35,
+    7.0,
+    9.77,
+    7.42
    ],
    "hold the key (back-to-back)": [
-    3.74,
-    3.19,
-    40.83,
-    3.44,
-    42.11,
-    3.29,
-    38.21,
-    3.69,
-    122.06,
-    2.34,
-    38.67,
-    7.74,
-    42.54,
-    3.35,
-    38.35,
-    9.86,
-    32.23,
-    10.62,
-    120.53,
-    3.54,
-    38.59,
-    6.56,
-    38.95,
-    6.09,
-    35.83
-   ]
-  }
- },
- "qt / wayland, no KDE platform theme": {
-  "cold": [
-   {
-    "main": 5.09,
-    "decoded": 53.76,
-    "qapplication": 116.63,
-    "window_shown": 117.26,
-    "first_image_painted": 131.05
-   },
-   {
-    "main": 5.63,
-    "decoded": 54.46,
-    "qapplication": 163.9,
-    "window_shown": 164.49,
-    "first_image_painted": 176.43
-   },
-   {
-    "main": 5.83,
-    "decoded": 53.31,
-    "qapplication": 119.98,
-    "window_shown": 120.56,
-    "first_image_painted": 135.36
-   },
-   {
-    "main": 5.3,
-    "decoded": 53.24,
-    "qapplication": 115.57,
-    "window_shown": 116.2,
-    "first_image_painted": 130.37
-   },
-   {
-    "main": 6.55,
-    "decoded": 70.05,
-    "qapplication": 144.97,
-    "window_shown": 145.84,
-    "first_image_painted": 159.13
-   },
-   {
-    "main": 6.34,
-    "decoded": 55.78,
-    "qapplication": 102.91,
-    "window_shown": 103.91,
-    "first_image_painted": 116.66
-   },
-   {
-    "main": 4.6,
-    "decoded": 53.91,
-    "qapplication": 116.09,
-    "window_shown": 116.86,
-    "first_image_painted": 129.24
-   },
-   {
-    "main": 6.26,
-    "decoded": 56.81,
-    "qapplication": 134.21,
-    "window_shown": 135.11,
-    "first_image_painted": 148.13
-   },
-   {
-    "main": 4.52,
-    "decoded": 55.07,
-    "qapplication": 108.4,
-    "window_shown": 108.97,
-    "first_image_painted": 121.43
-   },
-   {
-    "main": 4.7,
-    "decoded": 57.77,
-    "qapplication": 136.47,
-    "window_shown": 137.2,
-    "first_image_painted": 150.5
-   },
-   {
-    "main": 4.54,
-    "decoded": 53.09,
-    "qapplication": 123.6,
-    "window_shown": 124.15,
-    "first_image_painted": 136.91
-   },
-   {
-    "main": 5.05,
-    "decoded": 53.14,
-    "qapplication": 124.16,
-    "window_shown": 124.73,
-    "first_image_painted": 137.91
-   },
-   {
-    "main": 6.98,
-    "decoded": 54.22,
-    "qapplication": 118.23,
-    "window_shown": 119.18,
-    "first_image_painted": 137.25
-   },
-   {
-    "main": 5.72,
-    "decoded": 55.39,
-    "qapplication": 137.78,
-    "window_shown": 138.52,
-    "first_image_painted": 152.09
-   },
-   {
-    "main": 6.77,
-    "decoded": 53.5,
-    "qapplication": 119.29,
-    "window_shown": 120.01,
-    "first_image_painted": 132.74
-   }
-  ],
-  "nav": {
-   "flip every 200 ms": [
-    3.63,
-    3.73,
-    3.17,
-    3.78,
-    3.88,
-    3.9,
-    3.95,
-    3.87,
-    3.68,
-    3.79,
-    3.76,
-    3.88,
-    3.44,
-    3.87,
-    3.76,
-    3.83,
-    4.05,
-    3.76,
-    3.67,
-    3.72,
-    3.4,
-    3.94,
-    3.22,
-    3.79,
-    3.19
-   ],
-   "hold the key (back-to-back)": [
-    3.23,
-    4.27,
-    38.35,
-    5.98,
-    37.6,
-    10.07,
-    38.23,
-    9.16,
-    122.38,
-    4.12,
-    37.87,
-    3.74,
-    35.42,
-    7.04,
-    39.87,
-    7.04,
-    36.61,
-    6.74,
-    123.17,
-    3.79,
-    38.38,
-    6.55,
-    37.19,
-    3.51,
-    37.16
-   ]
-  }
- },
- "qt / x11 (XWayland)": {
-  "cold": [
-   {
-    "main": 5.89,
-    "decoded": 51.4,
-    "qapplication": 139.03,
-    "window_shown": 140.51,
-    "first_image_painted": 153.85
-   },
-   {
-    "main": 4.75,
-    "decoded": 54.7,
-    "qapplication": 135.12,
-    "window_shown": 137.01,
-    "first_image_painted": 158.07
-   },
-   {
-    "main": 5.16,
-    "decoded": 53.52,
-    "qapplication": 125.83,
-    "window_shown": 127.32,
-    "first_image_painted": 145.1
-   },
-   {
-    "main": 5.39,
-    "decoded": 57.68,
-    "qapplication": 124.57,
-    "window_shown": 126.76,
-    "first_image_painted": 144.06
-   },
-   {
-    "main": 7.06,
-    "decoded": 55.01,
-    "qapplication": 133.46,
-    "window_shown": 134.84,
-    "first_image_painted": 147.58
-   },
-   {
-    "main": 4.88,
-    "decoded": 55.09,
-    "qapplication": 123.99,
-    "window_shown": 125.87,
-    "first_image_painted": 145.92
-   },
-   {
-    "main": 7.07,
-    "decoded": 54.93,
-    "qapplication": 126.32,
-    "window_shown": 127.91,
-    "first_image_painted": 141.02
-   },
-   {
-    "main": 4.62,
-    "decoded": 56.82,
-    "qapplication": 129.75,
-    "window_shown": 131.37,
-    "first_image_painted": 143.69
-   },
-   {
-    "main": 6.22,
-    "decoded": 53.95,
-    "qapplication": 117.02,
-    "window_shown": 118.42,
-    "first_image_painted": 133.88
-   },
-   {
-    "main": 5.76,
-    "decoded": 54.62,
-    "qapplication": 124.46,
-    "window_shown": 125.76,
-    "first_image_painted": 140.49
-   },
-   {
-    "main": 4.99,
-    "decoded": 53.31,
-    "qapplication": 118.19,
-    "window_shown": 120.06,
-    "first_image_painted": 133.12
-   },
-   {
-    "main": 5.26,
-    "decoded": 52.59,
-    "qapplication": 118.7,
-    "window_shown": 120.06,
-    "first_image_painted": 132.8
-   },
-   {
-    "main": 5.53,
-    "decoded": 53.26,
-    "qapplication": 124.31,
-    "window_shown": 126.3,
-    "first_image_painted": 140.99
-   },
-   {
-    "main": 6.33,
-    "decoded": 52.82,
-    "qapplication": 144.05,
-    "window_shown": 145.92,
-    "first_image_painted": 161.51
-   },
-   {
-    "main": 4.72,
-    "decoded": 50.5,
-    "qapplication": 117.1,
-    "window_shown": 118.5,
-    "first_image_painted": 134.14
-   }
-  ],
-  "nav": {
-   "flip every 200 ms": [
-    3.98,
-    3.27,
-    3.05,
-    3.79,
-    3.92,
-    3.9,
-    3.09,
-    3.02,
-    2.94,
-    3.13,
-    3.48,
-    3.95,
-    3.9,
-    4.0,
+    13.71,
+    14.47,
+    49.35,
     3.86,
-    3.95,
-    3.47,
-    3.19,
-    3.91,
-    3.39,
-    3.49,
-    4.34,
-    3.11,
-    3.31,
-    3.94
-   ],
-   "hold the key (back-to-back)": [
-    2.16,
-    3.09,
-    39.09,
-    6.18,
-    38.34,
-    4.8,
-    37.69,
-    4.36,
-    125.39,
-    2.75,
-    41.28,
-    8.25,
-    34.04,
-    8.17,
-    36.22,
-    5.35,
-    36.18,
-    7.71,
-    122.94,
-    3.99,
-    38.22,
-    6.44,
-    36.39,
-    11.81,
-    34.09
+    40.59,
+    4.57,
+    42.76,
+    4.74,
+    126.1,
+    3.98,
+    37.71,
+    2.83,
+    44.21,
+    3.29,
+    40.01,
+    3.12,
+    40.05,
+    4.08,
+    122.55,
+    2.71,
+    39.78,
+    2.24,
+    46.42,
+    2.34,
+    44.46
    ]
   }
  },
  "egui+glow / wayland": {
   "cold": [
    {
-    "main": 1.79,
-    "decoded": 79.17,
-    "renderer_ready": 100.73,
-    "first_image_painted": 103.04
+    "main": 5.84,
+    "decoded": 89.25,
+    "renderer_ready": 96.55,
+    "first_image_painted": 98.86
    },
    {
-    "main": 1.6,
-    "decoded": 82.63,
-    "renderer_ready": 115.32,
-    "first_image_painted": 117.81
+    "main": 5.78,
+    "decoded": 94.29,
+    "renderer_ready": 123.29,
+    "first_image_painted": 125.68
    },
    {
-    "main": 1.55,
-    "decoded": 83.19,
-    "renderer_ready": 93.82,
-    "first_image_painted": 96.29
+    "main": 4.46,
+    "decoded": 92.38,
+    "renderer_ready": 118.48,
+    "first_image_painted": 120.73
    },
    {
-    "main": 1.53,
-    "decoded": 74.11,
-    "renderer_ready": 92.38,
-    "first_image_painted": 94.72
+    "main": 4.28,
+    "decoded": 89.42,
+    "renderer_ready": 101.21,
+    "first_image_painted": 103.68
    },
    {
-    "main": 1.66,
-    "decoded": 80.05,
-    "renderer_ready": 97.06,
-    "first_image_painted": 99.49
+    "main": 6.22,
+    "decoded": 99.52,
+    "renderer_ready": 111.29,
+    "first_image_painted": 113.82
    },
    {
-    "main": 1.43,
-    "decoded": 79.17,
-    "renderer_ready": 100.74,
-    "first_image_painted": 103.06
+    "main": 6.4,
+    "decoded": 85.98,
+    "renderer_ready": 102.16,
+    "first_image_painted": 104.62
    },
    {
-    "main": 1.31,
-    "decoded": 73.09,
-    "renderer_ready": 89.76,
-    "first_image_painted": 92.09
+    "main": 5.27,
+    "decoded": 85.82,
+    "renderer_ready": 105.29,
+    "first_image_painted": 107.65
    },
    {
-    "main": 1.43,
-    "decoded": 76.07,
-    "renderer_ready": 93.14,
-    "first_image_painted": 95.48
+    "main": 6.15,
+    "decoded": 94.34,
+    "renderer_ready": 115.62,
+    "first_image_painted": 118.02
    },
    {
-    "main": 2.03,
-    "decoded": 76.27,
-    "renderer_ready": 107.13,
-    "first_image_painted": 109.52
+    "main": 5.58,
+    "decoded": 92.81,
+    "renderer_ready": 104.34,
+    "first_image_painted": 106.67
    },
    {
-    "main": 1.52,
-    "decoded": 72.77,
-    "renderer_ready": 101.94,
-    "first_image_painted": 104.26
+    "main": 5.0,
+    "decoded": 93.4,
+    "renderer_ready": 106.05,
+    "first_image_painted": 108.47
    },
    {
-    "main": 1.49,
-    "decoded": 83.41,
-    "renderer_ready": 93.96,
-    "first_image_painted": 96.25
+    "main": 3.14,
+    "decoded": 81.7,
+    "renderer_ready": 106.89,
+    "first_image_painted": 109.19
    },
    {
-    "main": 1.51,
-    "decoded": 73.98,
-    "renderer_ready": 93.1,
-    "first_image_painted": 95.42
+    "main": 6.75,
+    "decoded": 96.0,
+    "renderer_ready": 107.08,
+    "first_image_painted": 109.32
    },
    {
-    "main": 1.94,
-    "decoded": 73.52,
-    "renderer_ready": 99.52,
-    "first_image_painted": 101.85
+    "main": 6.12,
+    "decoded": 96.04,
+    "renderer_ready": 103.01,
+    "first_image_painted": 105.31
    },
    {
-    "main": 1.91,
-    "decoded": 86.63,
-    "renderer_ready": 90.57,
-    "first_image_painted": 92.82
+    "main": 5.41,
+    "decoded": 86.62,
+    "renderer_ready": 102.15,
+    "first_image_painted": 104.46
    },
    {
-    "main": 1.69,
-    "decoded": 77.49,
-    "renderer_ready": 93.66,
-    "first_image_painted": 95.97
+    "main": 5.46,
+    "decoded": 98.25,
+    "renderer_ready": 119.41,
+    "first_image_painted": 121.76
    }
   ],
   "nav": {
    "flip every 200 ms": [
-    1.69,
-    1.67,
-    1.73,
-    1.73,
-    1.8,
-    1.96,
-    2.9,
-    3.25,
-    1.6,
-    1.64,
-    5.72,
-    1.68,
-    1.64,
-    4.9,
-    1.66,
-    1.71,
-    5.28,
-    1.89,
-    1.98,
-    4.87,
-    2.2,
-    6.15,
-    8.52,
-    2.9,
-    3.41
-   ],
-   "hold the key (back-to-back)": [
-    1.86,
-    7.02,
-    66.86,
-    8.12,
-    58.73,
-    8.03,
-    58.36,
-    8.5,
-    159.49,
-    6.87,
-    66.58,
-    8.32,
-    58.25,
-    16.63,
-    50.04,
-    25.07,
-    41.56,
-    33.24,
-    141.77,
-    8.41,
-    66.33,
-    8.69,
-    58.58,
-    7.89,
-    49.94
-   ]
-  }
- },
- "egui+glow / x11 (XWayland)": {
-  "cold": [
-   {
-    "main": 1.87,
-    "decoded": 77.94,
-    "renderer_ready": 86.71,
-    "first_image_painted": 89.07
-   },
-   {
-    "main": 1.51,
-    "decoded": 78.33,
-    "renderer_ready": 97.1,
-    "first_image_painted": 99.41
-   },
-   {
-    "main": 1.62,
-    "decoded": 85.79,
-    "renderer_ready": 91.21,
-    "first_image_painted": 93.61
-   },
-   {
-    "main": 1.54,
-    "decoded": 75.57,
-    "renderer_ready": 92.18,
-    "first_image_painted": 94.69
-   },
-   {
-    "main": 1.92,
-    "decoded": 77.19,
-    "renderer_ready": 87.64,
-    "first_image_painted": 90.05
-   },
-   {
-    "main": 1.63,
-    "decoded": 79.19,
-    "renderer_ready": 92.04,
-    "first_image_painted": 94.41
-   },
-   {
-    "main": 1.32,
-    "decoded": 83.26,
-    "renderer_ready": 92.42,
-    "first_image_painted": 94.95
-   },
-   {
-    "main": 1.92,
-    "decoded": 79.55,
-    "renderer_ready": 96.53,
-    "first_image_painted": 98.95
-   },
-   {
-    "main": 1.58,
-    "decoded": 78.62,
-    "renderer_ready": 99.3,
-    "first_image_painted": 101.66
-   },
-   {
-    "main": 1.59,
-    "decoded": 77.16,
-    "renderer_ready": 96.47,
-    "first_image_painted": 99.01
-   },
-   {
-    "main": 1.51,
-    "decoded": 73.52,
-    "renderer_ready": 98.93,
-    "first_image_painted": 101.39
-   },
-   {
-    "main": 1.73,
-    "decoded": 76.0,
-    "renderer_ready": 86.87,
-    "first_image_painted": 89.36
-   },
-   {
-    "main": 1.39,
-    "decoded": 73.79,
-    "renderer_ready": 94.74,
-    "first_image_painted": 97.14
-   },
-   {
-    "main": 1.13,
-    "decoded": 75.82,
-    "renderer_ready": 92.62,
-    "first_image_painted": 94.98
-   },
-   {
-    "main": 1.39,
-    "decoded": 78.72,
-    "renderer_ready": 83.94,
-    "first_image_painted": 86.31
-   }
-  ],
-  "nav": {
-   "flip every 200 ms": [
-    0.75,
-    0.9,
-    0.89,
-    0.86,
-    0.82,
-    1.46,
-    1.03,
-    0.78,
-    0.82,
-    0.9,
-    0.86,
-    0.86,
-    0.84,
-    0.76,
-    0.82,
-    0.84,
-    0.75,
-    0.77,
-    0.81,
-    0.74,
-    0.75,
-    1.04,
-    0.83,
-    0.96,
-    0.72
-   ],
-   "hold the key (back-to-back)": [
-    0.85,
-    2.25,
-    65.02,
+    4.31,
+    8.02,
+    8.66,
     8.36,
-    59.09,
-    16.06,
-    49.99,
-    17.49,
-    149.28,
-    8.47,
-    66.45,
-    8.51,
-    66.51,
-    8.21,
-    58.6,
-    8.0,
-    58.38,
-    8.85,
+    4.43,
+    4.23,
+    4.35,
+    1.92,
+    2.81,
+    4.46,
+    11.62,
+    7.89,
+    4.33,
+    4.74,
+    24.43,
+    8.4,
+    4.31,
+    2.14,
+    2.06,
+    4.94,
+    4.7,
+    17.86,
+    6.01,
+    10.54,
+    8.63
+   ],
+   "hold the key (back-to-back)": [
+    3.51,
+    7.1,
+    75.85,
+    7.47,
+    71.0,
+    4.32,
+    74.69,
+    8.81,
     157.88,
+    8.48,
+    59.12,
+    7.58,
+    60.11,
+    14.85,
+    50.02,
+    24.98,
+    41.59,
+    33.6,
+    133.13,
+    8.42,
+    66.86,
     8.21,
-    58.38,
-    16.73,
-    41.43,
-    25.03,
-    33.55
+    66.75,
+    8.12,
+    58.43
    ]
   }
  },
  "egui+wgpu / wayland": {
   "cold": [
    {
-    "main": 1.56,
-    "decoded": 75.28,
-    "renderer_ready": 233.52,
-    "first_image_painted": 239.36
+    "main": 4.78,
+    "decoded": 98.55,
+    "renderer_ready": 223.66,
+    "first_image_painted": 229.51
    },
    {
-    "main": 1.44,
-    "decoded": 75.05,
-    "renderer_ready": 227.56,
-    "first_image_painted": 233.3
+    "main": 5.16,
+    "decoded": 93.36,
+    "renderer_ready": 242.02,
+    "first_image_painted": 248.19
    },
    {
-    "main": 1.47,
-    "decoded": 74.63,
-    "renderer_ready": 222.32,
-    "first_image_painted": 228.01
+    "main": 5.45,
+    "decoded": 81.16,
+    "renderer_ready": 221.74,
+    "first_image_painted": 227.4
    },
    {
-    "main": 1.61,
-    "decoded": 74.34,
-    "renderer_ready": 207.05,
-    "first_image_painted": 212.89
+    "main": 6.14,
+    "decoded": 93.21,
+    "renderer_ready": 226.01,
+    "first_image_painted": 231.92
    },
    {
-    "main": 1.41,
-    "decoded": 76.17,
-    "renderer_ready": 203.77,
-    "first_image_painted": 209.55
+    "main": 5.61,
+    "decoded": 82.91,
+    "renderer_ready": 221.66,
+    "first_image_painted": 227.4
    },
    {
-    "main": 1.48,
-    "decoded": 73.96,
-    "renderer_ready": 225.16,
-    "first_image_painted": 230.91
+    "main": 5.82,
+    "decoded": 106.59,
+    "renderer_ready": 244.38,
+    "first_image_painted": 250.1
    },
    {
-    "main": 1.83,
-    "decoded": 74.66,
-    "renderer_ready": 201.81,
-    "first_image_painted": 207.55
+    "main": 5.57,
+    "decoded": 88.6,
+    "renderer_ready": 245.69,
+    "first_image_painted": 251.7
    },
    {
-    "main": 1.38,
-    "decoded": 75.55,
-    "renderer_ready": 214.67,
-    "first_image_painted": 220.55
+    "main": 5.49,
+    "decoded": 99.22,
+    "renderer_ready": 229.85,
+    "first_image_painted": 235.71
    },
    {
-    "main": 1.42,
-    "decoded": 73.72,
-    "renderer_ready": 188.86,
-    "first_image_painted": 194.94
+    "main": 5.31,
+    "decoded": 89.7,
+    "renderer_ready": 225.5,
+    "first_image_painted": 231.74
    },
    {
-    "main": 1.84,
-    "decoded": 80.99,
-    "renderer_ready": 211.03,
-    "first_image_painted": 217.27
+    "main": 5.2,
+    "decoded": 94.39,
+    "renderer_ready": 242.64,
+    "first_image_painted": 248.37
    },
    {
-    "main": 1.41,
-    "decoded": 75.6,
-    "renderer_ready": 222.93,
-    "first_image_painted": 228.58
+    "main": 5.7,
+    "decoded": 83.3,
+    "renderer_ready": 199.4,
+    "first_image_painted": 205.47
    },
    {
-    "main": 1.41,
-    "decoded": 73.54,
-    "renderer_ready": 209.08,
-    "first_image_painted": 214.92
+    "main": 6.11,
+    "decoded": 93.59,
+    "renderer_ready": 253.28,
+    "first_image_painted": 259.9
    },
    {
-    "main": 1.43,
-    "decoded": 74.52,
-    "renderer_ready": 235.28,
-    "first_image_painted": 241.1
+    "main": 4.83,
+    "decoded": 96.4,
+    "renderer_ready": 205.09,
+    "first_image_painted": 210.58
    },
    {
-    "main": 1.3,
-    "decoded": 77.08,
-    "renderer_ready": 203.97,
-    "first_image_painted": 209.89
+    "main": 5.79,
+    "decoded": 94.54,
+    "renderer_ready": 216.78,
+    "first_image_painted": 222.48
    },
    {
-    "main": 1.34,
-    "decoded": 75.3,
-    "renderer_ready": 232.03,
-    "first_image_painted": 238.0
+    "main": 7.51,
+    "decoded": 95.77,
+    "renderer_ready": 238.4,
+    "first_image_painted": 244.27
    }
   ],
   "nav": {
    "flip every 200 ms": [
-    1.42,
-    1.22,
-    1.25,
-    1.25,
-    1.37,
-    1.25,
-    7.56,
-    8.31,
-    1.23,
-    1.21,
-    1.17,
-    1.32,
-    1.21,
-    11.52,
-    1.23,
-    1.26,
-    1.44,
-    1.33,
-    3.82,
-    8.47,
-    1.96,
-    1.97,
-    2.02,
-    2.01,
-    2.31
-   ],
-   "hold the key (back-to-back)": [
-    6.4,
-    8.22,
-    58.52,
-    7.96,
-    66.69,
-    8.29,
-    66.98,
-    12.8,
-    153.59,
-    8.5,
-    58.18,
-    8.3,
-    58.3,
-    8.36,
-    58.41,
-    16.56,
-    50.05,
-    25.54,
-    141.08,
-    8.4,
-    67.4,
-    7.8,
-    58.31,
-    8.24,
-    58.16
-   ]
-  }
- },
- "egui+wgpu / x11 (XWayland)": {
-  "cold": [
-   {
-    "main": 1.24,
-    "decoded": 76.01,
-    "renderer_ready": 264.53,
-    "first_image_painted": 267.62
-   },
-   {
-    "main": 1.59,
-    "decoded": 73.95,
-    "renderer_ready": 285.82,
-    "first_image_painted": 288.26
-   },
-   {
-    "main": 1.71,
-    "decoded": 78.1,
-    "renderer_ready": 231.64,
-    "first_image_painted": 233.76
-   },
-   {
-    "main": 1.5,
-    "decoded": 79.34,
-    "renderer_ready": 266.23,
-    "first_image_painted": 268.23
-   },
-   {
-    "main": 1.58,
-    "decoded": 74.07,
-    "renderer_ready": 242.23,
-    "first_image_painted": 245.08
-   },
-   {
-    "main": 1.84,
-    "decoded": 74.73,
-    "renderer_ready": 270.02,
-    "first_image_painted": 272.21
-   },
-   {
-    "main": 1.39,
-    "decoded": 77.33,
-    "renderer_ready": 231.08,
-    "first_image_painted": 233.18
-   },
-   {
-    "main": 1.48,
-    "decoded": 73.62,
-    "renderer_ready": 223.5,
-    "first_image_painted": 225.51
-   },
-   {
-    "main": 1.4,
-    "decoded": 75.01,
-    "renderer_ready": 252.75,
-    "first_image_painted": 254.83
-   },
-   {
-    "main": 1.52,
-    "decoded": 77.23,
-    "renderer_ready": 237.43,
-    "first_image_painted": 239.5
-   },
-   {
-    "main": 2.01,
-    "decoded": 74.39,
-    "renderer_ready": 278.69,
-    "first_image_painted": 280.72
-   },
-   {
-    "main": 1.79,
-    "decoded": 73.69,
-    "renderer_ready": 228.42,
-    "first_image_painted": 230.44
-   },
-   {
-    "main": 1.99,
-    "decoded": 73.79,
-    "renderer_ready": 229.33,
-    "first_image_painted": 231.43
-   },
-   {
-    "main": 1.9,
-    "decoded": 76.37,
-    "renderer_ready": 250.41,
-    "first_image_painted": 252.62
-   },
-   {
-    "main": 1.24,
-    "decoded": 73.61,
-    "renderer_ready": 235.09,
-    "first_image_painted": 237.1
-   }
-  ],
-  "nav": {
-   "flip every 200 ms": [
-    2.55,
-    2.88,
-    0.95,
-    0.97,
-    1.05,
-    0.95,
-    0.93,
-    0.93,
-    1.03,
-    0.94,
-    1.1,
-    1.13,
-    0.95,
-    0.96,
-    1.01,
-    1.01,
-    1.32,
-    0.95,
-    1.0,
-    1.11,
-    1.03,
-    0.98,
-    1.09,
-    0.91,
-    0.97
-   ],
-   "hold the key (back-to-back)": [
-    1.07,
+    11.1,
+    4.36,
+    4.07,
+    4.25,
+    10.32,
+    2.82,
+    4.4,
     1.46,
-    67.39,
-    9.28,
-    65.32,
-    8.2,
-    58.38,
-    16.62,
-    150.03,
-    8.39,
-    59.19,
-    7.41,
-    58.77,
-    7.96,
-    66.8,
-    8.49,
-    58.24,
-    16.86,
-    157.5,
-    8.87,
-    57.97,
-    16.58,
+    3.23,
+    6.19,
+    8.53,
+    4.23,
+    4.13,
+    8.22,
+    4.19,
+    4.33,
+    4.46,
+    1.54,
+    10.76,
+    4.87,
+    11.67,
+    8.5,
+    3.69,
+    4.8,
+    4.89
+   ],
+   "hold the key (back-to-back)": [
+    7.27,
+    7.13,
+    72.97,
+    8.32,
+    75.05,
+    8.13,
+    66.92,
+    8.42,
+    158.18,
+    8.28,
+    66.65,
+    8.41,
     58.9,
-    8.4,
-    58.08
+    7.75,
+    66.73,
+    8.29,
+    66.84,
+    8.24,
+    158.09,
+    8.56,
+    58.38,
+    13.45,
+    61.49,
+    8.23,
+    66.72
    ]
   }
  }

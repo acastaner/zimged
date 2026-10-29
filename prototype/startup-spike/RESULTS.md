@@ -55,7 +55,7 @@ Windows and macOS (no hosts available), a balanced or performance power profile,
 
 ## Rerun with the performance power profile
 
-The user switched the power profile; `powerprofilesctl` reports **performance** (EPP `performance`). Same method, 15 runs per setup, each after 1.5 s idle. Results are in `bench/results-linux-balanced.json`; the file name is wrong, the profile was performance.
+The user switched the power profile; `powerprofilesctl` reports **performance** (EPP `performance`). Same method, 15 runs per setup, each after 1.5 s idle. Results are in `bench/results-linux-performance.json`.
 
 | Setup | First image p50 / p90 / max | Phases (median ms) | Flip every 200 ms: p50 / p90 | Holding the key: p50 / p90 / max |
 |---|---|---|---|---|
@@ -74,3 +74,15 @@ The user switched the power profile; `powerprofilesctl` reports **performance** 
 **Switching Siblings:** every setup is far under 50 ms at a normal pace. Holding the key, Qt is better (p90 about 42 ms, against about 67 ms for egui), helped by its cheaper scaled decode. Both have a long tail of 120–160 ms on progressive JPEGs.
 
 **Power profile:** the result depends heavily on it. Under power-saver nothing came under 225 ms (median).
+
+## Rerun with the balanced power profile (the default)
+
+`powerprofilesctl` reports **balanced** (EPP `balance_performance`). Wayland only, 15 runs per setup, each after 1.5 s idle. Results are in `bench/results-linux-balanced.json`.
+
+| Setup | First image p50 / p90 / max | Phases (median ms) | Flip every 200 ms: p50 / p90 | Holding the key: p50 / p90 / max |
+|---|---|---|---|---|
+| Qt, Wayland | 154 / 175 / 178 | decoded 75 · QApplication 140 · painted 154 | 8.0 / 11.3 | 14.5 / 49.4 / 126 |
+| egui + glow, Wayland | **109 / 122 / 126** | decoded 93 · renderer ready 106 · painted 108 | 4.7 / 11.6 | 33.6 / 75.8 / 158 |
+| egui + wgpu, Wayland | 232 / 252 / 260 | decoded 94 · renderer ready 226 · painted 232 | 4.4 / 10.8 | 13.4 / 75.0 / 158 |
+
+**On the default profile, only egui + glow meets the 150 ms budget** (p90 122 ms). Qt misses it, by a small margin at the median (154) and more at p90 (175), and its whole critical path is `QApplication` setup. wgpu misses by about 100 ms. All three are far inside the 50 ms budget for normal Sibling flipping.
