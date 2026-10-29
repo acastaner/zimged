@@ -10,3 +10,5 @@ publish.workspace = true
 
 [dependencies]
 directories.workspace = true
+pollster.workspace = true
+rfd.workspace = true
