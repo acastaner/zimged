@@ -12,6 +12,10 @@ Decided in [Lock the stack](https://github.com/acastaner/zimged/issues/10).
 ## Consequences
 
 - The UI uses egui's own widgets, not native ones. On GNOME Wayland, winit draws a client-side window frame.
-- OS integration comes from separate crates: `arboard` for the clipboard, `rfd` for file dialogs, `trash`, `directories`, `interprocess` for single-instance, and `windows`/`objc2-foundation` for native filename ordering. Clipboard images on Wayland need a compositor with data-control (KWin, wlroots, recent GNOME); otherwise zimged falls back to XWayland.
+- OS integration comes from separate crates: `clipboard-rs` (Windows, macOS, X11) and `wl-clipboard-rs` (Wayland) for the clipboard, `rfd` for file dialogs, `trash`, `directories`, `interprocess` for single-instance, and `windows`/`objc2-foundation` for native filename ordering. Clipboard access on Wayland needs a compositor with data-control (KWin, wlroots, recent GNOME); otherwise zimged falls back to XWayland.
 - Decoding starts on a thread at `main()`, before the window exists, and decodes to display size, so decoding and OpenGL setup finish together.
 - The Rust toolchain is pinned in `rust-toolchain.toml` (1.95, edition 2024).
+
+## Amendment (2026-10-29, Assemble the v1 spec)
+
+The clipboard crate changed from `arboard` to `clipboard-rs` plus `wl-clipboard-rs`. `arboard` can only publish text *or* one image, and zimged has to publish its private Annotation format (`application/x-zimged-annotations+json`) together with `image/png`.
