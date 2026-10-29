@@ -1,0 +1,632 @@
+{
+ "qt / wayland": {
+  "cold": [
+   {
+    "main": 22.14,
+    "decoded": 213.38,
+    "qapplication": 310.44,
+    "window_shown": 311.91,
+    "first_image_painted": 324.77
+   },
+   {
+    "main": 21.23,
+    "decoded": 186.47,
+    "qapplication": 283.48,
+    "window_shown": 289.75,
+    "first_image_painted": 324.4
+   },
+   {
+    "main": 19.9,
+    "decoded": 201.9,
+    "qapplication": 326.36,
+    "window_shown": 331.99,
+    "first_image_painted": 365.91
+   },
+   {
+    "main": 21.51,
+    "decoded": 205.33,
+    "qapplication": 300.78,
+    "window_shown": 308.24,
+    "first_image_painted": 344.18
+   },
+   {
+    "main": 23.75,
+    "decoded": 220.99,
+    "qapplication": 344.8,
+    "window_shown": 349.71,
+    "first_image_painted": 383.86
+   },
+   {
+    "main": 22.64,
+    "decoded": 204.67,
+    "qapplication": 318.49,
+    "window_shown": 322.23,
+    "first_image_painted": 357.15
+   },
+   {
+    "main": 21.93,
+    "decoded": 216.36,
+    "qapplication": 277.98,
+    "window_shown": 279.07,
+    "first_image_painted": 292.49
+   },
+   {
+    "main": 25.81,
+    "decoded": 216.34,
+    "qapplication": 281.38,
+    "window_shown": 282.07,
+    "first_image_painted": 296.15
+   },
+   {
+    "main": 21.37,
+    "decoded": 218.53,
+    "qapplication": 323.96,
+    "window_shown": 326.7,
+    "first_image_painted": 359.56
+   },
+   {
+    "main": 24.64,
+    "decoded": 204.68,
+    "qapplication": 296.71,
+    "window_shown": 303.85,
+    "first_image_painted": 338.87
+   },
+   {
+    "main": 20.82,
+    "decoded": 207.18,
+    "qapplication": 320.92,
+    "window_shown": 324.4,
+    "first_image_painted": 358.58
+   },
+   {
+    "main": 21.12,
+    "decoded": 187.64,
+    "qapplication": 308.89,
+    "window_shown": 313.31,
+    "first_image_painted": 348.85
+   },
+   {
+    "main": 22.72,
+    "decoded": 218.86,
+    "qapplication": 284.05,
+    "window_shown": 284.75,
+    "first_image_painted": 297.79
+   },
+   {
+    "main": 23.23,
+    "decoded": 221.35,
+    "qapplication": 337.22,
+    "window_shown": 344.33,
+    "first_image_painted": 379.83
+   },
+   {
+    "main": 22.82,
+    "decoded": 201.72,
+    "qapplication": 327.97,
+    "window_shown": 332.06,
+    "first_image_painted": 364.55
+   }
+  ],
+  "nav": {
+   "flip every 200 ms": [
+    14.09,
+    13.36,
+    14.8,
+    14.08,
+    10.5,
+    8.25,
+    10.98,
+    3.41,
+    10.1,
+    7.76,
+    11.69,
+    11.69,
+    13.58,
+    12.73,
+    10.69,
+    9.69,
+    11.81,
+    3.48,
+    9.56,
+    8.75,
+    7.92,
+    7.06,
+    11.91,
+    11.81,
+    8.7
+   ],
+   "hold the key (back-to-back)": [
+    13.59,
+    13.56,
+    148.59,
+    7.97,
+    108.62,
+    17.8,
+    148.33,
+    5.77,
+    244.14,
+    4.79,
+    180.09,
+    11.8,
+    80.82,
+    4.1,
+    36.19,
+    6.11,
+    32.7,
+    19.16,
+    184.18,
+    8.01,
+    149.49,
+    17.12,
+    80.21,
+    7.19,
+    31.85
+   ]
+  }
+ },
+ "qt / x11 (XWayland)": {
+  "cold": [
+   {
+    "main": 20.58,
+    "decoded": 219.6,
+    "qapplication": 312.86,
+    "window_shown": 316.78,
+    "first_image_painted": 346.58
+   },
+   {
+    "main": 22.05,
+    "decoded": 236.44,
+    "qapplication": 362.63,
+    "window_shown": 374.33,
+    "first_image_painted": 425.41
+   },
+   {
+    "main": 21.39,
+    "decoded": 188.15,
+    "qapplication": 306.32,
+    "window_shown": 311.83,
+    "first_image_painted": 362.11
+   },
+   {
+    "main": 21.96,
+    "decoded": 208.18,
+    "qapplication": 310.33,
+    "window_shown": 316.58,
+    "first_image_painted": 370.58
+   },
+   {
+    "main": 20.26,
+    "decoded": 202.73,
+    "qapplication": 336.15,
+    "window_shown": 349.75,
+    "first_image_painted": 406.8
+   },
+   {
+    "main": 24.56,
+    "decoded": 197.51,
+    "qapplication": 276.4,
+    "window_shown": 278.13,
+    "first_image_painted": 295.11
+   },
+   {
+    "main": 25.93,
+    "decoded": 236.93,
+    "qapplication": 357.92,
+    "window_shown": 368.07,
+    "first_image_painted": 400.46
+   },
+   {
+    "main": 24.15,
+    "decoded": 221.73,
+    "qapplication": 338.94,
+    "window_shown": 349.31,
+    "first_image_painted": 407.76
+   },
+   {
+    "main": 21.57,
+    "decoded": 263.1,
+    "qapplication": 368.91,
+    "window_shown": 372.22,
+    "first_image_painted": 435.54
+   },
+   {
+    "main": 22.57,
+    "decoded": 205.9,
+    "qapplication": 337.77,
+    "window_shown": 349.41,
+    "first_image_painted": 405.08
+   },
+   {
+    "main": 20.83,
+    "decoded": 212.12,
+    "qapplication": 290.3,
+    "window_shown": 291.72,
+    "first_image_painted": 306.16
+   },
+   {
+    "main": 20.91,
+    "decoded": 204.26,
+    "qapplication": 327.52,
+    "window_shown": 339.8,
+    "first_image_painted": 376.62
+   },
+   {
+    "main": 24.74,
+    "decoded": 207.39,
+    "qapplication": 314.68,
+    "window_shown": 325.56,
+    "first_image_painted": 377.64
+   },
+   {
+    "main": 23.24,
+    "decoded": 178.52,
+    "qapplication": 251.54,
+    "window_shown": 254.28,
+    "first_image_painted": 277.38
+   },
+   {
+    "main": 21.17,
+    "decoded": 266.26,
+    "qapplication": 386.29,
+    "window_shown": 396.94,
+    "first_image_painted": 454.06
+   }
+  ],
+  "nav": {
+   "flip every 200 ms": [
+    13.87,
+    13.97,
+    14.76,
+    13.75,
+    14.0,
+    11.37,
+    11.05,
+    4.01,
+    13.88,
+    12.12,
+    11.62,
+    10.84,
+    14.14,
+    11.73,
+    13.81,
+    11.92,
+    11.74,
+    3.69,
+    8.09,
+    11.87,
+    10.0,
+    13.58,
+    11.89,
+    14.02,
+    12.19
+   ],
+   "hold the key (back-to-back)": [
+    13.84,
+    21.41,
+    142.61,
+    9.41,
+    84.5,
+    5.1,
+    36.29,
+    9.21,
+    210.25,
+    3.83,
+    156.91,
+    16.16,
+    92.23,
+    6.93,
+    44.66,
+    5.32,
+    107.4,
+    34.82,
+    138.27,
+    8.2,
+    148.25,
+    18.05,
+    87.27,
+    9.08,
+    87.71
+   ]
+  }
+ },
+ "egui+glow / wayland": {
+  "cold": [
+   {
+    "main": 9.78,
+    "renderer_ready": 257.85,
+    "decoded": 398.76,
+    "first_image_painted": 410.02
+   },
+   {
+    "main": 5.71,
+    "renderer_ready": 195.34,
+    "decoded": 257.08,
+    "first_image_painted": 268.54
+   },
+   {
+    "main": 6.0,
+    "renderer_ready": 200.52,
+    "decoded": 211.82,
+    "first_image_painted": 218.44
+   },
+   {
+    "main": 5.89,
+    "renderer_ready": 188.25,
+    "decoded": 201.87,
+    "first_image_painted": 208.22
+   },
+   {
+    "main": 5.57,
+    "decoded": 194.18,
+    "renderer_ready": 211.04,
+    "first_image_painted": 217.18
+   },
+   {
+    "main": 5.18,
+    "renderer_ready": 198.68,
+    "decoded": 269.49,
+    "first_image_painted": 283.92
+   },
+   {
+    "main": 6.18,
+    "renderer_ready": 225.19,
+    "decoded": 321.71,
+    "first_image_painted": 328.02
+   },
+   {
+    "main": 4.95,
+    "renderer_ready": 200.98,
+    "decoded": 215.91,
+    "first_image_painted": 221.78
+   },
+   {
+    "main": 6.28,
+    "renderer_ready": 196.27,
+    "decoded": 220.48,
+    "first_image_painted": 224.6
+   },
+   {
+    "main": 4.92,
+    "renderer_ready": 198.24,
+    "decoded": 287.3,
+    "first_image_painted": 294.21
+   },
+   {
+    "main": 4.7,
+    "renderer_ready": 196.84,
+    "decoded": 217.57,
+    "first_image_painted": 222.44
+   },
+   {
+    "main": 5.18,
+    "renderer_ready": 199.24,
+    "decoded": 223.44,
+    "first_image_painted": 229.69
+   },
+   {
+    "main": 5.34,
+    "renderer_ready": 196.35,
+    "decoded": 214.57,
+    "first_image_painted": 218.4
+   },
+   {
+    "main": 6.14,
+    "renderer_ready": 205.71,
+    "decoded": 227.44,
+    "first_image_painted": 232.69
+   },
+   {
+    "main": 5.5,
+    "renderer_ready": 200.49,
+    "decoded": 217.01,
+    "first_image_painted": 221.03
+   }
+  ],
+  "nav": {
+   "flip every 200 ms": [
+    5.46,
+    1.88,
+    5.21,
+    10.0,
+    5.39,
+    2.02,
+    2.61,
+    1.93,
+    5.33,
+    2.35,
+    5.49,
+    10.83,
+    2.52,
+    5.63,
+    5.61,
+    2.63,
+    4.92,
+    2.29,
+    7.11,
+    6.11,
+    18.4,
+    5.96,
+    18.12,
+    7.28,
+    6.69
+   ],
+   "hold the key (back-to-back)": [
+    6.15,
+    11.62,
+    163.69,
+    9.59,
+    107.12,
+    9.16,
+    199.17,
+    9.57,
+    281.88,
+    8.97,
+    149.89,
+    9.81,
+    164.94,
+    9.1,
+    165.98,
+    9.34,
+    207.36,
+    9.79,
+    298.6,
+    9.35,
+    290.73,
+    10.1,
+    132.34,
+    9.28,
+    106.94
+   ]
+  }
+ },
+ "egui+wgpu / wayland": {
+  "cold": [
+   {
+    "main": 6.11,
+    "decoded": 203.47,
+    "renderer_ready": 414.75,
+    "first_image_painted": 434.54
+   },
+   {
+    "main": 5.98,
+    "decoded": 216.71,
+    "renderer_ready": 450.93,
+    "first_image_painted": 471.16
+   },
+   {
+    "main": 5.78,
+    "decoded": 221.03,
+    "renderer_ready": 368.45,
+    "first_image_painted": 388.73
+   },
+   {
+    "main": 5.6,
+    "decoded": 307.0,
+    "renderer_ready": 453.26,
+    "first_image_painted": 472.11
+   },
+   {
+    "main": 6.08,
+    "decoded": 215.21,
+    "renderer_ready": 396.93,
+    "first_image_painted": 416.56
+   },
+   {
+    "main": 5.18,
+    "decoded": 218.88,
+    "renderer_ready": 392.56,
+    "first_image_painted": 407.4
+   },
+   {
+    "main": 5.85,
+    "decoded": 226.69,
+    "renderer_ready": 443.69,
+    "first_image_painted": 461.77
+   },
+   {
+    "main": 6.2,
+    "decoded": 212.84,
+    "renderer_ready": 431.55,
+    "first_image_painted": 451.95
+   },
+   {
+    "main": 6.71,
+    "decoded": 211.17,
+    "renderer_ready": 346.32,
+    "first_image_painted": 357.06
+   },
+   {
+    "main": 5.24,
+    "decoded": 210.35,
+    "renderer_ready": 364.29,
+    "first_image_painted": 384.48
+   },
+   {
+    "main": 5.33,
+    "decoded": 212.42,
+    "renderer_ready": 388.36,
+    "first_image_painted": 409.06
+   },
+   {
+    "main": 5.43,
+    "decoded": 208.91,
+    "renderer_ready": 436.25,
+    "first_image_painted": 457.69
+   },
+   {
+    "main": 5.25,
+    "decoded": 220.64,
+    "renderer_ready": 410.84,
+    "first_image_painted": 431.0
+   },
+   {
+    "main": 5.31,
+    "decoded": 207.18,
+    "renderer_ready": 338.72,
+    "first_image_painted": 352.95
+   },
+   {
+    "main": 5.76,
+    "decoded": 280.53,
+    "renderer_ready": 511.98,
+    "first_image_painted": 532.18
+   }
+  ],
+  "nav": {
+   "flip every 200 ms": [
+    6.94,
+    7.34,
+    2.86,
+    5.08,
+    2.0,
+    10.42,
+    1.97,
+    2.33,
+    4.94,
+    10.38,
+    1.65,
+    7.1,
+    1.86,
+    4.79,
+    7.91,
+    11.11,
+    7.76,
+    4.76,
+    8.97,
+    5.3,
+    10.49,
+    4.97,
+    5.63,
+    10.15,
+    10.16
+   ],
+   "hold the key (back-to-back)": [
+    5.9,
+    8.32,
+    214.69,
+    8.93,
+    107.71,
+    9.36,
+    182.6,
+    9.55,
+    223.25,
+    8.7,
+    200.38,
+    14.92,
+    109.74,
+    8.97,
+    157.54,
+    9.29,
+    115.84,
+    8.31,
+    149.62,
+    8.66,
+    233.35,
+    9.31,
+    99.32,
+    9.44,
+    165.39
+   ]
+  }
+ }
+}

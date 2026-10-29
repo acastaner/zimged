@@ -1,0 +1,3 @@
+qt/build/
+rust/target/
+rust/Cargo.lock

@@ -1,0 +1,16 @@
+# PROTOTYPE, throwaway: Rust/egui half of the cold-start spike (acastaner/zimged#9).
+[package]
+name = "zimged-spike-rust"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = ["glow", "wgpu", "wayland", "x11", "default_fonts"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+fast_image_resize = "6"
+
+[profile.release]
+debug = false
+lto = "thin"
+codegen-units = 4
