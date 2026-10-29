@@ -1,24 +1,29 @@
 //! The eframe app: state, the per-frame loop, and command execution.
 //!
 //! Keep this file thin. Chrome lives in `ui/` (one module per bar), commands in `commands.rs`,
-//! keyboard mapping in `input.rs`, the editor (Document, tools, composite) in `editor.rs`, and
-//! domain state in `zimged-core`. `ui()` polls background work, maps keys to commands, then lays
-//! out the panels.
+//! input mapping in `input.rs`, the editor (Document, tools, composite) in `editor.rs`, and domain
+//! state in `zimged-core`. `ui()` polls background work, then lays out the panels.
 
-use std::path::Path;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, mpsc};
 
-use zimged_codec::{DisplayImage, Size};
+use zimged_codec::{DisplayImage, Size, fit_within};
 use zimged_core::Document;
 use zimged_platform::{Config, Platform};
 use zimged_render::Composite;
 
 use crate::Command;
+use crate::config_save::ConfigSaver;
 use crate::decode::{DecodeResult, PendingDecode};
-use crate::editor::{DisplayPixels, Editor, VIEW_ONLY_MESSAGE};
+use crate::editor::{DisplayPixels, Editor, MAX_EDIT_PIXELS, VIEW_ONLY_MESSAGE};
 use crate::tools::ToolId;
-use crate::ui::{canvas, property_bar, status_bar, tool_strip};
+use crate::ui::{canvas, menu_bar, property_bar, status_bar, tool_strip};
+use crate::view::{View, ZOOM_STEP, Zoom};
+
+/// The largest Image whose full-resolution pixels are decoded (§4.7). Larger ones are view-only and
+/// zoom in on their display-size pixels.
+const FULL_RESOLUTION_LIMIT: u64 = MAX_EDIT_PIXELS;
 
 /// Everything the startup path (or a test) hands the app.
 pub struct Launch {
@@ -40,21 +45,6 @@ impl Launch {
     }
 }
 
-/// How the Image is scaled on the canvas.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Zoom {
-    /// Fit to the canvas, never above 100% (§3.1 `0`, the default for every new Image).
-    Fit,
-}
-
-impl Zoom {
-    pub fn label(self) -> String {
-        match self {
-            Zoom::Fit => "Fit".to_owned(),
-        }
-    }
-}
-
 /// What the canvas shows (see [`ZimgedApp::canvas`]).
 #[derive(Clone, Copy, Debug)]
 pub struct CanvasView {
@@ -62,17 +52,57 @@ pub struct CanvasView {
     pub area: egui::Rect,
     /// Where the Image is drawn, in points.
     pub image: egui::Rect,
-    /// The size of the pixels on screen: the display-size decode (§5.2).
+    /// The size of the pixels drawn: the display-size decode (§5.2), or the full-resolution one
+    /// once zoomed past it (§7.2).
     pub decoded_size: Size,
 }
 
 /// The Image on screen.
 pub(crate) struct ShownImage {
+    pub path: PathBuf,
     pub file_name: String,
     pub original_size: Size,
-    pub texture: egui::TextureHandle,
-    /// The display-size pixels, which the Skia composite draws from.
-    pub display: DisplayPixels,
+    /// The display-size decode (§5.2), re-decoded larger if the canvas outgrows it (a resize, or a
+    /// HiDPI scale factor the startup decode couldn't know).
+    display: egui::TextureHandle,
+    /// The full-resolution decode, once zoomed past the display-size one (§7.2). Capped at the GPU's
+    /// largest texture.
+    full: Option<egui::TextureHandle>,
+    /// The largest decode asked for so far, so a size that can't be bettered isn't asked for again.
+    requested: Size,
+    /// The display-size pixels on the CPU, which the Skia composite draws from (§7.2).
+    pub display_pixels: DisplayPixels,
+}
+
+impl ShownImage {
+    /// The texture to draw when the Image covers `on_screen` physical pixels.
+    pub fn texture_for(&self, on_screen: Size) -> &egui::TextureHandle {
+        let display = texture_size(&self.display);
+        match &self.full {
+            Some(full) if on_screen.width > display.width || on_screen.height > display.height => {
+                full
+            }
+            _ => &self.display,
+        }
+    }
+
+    /// The most pixels on hand.
+    fn best_size(&self) -> Size {
+        texture_size(self.full.as_ref().unwrap_or(&self.display))
+    }
+}
+
+/// Which pixels a background decode of the shown Image brings.
+#[derive(Clone, Copy, PartialEq)]
+enum Pixels {
+    Display,
+    Full,
+}
+
+/// A decode of the shown Image that brings more pixels.
+struct Upgrade {
+    pending: PendingDecode,
+    pixels: Pixels,
 }
 
 /// Where the app is on the way to its first painted image (§1.3 steps 4 and 5).
@@ -85,18 +115,31 @@ enum FirstPaint {
     Done,
 }
 
+/// The canvas text when there is no Image (§2).
+pub const EMPTY_WINDOW_HINT: &str = "Open (Ctrl+O), drop or paste (Ctrl+V) an image";
+
 pub struct ZimgedApp {
-    #[expect(dead_code, reason = "used by the clipboard, trash and dialog tickets")]
+    /// To wake the UI from background work.
+    ctx: egui::Context,
     platform: Platform,
     config: Config,
+    config_saver: ConfigSaver,
     pending: Option<PendingDecode>,
     shown: Option<ShownImage>,
     /// "Can't open <name>: <reason>" (§5.2), shown on the canvas instead of an image.
     error: Option<String>,
-    zoom: Zoom,
+    upgrade: Option<Upgrade>,
+    view: View,
+    /// Wanted fullscreen state (F11). Chrome is hidden while it's on.
+    fullscreen: bool,
+    /// The last fullscreen state sent to the window, and the last one the window reported.
+    fullscreen_sent: Option<bool>,
+    fullscreen_seen: Option<bool>,
     /// The canvas as laid out in the last frame.
     canvas: Option<canvas::Layout>,
     first_paint: FirstPaint,
+    /// The open dialog while it is up: receives the chosen path, or `None` on Cancel.
+    open_dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
     editor: Editor,
 }
 
@@ -105,22 +148,42 @@ impl ZimgedApp {
         if let Some(pending) = &launch.first_image {
             pending.wake(&cc.egui_ctx);
         }
+        // Ctrl+plus / minus / 0 would scale the whole UI; the image zoom is on plain +, - and 0.
+        cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         Self {
+            ctx: cc.egui_ctx.clone(),
+            config_saver: ConfigSaver::new(launch.platform.config.clone()),
             platform: launch.platform,
             config: launch.config,
             pending: launch.first_image,
             shown: None,
             error: None,
-            zoom: Zoom::Fit,
+            upgrade: None,
+            view: View::fit(),
+            fullscreen: false,
+            fullscreen_sent: None,
+            fullscreen_seen: None,
             canvas: None,
             first_paint: FirstPaint::Waiting,
+            open_dialog: None,
             editor: Editor::new(),
         }
     }
 
     pub fn execute(&mut self, command: Command) {
         match command {
+            // #35: with unsaved changes, opening (from the launch argument, the dialog or a drop)
+            // first asks Save / Discard / Cancel (§6.4). Every open comes through here.
             Command::Open(path) => self.open(&path),
+            Command::OpenDialog => self.show_open_dialog(),
+            Command::ZoomIn => self.zoom(ZOOM_STEP, None),
+            Command::ZoomOut => self.zoom(1.0 / ZOOM_STEP, None),
+            Command::ZoomAround { factor, around } => self.zoom(factor, Some(around)),
+            Command::ZoomFit => self.view = View::fit(),
+            Command::ToggleFullscreen => self.fullscreen = !self.fullscreen,
+            Command::SetAllowMultipleInstances(allow) => {
+                self.update_config(|config| config.allow_multiple_instances = allow);
+            }
             Command::SelectTool(tool) => self.editor.select_tool(tool),
             Command::Undo => self.editor.undo(),
             Command::Redo => self.editor.redo(),
@@ -132,12 +195,7 @@ impl ZimgedApp {
         }
     }
 
-    /// Is background work still pending (a decode, …)? Tests wait for this to clear.
-    pub fn is_busy(&self) -> bool {
-        self.pending.is_some() || self.editor.is_busy()
-    }
-
-    // ---- What tests (and later the menus) read ----
+    // ---- The editor, as tests (and later the menus) see it ----
 
     /// The open Document: the Annotations, the selection and the History.
     pub fn document(&self) -> Option<&Document> {
@@ -163,8 +221,110 @@ impl ZimgedApp {
         self.editor.selection_box()
     }
 
+    /// Over 100 MP: the tools are disabled (§4.7).
     pub fn is_view_only(&self) -> bool {
         self.editor.is_view_only()
+    }
+
+    /// The settings in effect (§8.3), including changes not yet written to `config.toml`.
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
+    /// Is background work still pending (a decode, an answer from the open dialog, a config write,
+    /// …)? Tests wait for this to clear.
+    pub fn is_busy(&self) -> bool {
+        self.pending.is_some()
+            || self.upgrade.is_some()
+            || self.open_dialog.is_some()
+            || self.config_saver.is_busy()
+            || self.editor.is_busy()
+    }
+
+    /// Is the window fullscreen (or about to be)?
+    pub fn is_fullscreen(&self) -> bool {
+        self.fullscreen
+    }
+
+    fn zoom(&mut self, factor: f32, around: Option<egui::Pos2>) {
+        let (Some(shown), Some(layout)) = (&self.shown, self.canvas) else {
+            return;
+        };
+        self.view.zoom_by(
+            factor,
+            around,
+            shown.original_size,
+            layout.area,
+            layout.pixels_per_point,
+        );
+    }
+
+    /// Change the settings and schedule a (debounced) write of `config.toml`.
+    fn update_config(&mut self, change: impl FnOnce(&mut Config)) {
+        let before = self.config.clone();
+        change(&mut self.config);
+        if self.config != before {
+            self.config_saver.changed();
+        }
+    }
+
+    /// Remember the window's restored size and maximised state (§2, §8.3). A fullscreen or
+    /// minimised window isn't recorded.
+    fn track_window(&mut self, ctx: &egui::Context) {
+        let (inner, maximised, fullscreen, minimised) = ctx.input(|i| {
+            let viewport = i.viewport();
+            (
+                viewport.inner_rect,
+                viewport.maximized,
+                viewport.fullscreen,
+                viewport.minimized,
+            )
+        });
+        // `self.fullscreen` covers the frames before the window reports entering fullscreen; the
+        // viewport flag covers those before it reports leaving it.
+        if self.fullscreen || fullscreen == Some(true) || minimised == Some(true) {
+            return;
+        }
+        self.update_config(|config| {
+            if let Some(maximised) = maximised {
+                config.window.maximised = maximised;
+            }
+            if !config.window.maximised
+                && let Some(inner) = inner
+            {
+                config.window.width = inner.width().round();
+                config.window.height = inner.height().round();
+            }
+        });
+    }
+
+    /// Ctrl+O. Only one open dialog at a time: asking again while it is up does nothing.
+    fn show_open_dialog(&mut self) {
+        if self.open_dialog.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        self.open_dialog = Some(rx);
+        let ctx = self.ctx.clone();
+        self.platform.dialogs.pick_image(Box::new(move |chosen| {
+            let _ = tx.send(chosen);
+            ctx.request_repaint();
+        }));
+    }
+
+    fn poll_open_dialog(&mut self) {
+        let Some(rx) = &self.open_dialog else {
+            return;
+        };
+        let chosen = match rx.try_recv() {
+            Ok(chosen) => chosen,
+            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Disconnected) => None,
+        };
+        self.open_dialog = None;
+        if let Some(path) = chosen {
+            self.execute(Command::Open(path));
+        }
     }
 
     fn open(&mut self, path: &Path) {
@@ -186,33 +346,121 @@ impl ZimgedApp {
         };
         let path = pending.path().to_owned();
         self.pending = None;
-        self.show_decoded(ctx, &path, result);
+        self.show_decoded(ctx, path, result);
     }
 
-    fn show_decoded(&mut self, ctx: &egui::Context, path: &Path, result: DecodeResult) {
-        let file_name = file_name(path);
+    fn show_decoded(&mut self, ctx: &egui::Context, path: PathBuf, result: DecodeResult) {
+        let file_name = file_name(&path);
         match result {
             Ok(image) => {
-                let texture = upload(ctx, &image);
-                self.editor.open(path, image.original_size);
+                self.editor.open(&path, image.original_size);
                 self.shown = Some(ShownImage {
+                    path,
                     file_name,
                     original_size: image.original_size,
-                    texture,
-                    display: DisplayPixels {
-                        key: next_display_key(),
-                        size: image.size,
-                        rgb: Arc::new(image.rgb),
-                    },
+                    display: upload(ctx, &image, Pixels::Display),
+                    full: None,
+                    requested: image.size,
+                    display_pixels: display_pixels(image),
                 });
+                self.upgrade = None;
                 self.error = None;
-                self.zoom = Zoom::Fit;
+                self.view = View::fit();
             }
             Err(reason) => {
                 self.shown = None;
                 self.editor.close();
                 self.error = Some(format!("Can't open {file_name}: {reason}"));
             }
+        }
+    }
+
+    fn poll_upgrade(&mut self, ctx: &egui::Context) {
+        let Some(upgrade) = &self.upgrade else {
+            return;
+        };
+        upgrade.pending.wake(ctx);
+        let Some(result) = upgrade.pending.take() else {
+            return;
+        };
+        let upgrade = self.upgrade.take().expect("checked above");
+        let (Ok(image), Some(shown)) = (result, self.shown.as_mut()) else {
+            // A failed re-decode (the file changed or went away) keeps the pixels on screen.
+            return;
+        };
+        if upgrade.pending.path() != shown.path || image.original_size != shown.original_size {
+            return;
+        }
+        let texture = upload(ctx, &image, upgrade.pixels);
+        match upgrade.pixels {
+            Pixels::Display => {
+                shown.display = texture;
+                shown.display_pixels = display_pixels(image);
+            }
+            Pixels::Full => shown.full = Some(texture),
+        }
+    }
+
+    /// Start a decode with more pixels when the Image is drawn larger than the pixels on hand: at
+    /// Fit, a display-size re-decode for the canvas's physical size; zoomed, the full resolution
+    /// (§7.2). One at a time, never for the Image that's about to be replaced, and not before the
+    /// first paint (§1.3).
+    fn request_pixels(&mut self, ctx: &egui::Context) {
+        if self.upgrade.is_some() || self.pending.is_some() || self.first_paint != FirstPaint::Done
+        {
+            return;
+        }
+        let (Some(layout), Some(shown)) = (self.canvas, self.shown.as_mut()) else {
+            return;
+        };
+        let Some(on_screen) = layout.image_px() else {
+            return;
+        };
+        let have = shown.best_size();
+        if on_screen.width <= have.width && on_screen.height <= have.height {
+            return;
+        }
+        let original = shown.original_size;
+        let (pixels, max) = match self.view.zoom {
+            Zoom::Fit => (Pixels::Display, layout.area_px()),
+            Zoom::Scale(_)
+                if u64::from(original.width) * u64::from(original.height)
+                    <= FULL_RESOLUTION_LIMIT =>
+            {
+                let side = ctx.input(|i| i.max_texture_side) as u32;
+                (Pixels::Full, Size::new(side, side))
+            }
+            Zoom::Scale(_) => return,
+        };
+        let target = fit_within(original, max);
+        if target.width <= shown.requested.width && target.height <= shown.requested.height {
+            return;
+        }
+        shown.requested = target;
+        let pending = PendingDecode::spawn(shown.path.clone(), move || max);
+        pending.wake(ctx);
+        self.upgrade = Some(Upgrade { pending, pixels });
+    }
+
+    /// Follow F11, and adopt a fullscreen change made by the window manager.
+    fn sync_fullscreen(&mut self, ctx: &egui::Context) {
+        let seen = ctx.input(|i| i.viewport().fullscreen);
+        if let Some(seen) = seen
+            && self.fullscreen_seen != Some(seen)
+        {
+            self.fullscreen_seen = Some(seen);
+            // Only when it isn't the window catching up with an F11 not yet applied.
+            if self
+                .fullscreen_sent
+                .is_none_or(|sent| sent == self.fullscreen)
+            {
+                self.fullscreen = seen;
+                self.fullscreen_sent = Some(seen);
+            }
+        }
+        if self.fullscreen_sent != Some(self.fullscreen) {
+            self.fullscreen_sent = Some(self.fullscreen);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
         }
     }
 
@@ -223,15 +471,24 @@ impl ZimgedApp {
     /// What the canvas shows, as of the last frame: `None` when no Image is drawn.
     pub fn canvas(&self) -> Option<CanvasView> {
         let layout = self.canvas?;
-        let shown = self.shown.as_ref()?;
+        self.shown.as_ref()?;
         Some(CanvasView {
             area: layout.area,
             image: layout.image?,
-            decoded_size: Size::new(
-                shown.texture.size()[0] as u32,
-                shown.texture.size()[1] as u32,
-            ),
+            decoded_size: layout.drawn?,
         })
+    }
+
+    /// The text the canvas shows instead of an Image: the decode error, or the empty-window hint.
+    fn canvas_message(&self) -> Option<&str> {
+        if self.shown.is_some() {
+            return None;
+        }
+        if let Some(error) = &self.error {
+            return Some(error);
+        }
+        // While the first Image decodes, the canvas stays blank rather than flash the hint.
+        self.pending.is_none().then_some(EMPTY_WINDOW_HINT)
     }
 
     fn status_bar(&self) -> status_bar::StatusBar<'_> {
@@ -239,14 +496,13 @@ impl ZimgedApp {
             file_name: self.shown.as_ref().map(|s| s.file_name.as_str()),
             modified: self.document().is_some_and(|d| d.is_modified()),
             pixel_size: self.shown.as_ref().map(|s| s.original_size),
-            zoom: self.shown.as_ref().map(|_| self.zoom),
+            zoom: self.shown.as_ref().map(|_| self.view.zoom),
             message: self.is_view_only().then_some(VIEW_ONLY_MESSAGE),
         }
     }
 
     fn property_bar(&mut self, ui: &mut egui::Ui) {
         let (style, properties, selection) = self.editor.property_target();
-        let tool = self.editor.tool();
         let out = property_bar::show(
             ui,
             &property_bar::PropertyBar {
@@ -257,7 +513,7 @@ impl ZimgedApp {
                     &[]
                 },
                 selection,
-                hint: tool.hint(),
+                hint: self.editor.tool().hint(),
             },
         );
         for property in out.changes {
@@ -279,26 +535,46 @@ impl eframe::App for ZimgedApp {
             self.first_paint = FirstPaint::Done;
             self.after_first_paint(&ctx);
         }
+        for command in crate::input::commands(&ctx, self.canvas.map(|c| c.area)) {
+            self.execute(command);
+        }
+        self.poll_open_dialog();
         self.poll_decode(&ctx);
+        self.poll_upgrade(&ctx);
         self.editor.poll(&ctx);
-        for command in crate::input::keyboard_commands(&ctx) {
-            self.execute(command);
-        }
+        self.sync_fullscreen(&ctx);
+        self.track_window(&ctx);
+        self.config_saver.poll(&ctx, &self.config);
 
-        // The menu bar (#23) goes above the property bar.
-        self.property_bar(ui);
-        if let Some(command) = tool_strip::show(ui, self.editor.tool(), self.editor.can_edit()) {
-            self.execute(command);
+        // Fullscreen hides all chrome (§2): the menu bar, property bar, tool strip and status bar.
+        if !self.fullscreen {
+            let menu = menu_bar::MenuBar {
+                allow_multiple_instances: self.config.allow_multiple_instances,
+            };
+            if let Some(command) = menu_bar::show(ui, &menu) {
+                self.execute(command);
+            }
+            self.property_bar(ui);
+            if let Some(command) = tool_strip::show(ui, self.editor.tool(), self.editor.can_edit())
+            {
+                self.execute(command);
+            }
+            status_bar::show(ui, &self.status_bar());
         }
-        status_bar::show(ui, &self.status_bar());
+        // Laying out keeps the zoomed Image in bounds, so the view comes back updated.
+        let mut view = self.view;
+        let message = self.canvas_message().map(str::to_owned);
         let editor = &mut self.editor;
-        let display = self.shown.as_ref().map(|s| &s.display);
+        let display = self.shown.as_ref().map(|s| &s.display_pixels);
         self.canvas = Some(canvas::show(
             ui,
             self.shown.as_ref(),
-            self.error.as_deref(),
+            &mut view,
+            message.as_deref(),
             |ui, layout, response| editor.canvas(ui.ctx(), layout, response, display),
         ));
+        self.view = view;
+        self.request_pixels(&ctx);
 
         if self.first_paint == FirstPaint::Waiting && self.shown.is_some() {
             // Same convention as the spike: the mark is taken while building the frame that draws
@@ -311,6 +587,10 @@ impl eframe::App for ZimgedApp {
             ctx.request_repaint();
         }
     }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.config_saver.flush(&self.config);
+    }
 }
 
 /// The display box to decode into before the window exists: the configured window size, at a
@@ -322,11 +602,6 @@ pub fn startup_display_box(config: &Config) -> Size {
     )
 }
 
-fn next_display_key() -> u64 {
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    NEXT.fetch_add(1, Ordering::Relaxed)
-}
-
 fn file_name(path: &Path) -> String {
     path.file_name()
         .unwrap_or(path.as_os_str())
@@ -334,10 +609,36 @@ fn file_name(path: &Path) -> String {
         .into_owned()
 }
 
-fn upload(ctx: &egui::Context, image: &DisplayImage) -> egui::TextureHandle {
+fn upload(ctx: &egui::Context, image: &DisplayImage, kind: Pixels) -> egui::TextureHandle {
     let pixels = egui::ColorImage::from_rgb(
         [image.size.width as usize, image.size.height as usize],
         &image.rgb,
     );
-    ctx.load_texture("image", pixels, egui::TextureOptions::LINEAR)
+    let (name, options) = match kind {
+        Pixels::Display => ("image", egui::TextureOptions::LINEAR),
+        // Drawn anywhere from just above the display size down: mipmaps keep it from aliasing.
+        Pixels::Full => (
+            "image-full",
+            egui::TextureOptions {
+                mipmap_mode: Some(egui::TextureFilter::Linear),
+                ..egui::TextureOptions::LINEAR
+            },
+        ),
+    };
+    ctx.load_texture(name, pixels, options)
+}
+
+/// Keep a display-size decode's pixels for the Skia composite, with a fresh renderer cache key.
+fn display_pixels(image: DisplayImage) -> DisplayPixels {
+    static NEXT_KEY: AtomicU64 = AtomicU64::new(1);
+    DisplayPixels {
+        key: NEXT_KEY.fetch_add(1, Ordering::Relaxed),
+        size: image.size,
+        rgb: Arc::new(image.rgb),
+    }
+}
+
+fn texture_size(texture: &egui::TextureHandle) -> Size {
+    let [w, h] = texture.size();
+    Size::new(w as u32, h as u32)
 }

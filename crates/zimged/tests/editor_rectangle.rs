@@ -19,8 +19,8 @@ fn app_with_image() -> TestApp {
 /// An Image with one rectangle from (40, 30) to (140, 90), drawn with the rectangle tool, selected.
 fn app_with_rectangle() -> TestApp {
     let mut app = app_with_image();
-    app.key(Key::R);
-    app.drag((40.0, 30.0), (140.0, 90.0));
+    app.press(Key::R);
+    app.drag_px((40.0, 30.0), (140.0, 90.0));
     app
 }
 
@@ -74,7 +74,7 @@ fn clicking_a_tool_button_selects_the_tool_and_esc_returns_to_select() {
     app.control("Rectangle").click();
     app.settle();
     assert_eq!(app.harness.state().tool(), ToolId::Rectangle);
-    app.key(Key::Escape);
+    app.press(Key::Escape);
     assert_eq!(app.harness.state().tool(), ToolId::Select);
 }
 
@@ -95,7 +95,7 @@ fn dragging_with_the_rectangle_tool_draws_a_selected_rectangle_and_keeps_the_too
 #[test]
 fn the_tool_stays_active_for_several_rectangles_in_a_row() {
     let mut app = app_with_rectangle();
-    app.drag((200.0, 150.0), (160.0, 120.0));
+    app.drag_px((200.0, 150.0), (160.0, 120.0));
 
     assert_eq!(app.doc().annotations().len(), 2);
     assert_eq!(rect_of(&app, 1), [160, 120, 200, 150]);
@@ -105,8 +105,8 @@ fn the_tool_stays_active_for_several_rectangles_in_a_row() {
 #[test]
 fn shift_makes_a_square() {
     let mut app = app_with_image();
-    app.key(Key::R);
-    app.drag_with(Modifiers::SHIFT, (50.0, 50.0), (130.0, 90.0));
+    app.press(Key::R);
+    app.drag_px_with(Modifiers::SHIFT, (50.0, 50.0), (130.0, 90.0));
 
     assert_eq!(rect_of(&app, 0), [50, 50, 130, 130]);
 }
@@ -114,8 +114,8 @@ fn shift_makes_a_square() {
 #[test]
 fn a_click_with_the_rectangle_tool_draws_nothing() {
     let mut app = app_with_image();
-    app.key(Key::R);
-    app.click((50.0, 50.0));
+    app.press(Key::R);
+    app.click_px((50.0, 50.0));
 
     assert!(app.doc().annotations().is_empty());
     assert!(!app.doc().can_undo());
@@ -126,13 +126,13 @@ fn a_click_with_the_rectangle_tool_draws_nothing() {
 #[test]
 fn clicking_selects_and_clicking_empty_space_deselects() {
     let mut app = app_with_rectangle();
-    app.key(Key::Escape);
-    app.click((250.0, 200.0));
+    app.press(Key::Escape);
+    app.click_px((250.0, 200.0));
     assert!(app.doc().selection().is_empty());
     assert_eq!(app.harness.state().selection_box(), None);
 
     // On the line of an unfilled rectangle.
-    app.click((40.0, 60.0));
+    app.click_px((40.0, 60.0));
     assert_eq!(app.doc().selection().len(), 1);
     let shown = app
         .harness
@@ -145,15 +145,15 @@ fn clicking_selects_and_clicking_empty_space_deselects() {
     assert!((shown.max - bottom_right).length() < 0.5);
 
     // Inside an unfilled rectangle is not on it.
-    app.click((90.0, 60.0));
+    app.click_px((90.0, 60.0));
     assert!(app.doc().selection().is_empty());
 }
 
 #[test]
 fn dragging_a_selected_rectangle_moves_it_as_one_step() {
     let mut app = app_with_rectangle();
-    app.key(Key::Escape);
-    app.drag((40.0, 50.0), (70.0, 90.0));
+    app.press(Key::Escape);
+    app.drag_px((40.0, 50.0), (70.0, 90.0));
 
     assert_eq!(rect_of(&app, 0), [70, 70, 170, 130]);
     assert_eq!(app.doc().undo_len(), 2);
@@ -163,9 +163,9 @@ fn dragging_a_selected_rectangle_moves_it_as_one_step() {
 #[test]
 fn dragging_an_unselected_rectangle_selects_and_moves_it() {
     let mut app = app_with_rectangle();
-    app.key(Key::Escape);
-    app.click((250.0, 200.0));
-    app.drag((140.0, 60.0), (150.0, 70.0));
+    app.press(Key::Escape);
+    app.click_px((250.0, 200.0));
+    app.drag_px((140.0, 60.0), (150.0, 70.0));
 
     assert_eq!(rect_of(&app, 0), [50, 40, 150, 100]);
     assert_eq!(app.doc().selection().len(), 1);
@@ -174,15 +174,15 @@ fn dragging_an_unselected_rectangle_selects_and_moves_it() {
 #[test]
 fn handles_resize_the_selection() {
     let mut app = app_with_rectangle();
-    app.key(Key::Escape);
+    app.press(Key::Escape);
     // Bottom-right corner handle.
-    app.drag((140.0, 90.0), (200.0, 160.0));
+    app.drag_px((140.0, 90.0), (200.0, 160.0));
     assert_eq!(rect_of(&app, 0), [40, 30, 200, 160]);
     // Left edge handle: only the left edge moves.
-    app.drag((40.0, 95.0), (10.0, 95.0));
+    app.drag_px((40.0, 95.0), (10.0, 95.0));
     assert_eq!(rect_of(&app, 0), [10, 30, 200, 160]);
     // Top edge handle.
-    app.drag((105.0, 30.0), (105.0, 60.0));
+    app.drag_px((105.0, 30.0), (105.0, 60.0));
     assert_eq!(rect_of(&app, 0), [10, 60, 200, 160]);
 
     assert_eq!(app.doc().undo_len(), 4);
@@ -192,7 +192,7 @@ fn handles_resize_the_selection() {
 #[test]
 fn delete_removes_the_selection() {
     let mut app = app_with_rectangle();
-    app.key(Key::Delete);
+    app.press(Key::Delete);
 
     assert!(app.doc().annotations().is_empty());
     assert!(app.doc().selection().is_empty());
@@ -202,8 +202,8 @@ fn delete_removes_the_selection() {
 #[test]
 fn the_property_bar_delete_button_removes_the_selection() {
     let mut app = app_with_rectangle();
-    app.key(Key::Escape);
-    app.click((40.0, 60.0));
+    app.press(Key::Escape);
+    app.click_px((40.0, 60.0));
     app.control("Delete").click();
     app.settle();
 
@@ -229,7 +229,7 @@ fn the_property_bar_shows_the_rectangle_controls() {
 #[test]
 fn the_select_tool_with_nothing_selected_shows_a_hint() {
     let mut app = app_with_image();
-    app.key(Key::Escape);
+    app.press(Key::Escape);
     assert!(app.harness.query_by_label("Thickness").is_none());
     app.harness
         .get_by_label_contains("Click an Annotation to select it");
@@ -264,9 +264,9 @@ fn a_filled_rectangle_is_selected_by_clicking_inside() {
     let mut app = app_with_rectangle();
     app.control("No fill").click();
     app.settle();
-    app.key(Key::Escape);
-    app.click((250.0, 200.0));
-    app.click((90.0, 60.0));
+    app.press(Key::Escape);
+    app.click_px((250.0, 200.0));
+    app.click_px((90.0, 60.0));
 
     assert_eq!(app.doc().selection().len(), 1);
 }
@@ -290,10 +290,10 @@ fn changes_in_one_widget_interaction_merge_into_one_step() {
 #[test]
 fn with_nothing_selected_a_property_sets_the_tools_default() {
     let mut app = app_with_image();
-    app.key(Key::R);
+    app.press(Key::R);
     app.control("Thickness").set_value_accesskit(12.0);
     app.settle();
-    app.drag((40.0, 30.0), (140.0, 90.0));
+    app.drag_px((40.0, 30.0), (140.0, 90.0));
 
     assert_eq!(app.doc().annotations()[0].style.thickness, 12.0);
     assert_eq!(app.doc().undo_len(), 1);
@@ -304,10 +304,10 @@ fn with_nothing_selected_a_property_sets_the_tools_default() {
 #[test]
 fn undo_and_redo_step_through_each_gesture() {
     let mut app = app_with_rectangle();
-    app.key(Key::Escape);
-    app.drag((40.0, 50.0), (70.0, 90.0)); // move
-    app.drag((170.0, 130.0), (200.0, 150.0)); // resize
-    app.key(Key::Delete);
+    app.press(Key::Escape);
+    app.drag_px((40.0, 50.0), (70.0, 90.0)); // move
+    app.drag_px((170.0, 130.0), (200.0, 150.0)); // resize
+    app.press(Key::Delete);
     assert!(app.doc().annotations().is_empty());
 
     let ctrl = Modifiers::COMMAND;
@@ -332,7 +332,7 @@ fn undo_and_redo_step_through_each_gesture() {
 fn a_new_step_after_undo_drops_the_redo_steps() {
     let mut app = app_with_rectangle();
     app.key_with(Modifiers::COMMAND, Key::Z);
-    app.drag((10.0, 10.0), (20.0, 20.0));
+    app.drag_px((10.0, 10.0), (20.0, 20.0));
 
     assert!(!app.doc().can_redo());
     assert_eq!(app.doc().undo_len(), 1);
@@ -353,8 +353,8 @@ fn opening_another_image_clears_the_history() {
 fn the_file_name_shows_a_dot_while_there_are_unsaved_changes() {
     let mut app = app_with_image();
     assert_eq!(app.status("File name"), "small-320x240.jpg");
-    app.key(Key::R);
-    app.drag((40.0, 30.0), (140.0, 90.0));
+    app.press(Key::R);
+    app.drag_px((40.0, 30.0), (140.0, 90.0));
     assert_eq!(app.status("File name"), "small-320x240.jpg •");
     app.key_with(Modifiers::COMMAND, Key::Z);
     assert_eq!(app.status("File name"), "small-320x240.jpg");
@@ -365,11 +365,11 @@ fn the_file_name_shows_a_dot_while_there_are_unsaved_changes() {
 #[test]
 fn skia_initialises_on_the_first_annotation_only() {
     let mut app = app_with_image();
-    app.key(Key::R);
+    app.press(Key::R);
     assert!(!app.harness.state().skia_initialised());
     assert!(app.harness.state().composite().is_none());
 
-    app.drag((40.0, 30.0), (140.0, 90.0));
+    app.drag_px((40.0, 30.0), (140.0, 90.0));
     assert!(app.harness.state().skia_initialised());
     let composite = app.harness.state().composite().expect("a composite");
     // The visible region at physical resolution: the whole 320×240 Image at 100%.
@@ -379,8 +379,8 @@ fn skia_initialises_on_the_first_annotation_only() {
 #[test]
 fn the_composite_is_at_physical_resolution_on_a_scaled_image() {
     let mut app = TestApp::open_fixture("large-2400x1600.jpg");
-    app.key(Key::R);
-    app.drag((300.0, 300.0), (1500.0, 1100.0));
+    app.press(Key::R);
+    app.drag_px((300.0, 300.0), (1500.0, 1100.0));
 
     let canvas = app.harness.state().canvas().unwrap();
     let composite = app.harness.state().composite().expect("a composite");
@@ -395,8 +395,40 @@ fn the_composite_is_at_physical_resolution_on_a_scaled_image() {
 fn the_first_tool_use_starts_the_full_resolution_decode() {
     let mut app = TestApp::open_fixture("large-2400x1600.jpg");
     assert!(app.doc().full_resolution().is_none());
-    app.key(Key::R);
+    app.press(Key::R);
 
     let full = app.doc().full_resolution().expect("full-resolution pixels");
     assert_eq!((full.width, full.height), (2400, 1600));
+}
+
+// ---- With zoom and fullscreen ----
+
+#[test]
+fn fullscreen_hides_the_tool_strip_and_the_property_bar() {
+    let mut app = app_with_rectangle();
+    app.press(Key::F11);
+    assert!(app.harness.query_by_label("Rectangle").is_none());
+    assert!(app.harness.query_by_label("Thickness").is_none());
+    app.press(Key::F11);
+    app.control("Rectangle");
+}
+
+#[test]
+fn zoomed_in_the_rectangle_keeps_its_image_pixels_and_the_composite_its_resolution() {
+    let mut app = TestApp::open_fixture("large-2400x1600.jpg");
+    app.press(Key::R);
+    app.drag_px((1000.0, 700.0), (1400.0, 900.0));
+    for _ in 0..6 {
+        app.press(Key::Plus);
+    }
+    app.press(Key::Escape);
+    app.drag_px((1000.0, 750.0), (1020.0, 770.0));
+    assert_eq!(rect_of(&app, 0), [1020, 720, 1420, 920]);
+
+    let composite = app.harness.state().composite().expect("a composite");
+    let canvas = app.harness.state().canvas().unwrap();
+    let visible = canvas.image.intersect(canvas.area);
+    assert_eq!(composite.width, visible.width().round() as u32);
+    assert_eq!(composite.height, visible.height().round() as u32);
+    app.assert_golden("rectangle-zoomed");
 }

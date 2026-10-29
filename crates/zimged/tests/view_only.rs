@@ -39,9 +39,9 @@ fn an_image_over_100_megapixels_opens_view_only_with_the_tools_disabled() {
     assert!(rectangle.accesskit_node().is_disabled());
     assert!(app.harness.query_by_label("Thickness").is_none());
 
-    app.key(Key::R);
+    app.press(Key::R);
     assert_eq!(app.harness.state().tool(), ToolId::Select);
-    app.drag((1000.0, 1000.0), (5000.0, 5000.0));
+    app.drag_px((1000.0, 1000.0), (5000.0, 5000.0));
     assert!(app.doc().annotations().is_empty());
     assert!(app.doc().full_resolution().is_none());
 }
@@ -51,6 +51,6 @@ fn an_image_up_to_100_megapixels_is_editable() {
     let mut app = TestApp::open_fixture("large-2400x1600.jpg");
     assert!(!app.harness.state().is_view_only());
     assert_eq!(app.status_field("Message"), None);
-    app.key(Key::R);
+    app.press(Key::R);
     assert_eq!(app.harness.state().tool(), ToolId::Rectangle);
 }

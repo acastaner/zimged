@@ -125,7 +125,7 @@ pub fn decode_for_display(path: &Path, max: Size) -> Result<DisplayImage, Decode
 }
 
 /// The largest size with `size`'s aspect ratio that fits in `max`, never above `size` itself.
-fn fit_within(size: Size, max: Size) -> Size {
+pub fn fit_within(size: Size, max: Size) -> Size {
     let scale = (f64::from(max.width) / f64::from(size.width))
         .min(f64::from(max.height) / f64::from(size.height))
         .min(1.0);

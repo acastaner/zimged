@@ -405,15 +405,26 @@ impl Editor {
             width: px.width,
             height: px.height,
         };
-        let key = (e.doc.revision(), display.key, view);
-        if e.composite.as_ref().is_none_or(|c| c.key != key) {
-            let renderer = self.renderer.get_or_insert_with(Renderer::new);
-            let source = Source {
-                key: display.key,
+        // Zoomed in past the display-size decode, draw from the full-resolution pixels (§7.2).
+        let display_density = display.size.width as f32 / e.doc.width() as f32;
+        let wanted_density = px.width as f32 / region.width().max(1.0);
+        let source = match e.doc.full_resolution() {
+            Some(full) if wanted_density > display_density => Source {
+                key: display.key * 2 + 1,
+                width: full.width,
+                height: full.height,
+                rgb: &full.rgb,
+            },
+            _ => Source {
+                key: display.key * 2,
                 width: display.size.width,
                 height: display.size.height,
                 rgb: &display.rgb,
-            };
+            },
+        };
+        let key = (e.doc.revision(), source.key, view);
+        if e.composite.as_ref().is_none_or(|c| c.key != key) {
+            let renderer = self.renderer.get_or_insert_with(Renderer::new);
             // Re-rendering only the dirty region is a later optimisation (§7.2).
             let pixels = renderer.composite(&e.doc, &source, view);
             let image = egui::ColorImage::from_rgba_premultiplied(

@@ -6,12 +6,14 @@
 pub mod app;
 pub mod bench;
 pub mod commands;
+mod config_save;
 pub mod decode;
 mod editor;
 mod input;
 pub mod startup;
 pub mod tools;
 mod ui;
+pub mod view;
 
 pub use app::{Launch, ZimgedApp};
 pub use commands::Command;

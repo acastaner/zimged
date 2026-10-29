@@ -26,4 +26,19 @@ pub enum Command {
     /// when nothing is selected. `merge` folds it into the previous step when that changed the same
     /// property on the same Annotations (one widget interaction is one step).
     SetProperty { property: Property, merge: bool },
+    /// Show the native open dialog and open the file chosen in it (Ctrl+O, §3.5).
+    OpenDialog,
+    /// Zoom in one step around the canvas centre (`+`, §3.1).
+    ZoomIn,
+    /// Zoom out one step around the canvas centre (`-`, §3.1).
+    ZoomOut,
+    /// Multiply the zoom by `factor`, keeping the Image point under `around` (in points) in place
+    /// (Ctrl+wheel, §3.1).
+    ZoomAround { factor: f32, around: egui::Pos2 },
+    /// Back to fit-to-window (`0`, §3.1).
+    ZoomFit,
+    /// Enter or leave fullscreen (F11, §2).
+    ToggleFullscreen,
+    /// View → *Allow multiple instances* (§8.3, §8.4). Persisted; takes effect at the next start.
+    SetAllowMultipleInstances(bool),
 }

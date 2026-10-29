@@ -1,4 +1,4 @@
-//! The canvas (§2): the Image, fit to the window, with the editor's composite and selection box
+//! The canvas (§2): the Image, fit or zoomed (§3.1), with the editor's composite and selection box
 //! on top. The editor gets the pointer through the closure passed to [`show`].
 
 use zimged_codec::Size;
@@ -6,6 +6,7 @@ use zimged_core::{Handle, Point, Rect};
 
 use crate::app::ShownImage;
 use crate::tools::select::HANDLE_SIZE;
+use crate::view::View;
 
 /// Where the canvas and the Image ended up this frame, in points, and the mapping between screen
 /// points and Image pixels.
@@ -13,6 +14,8 @@ use crate::tools::select::HANDLE_SIZE;
 pub struct Layout {
     pub area: egui::Rect,
     pub image: Option<egui::Rect>,
+    /// The size of the texture the Image was drawn from.
+    pub drawn: Option<Size>,
     pub pixels_per_point: f32,
     /// The Image's full-resolution size, when one is shown.
     pub image_size: Option<Size>,
@@ -30,10 +33,12 @@ pub struct EditorPaint {
 impl Layout {
     /// The canvas size in physical pixels.
     pub fn area_px(&self) -> Size {
-        Size::new(
-            (self.area.width() * self.pixels_per_point).round() as u32,
-            (self.area.height() * self.pixels_per_point).round() as u32,
-        )
+        to_px(self.area.size(), self.pixels_per_point)
+    }
+
+    /// The Image's on-screen size in physical pixels.
+    pub fn image_px(&self) -> Option<Size> {
+        Some(to_px(self.image?.size(), self.pixels_per_point))
     }
 
     /// Image pixels per screen point at the current zoom.
@@ -46,7 +51,7 @@ impl Layout {
 
     /// The Image pixel under a screen position.
     pub fn image_point(&self, pos: egui::Pos2) -> Point {
-        let (Some(rect), Some(_)) = (self.image, self.image_size) else {
+        let Some(rect) = self.image else {
             return Point::default();
         };
         let s = self.image_per_point();
@@ -74,20 +79,24 @@ impl Layout {
             return None;
         }
         let region = Rect::from_corners(self.image_point(shown.min), self.image_point(shown.max));
-        let px = Size::new(
-            (shown.width() * self.pixels_per_point).round().max(1.0) as u32,
-            (shown.height() * self.pixels_per_point).round().max(1.0) as u32,
-        );
+        let px = to_px(shown.size(), self.pixels_per_point);
+        let px = Size::new(px.width.max(1), px.height.max(1));
         Some((shown, region, px))
     }
 }
 
-/// Draw the canvas in the remaining space. `edit` handles the pointer (the canvas response) and
-/// says what to paint on top of the Image.
+fn to_px(size: egui::Vec2, ppp: f32) -> Size {
+    Size::new((size.x * ppp).round() as u32, (size.y * ppp).round() as u32)
+}
+
+/// Draw the canvas in the remaining space. Without an Image, `message` (an error or the
+/// empty-window hint) is centred on it. `edit` handles the pointer (the canvas response) and says
+/// what to paint on top of the Image.
 pub fn show(
     ui: &mut egui::Ui,
     shown: Option<&ShownImage>,
-    error: Option<&str>,
+    view: &mut View,
+    message: Option<&str>,
     edit: impl FnOnce(&mut egui::Ui, &Layout, &egui::Response) -> EditorPaint,
 ) -> Layout {
     let frame = egui::Frame::NONE.fill(ui.visuals().extreme_bg_color);
@@ -96,16 +105,18 @@ pub fn show(
         .show(ui, |ui| {
             let rect = ui.max_rect();
             let ppp = ui.ctx().pixels_per_point();
-            let image_rect = shown.map(|image| {
-                let size = fit(image.original_size, rect.size(), ppp);
-                egui::Rect::from_center_size(rect.center(), size)
-            });
-            let layout = Layout {
+            let mut layout = Layout {
                 area: rect,
-                image: image_rect,
+                image: None,
+                drawn: None,
                 pixels_per_point: ppp,
                 image_size: shown.map(|s| s.original_size),
             };
+            let texture = shown.map(|image| {
+                let dest = view.image_rect(image.original_size, rect, ppp);
+                layout.image = Some(dest);
+                image.texture_for(to_px(dest.size(), ppp))
+            });
             let response = ui.interact(
                 rect,
                 ui.scope_id().with("canvas"),
@@ -113,17 +124,23 @@ pub fn show(
             );
             let paint = edit(ui, &layout, &response);
 
+            let painter = ui.painter().with_clip_rect(rect);
             let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-            if let Some((texture, dest)) = paint.composite {
-                ui.painter().image(texture, dest, uv, egui::Color32::WHITE);
-            } else if let (Some(image), Some(dest)) = (shown, image_rect) {
-                ui.painter()
-                    .image(image.texture.id(), dest, uv, egui::Color32::WHITE);
-            } else if let Some(error) = error {
-                ui.centered_and_justified(|ui| ui.label(error));
+            if let (Some(texture), Some(dest)) = (texture, layout.image) {
+                if let Some((composite, dest)) = paint.composite {
+                    painter.image(composite, dest, uv, egui::Color32::WHITE);
+                } else {
+                    painter.image(texture.id(), dest, uv, egui::Color32::WHITE);
+                }
+                layout.drawn = Some(Size::new(
+                    texture.size()[0] as u32,
+                    texture.size()[1] as u32,
+                ));
+            } else if let Some(message) = message {
+                ui.centered_and_justified(|ui| ui.label(message));
             }
             if let Some(selection) = paint.selection {
-                paint_selection(ui.painter(), selection);
+                paint_selection(&painter, selection);
             }
             layout
         })
@@ -155,15 +172,4 @@ fn paint_selection(painter: &egui::Painter, r: egui::Rect) {
             egui::StrokeKind::Inside,
         );
     }
-}
-
-/// The on-screen size, in points, of an image of `original` pixels fit into `available` points:
-/// the aspect ratio kept, and never above 100% (one image pixel per physical pixel).
-fn fit(original: Size, available: egui::Vec2, pixels_per_point: f32) -> egui::Vec2 {
-    let original_px = egui::vec2(original.width as f32, original.height as f32);
-    let available_px = available * pixels_per_point;
-    let scale = (available_px.x / original_px.x)
-        .min(available_px.y / original_px.y)
-        .min(1.0);
-    original_px * scale / pixels_per_point
 }

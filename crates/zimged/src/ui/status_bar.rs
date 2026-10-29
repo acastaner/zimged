@@ -5,7 +5,7 @@
 
 use zimged_codec::Size;
 
-use crate::app::Zoom;
+use crate::view::Zoom;
 
 pub const LABEL_FILE_NAME: &str = "File name";
 pub const LABEL_PIXEL_SIZE: &str = "Pixel size";
@@ -26,6 +26,9 @@ pub struct StatusBar<'a> {
 pub fn show(ui: &mut egui::Ui, bar: &StatusBar<'_>) {
     egui::Panel::bottom("status_bar").show(ui, |ui| {
         ui.horizontal(|ui| {
+            // The same height empty or not, so the canvas (and the display-size decode box taken
+            // from it) doesn't change when the first Image appears.
+            ui.set_min_height(ui.spacing().interact_size.y);
             ui.spacing_mut().item_spacing.x = 16.0;
             if let Some(name) = bar.file_name {
                 let marker = if bar.modified { " •" } else { "" };
