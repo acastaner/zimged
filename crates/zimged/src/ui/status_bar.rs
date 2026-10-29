@@ -16,11 +16,13 @@ pub const LABEL_MESSAGE: &str = "Message";
 /// What the status bar shows this frame. `None` fields are left out.
 pub struct StatusBar<'a> {
     pub file_name: Option<&'a str>,
+    /// Unsaved changes: ` •` follows the file name.
+    pub modified: bool,
     /// `n / N`, or `? / ?` while the Siblings are being scanned.
     pub position: Option<String>,
     pub pixel_size: Option<Size>,
     pub zoom: Option<Zoom>,
-    /// The transient message slot ("Last image in folder", …).
+    /// The transient message slot ("Last image in folder", "View only: …", …).
     pub message: Option<&'a str>,
 }
 
@@ -32,7 +34,8 @@ pub fn show(ui: &mut egui::Ui, bar: &StatusBar<'_>) {
             ui.set_min_height(ui.spacing().interact_size.y);
             ui.spacing_mut().item_spacing.x = 16.0;
             if let Some(name) = bar.file_name {
-                field(ui, LABEL_FILE_NAME, name);
+                let marker = if bar.modified { " •" } else { "" };
+                field(ui, LABEL_FILE_NAME, &format!("{name}{marker}"));
             }
             if let Some(position) = &bar.position {
                 field(ui, LABEL_POSITION, position);
