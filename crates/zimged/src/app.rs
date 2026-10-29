@@ -4,8 +4,9 @@
 //! domain state in `zimged-core`. `ui()` polls background work, then lays out the panels.
 
 use std::path::Path;
+use std::sync::Arc;
 
-use zimged_codec::{DisplayImage, Size};
+use zimged_codec::{DisplayImage, Pixels, Size};
 use zimged_platform::{Config, Platform};
 
 use crate::Command;
@@ -63,6 +64,9 @@ pub(crate) struct ShownImage {
     pub file_name: String,
     pub original_size: Size,
     pub texture: egui::TextureHandle,
+    /// The texture's pixels, shared with egui (no copy). Tests read them; so will the on-screen
+    /// composite (§7.2).
+    pub pixels: Arc<egui::ColorImage>,
 }
 
 /// Where the app is on the way to its first painted image (§1.3 steps 4 and 5).
@@ -142,11 +146,14 @@ impl ZimgedApp {
     fn show_decoded(&mut self, ctx: &egui::Context, file_name: String, result: DecodeResult) {
         match result {
             Ok(image) => {
-                let texture = upload(ctx, &image);
+                let pixels = Arc::new(color_image(&image));
+                let texture =
+                    ctx.load_texture("image", pixels.clone(), egui::TextureOptions::LINEAR);
                 self.shown = Some(ShownImage {
                     file_name,
                     original_size: image.original_size,
                     texture,
+                    pixels,
                 });
                 self.error = None;
                 self.zoom = Zoom::Fit;
@@ -174,6 +181,15 @@ impl ZimgedApp {
                 shown.texture.size()[1] as u32,
             ),
         })
+    }
+
+    /// A pixel of the Image on screen, in the display-size decode's coordinates: `None` when no
+    /// Image is shown or `(x, y)` is outside it.
+    pub fn shown_pixel(&self, x: u32, y: u32) -> Option<egui::Color32> {
+        let pixels = &self.shown.as_ref()?.pixels;
+        let [w, h] = pixels.size;
+        let (x, y) = (x as usize, y as usize);
+        (x < w && y < h).then(|| pixels.pixels[y * w + x])
     }
 
     fn status_bar(&self) -> status_bar::StatusBar<'_> {
@@ -227,10 +243,10 @@ fn file_name(path: &Path) -> String {
         .into_owned()
 }
 
-fn upload(ctx: &egui::Context, image: &DisplayImage) -> egui::TextureHandle {
-    let pixels = egui::ColorImage::from_rgb(
-        [image.size.width as usize, image.size.height as usize],
-        &image.rgb,
-    );
-    ctx.load_texture("image", pixels, egui::TextureOptions::LINEAR)
+fn color_image(image: &DisplayImage) -> egui::ColorImage {
+    let size = [image.size.width as usize, image.size.height as usize];
+    match &image.pixels {
+        Pixels::Rgb(rgb) => egui::ColorImage::from_rgb(size, rgb),
+        Pixels::Rgba(rgba) => egui::ColorImage::from_rgba_unmultiplied(size, rgba),
+    }
 }

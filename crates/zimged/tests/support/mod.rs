@@ -117,6 +117,12 @@ impl TestApp {
             .unwrap_or_else(|| panic!("no status-bar field labelled {label:?}"))
     }
 
+    /// A pixel of the Image on screen, in the display-size decode's coordinates
+    /// (`canvas().decoded_size`), after orientation and colour conversion. `None` without an Image.
+    pub fn pixel(&self, x: u32, y: u32) -> Option<egui::Color32> {
+        self.harness.state().shown_pixel(x, y)
+    }
+
     /// Like [`Self::status`], but `None` when the field isn't shown.
     pub fn status_field(&self, label: &str) -> Option<String> {
         let wanted = label.to_owned();
