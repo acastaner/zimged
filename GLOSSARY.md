@@ -2,12 +2,19 @@
 
 **Image**: the raster file currently open in zimged's single window.
 
-**Annotation**: a shape, text, highlight or obfuscation placed over the Image. It stays a separate, editable object (select, move, resize, restyle, delete) for the rest of the session.
+**Annotation**: a shape, text, step counter, highlight, obfuscation or Inset placed over the Image. It stays a separate, editable object (select, move, resize, restyle, delete) for the rest of the session, including across Image operations.
 _Avoid_: layer, drawing, markup.
 
-**Flatten**: burning every Annotation into the Image's pixels. Saving and copying to the clipboard always flatten. zimged never stores Annotations in a file of their own.
+**Inset**: an Annotation that holds pasted or dropped pixels, such as a clipboard image placed on top of the Image.
+_Avoid_: image annotation, picture (confusable with Image).
 
-**Image operation**: an edit that changes the Image's pixels or geometry directly (crop, rotate, flip, resize), as opposed to adding an Annotation.
+**Step counter**: a numbered marker Annotation. Step counters on an Image are always numbered 1…n in the order they were created; deleting one renumbers the rest.
+
+**Flatten**: burning every Annotation into the Image's pixels. Saving and copying the Image to the clipboard always flatten. zimged never stores Annotations in a file of their own.
+
+**Image operation**: an edit that changes the Image's pixels or geometry directly (crop, rotate, flip, resize), as opposed to adding an Annotation. Annotations follow the Image through it.
+
+**History**: the single undo/redo sequence for the open Image, covering both Annotation edits and Image operations. One gesture is one step. It ends when you move to another Sibling.
 
 **Sibling**: another image file in the same directory as the open Image. Moving to the next/previous Sibling is how zimged works as a viewer.
 _Avoid_: neighbour, adjacent file.
