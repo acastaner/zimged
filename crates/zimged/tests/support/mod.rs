@@ -61,6 +61,12 @@ impl TestApp {
     /// running when the app is created (§1.3). Copies the fixtures first; the first one is launched.
     /// Doesn't wait: call [`Self::settle`] (or step the harness) yourself.
     pub fn launch(names: &[&str]) -> Self {
+        Self::launch_scaled(names, 1.0)
+    }
+
+    /// Like [`Self::launch`], on a HiDPI screen of `pixels_per_point` physical pixels per point. The
+    /// window is still [`WINDOW`] points.
+    pub fn launch_scaled(names: &[&str], pixels_per_point: f32) -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = copy_fixtures(dir.path(), names);
         let mut launch = Launch::new(Platform::in_memory());
@@ -68,6 +74,7 @@ impl TestApp {
         launch.first_image = Some(PendingDecode::spawn(path, move || display_box));
         let harness = Harness::builder()
             .with_size(WINDOW)
+            .with_pixels_per_point(pixels_per_point)
             .build_eframe(move |cc| ZimgedApp::new(cc, launch));
         Self { harness, dir }
     }
@@ -105,6 +112,25 @@ impl TestApp {
             assert!(Instant::now() < deadline, "app still busy after 10 s");
             std::thread::sleep(Duration::from_millis(2));
         }
+    }
+
+    /// Press and release a key (no modifiers), then settle.
+    pub fn press(&mut self, key: egui::Key) {
+        self.harness.key_press(key);
+        self.settle();
+    }
+
+    /// Ctrl+wheel with the pointer at `pos` (points): `notches` up (positive, zoom in) or down.
+    pub fn ctrl_wheel_at(&mut self, pos: egui::Pos2, notches: f32) {
+        self.harness.hover_at(pos);
+        self.harness.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, notches),
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Wheel,
+            modifiers: egui::Modifiers::COMMAND,
+        });
+        self.settle();
     }
 
     /// The text of a status-bar field, found by its accessibility label (e.g. "File name").

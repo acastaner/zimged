@@ -9,4 +9,15 @@ use std::path::PathBuf;
 pub enum Command {
     /// Open this file as the Image (§3.5).
     Open(PathBuf),
+    /// Zoom in one step around the canvas centre (`+`, §3.1).
+    ZoomIn,
+    /// Zoom out one step around the canvas centre (`-`, §3.1).
+    ZoomOut,
+    /// Multiply the zoom by `factor`, keeping the Image point under `around` (in points) in place
+    /// (Ctrl+wheel, §3.1).
+    ZoomAround { factor: f32, around: egui::Pos2 },
+    /// Back to fit-to-window (`0`, §3.1).
+    ZoomFit,
+    /// Enter or leave fullscreen (F11, §2).
+    ToggleFullscreen,
 }
