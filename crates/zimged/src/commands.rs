@@ -9,4 +9,8 @@ use std::path::PathBuf;
 pub enum Command {
     /// Open this file as the Image (§3.5).
     Open(PathBuf),
+    /// Show the next Sibling (§3.1: wheel down, →).
+    NextSibling,
+    /// Show the previous Sibling (§3.1: wheel up, ←).
+    PreviousSibling,
 }

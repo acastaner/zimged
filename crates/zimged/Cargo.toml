@@ -12,6 +12,7 @@ publish.workspace = true
 zimged-core.workspace = true
 zimged-codec.workspace = true
 zimged-platform.workspace = true
+zimged-siblings.workspace = true
 eframe.workspace = true
 egui.workspace = true
 

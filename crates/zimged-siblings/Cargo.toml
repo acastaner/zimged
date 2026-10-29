@@ -9,4 +9,6 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+libc.workspace = true
+unicode-normalization.workspace = true
 zimged-codec.workspace = true
