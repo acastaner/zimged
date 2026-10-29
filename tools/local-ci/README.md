@@ -72,7 +72,8 @@ docker run --rm --init --name zimged-gate-<run-id> \
 - **Never root**, so nothing root-owned lands on the host.
 - **`HOME` is an empty directory**, so no host `~/.cargo/config.toml` or `~/.gitconfig` leaks in.
 - **No Docker socket, no host network, no secrets.** The tests start no containers. Cargo reaches
-  crates.io over the default bridge network.
+  crates.io over the default bridge network. That network stays up for the whole run, so a test
+  could reach the internet. None does, and none may: tests use fixtures copied into a temp dir.
 - **Ctrl-C** stops it at once. That needs both `--init` and `TINI_KILL_PROCESS_GROUP=1`: without
   group mode, bash defers the signal until `cargo` finishes.
 - **The sweep is run-scoped.** After the container exits, the launcher removes containers
@@ -101,6 +102,9 @@ git push origin refs/notes/gate
   same tree and carries the record. If the base moved in the meantime, the merge tree is new and
   ungated, and the release check refuses it, correctly.
 - **Subset and `--in-place` runs never write a note.**
+- **The push is a plain `git push`.** If notes were written on another machine too, it's rejected
+  as a non-fast-forward, and the launcher only warns. Fetch and merge first, then push again:
+  `git fetch origin refs/notes/gate:refs/notes/gate-remote && git notes --ref=gate merge -s union refs/notes/gate-remote`.
 - **It guards against forgetting, not against tampering.**
 - **`check-gate-record.sh <commit-ish>`** exits 0 only for a note on that commit's tree whose
   first line starts with `PASS lint test`. The release workflow's `gate-record` job (#41) runs it
@@ -109,7 +113,9 @@ git push origin refs/notes/gate
 ### Bumping Rust
 
 The pin lives in `rust-toolchain.toml` (`channel`), which must be an exact version (`X.Y` or
-`X.Y.Z`). `Cargo.toml`'s `[workspace.package] rust-version` must equal its `X.Y`.
+`X.Y.Z`). `Cargo.toml`'s `[workspace.package] rust-version` must equal its `X.Y`. With no
+production Dockerfile to compare against, the pin's second place is the MSRV: this deliberately
+ties the MSRV to the toolchain the gate proves.
 `check-toolchain-pin.sh` enforces both in every mode. Inside the container and in place, it also
 checks that `rustc --version` is that channel, so a stale image or a rustup override fails at the
 start instead of halfway through. Bump the two files together, then check that the image tag
@@ -119,6 +125,11 @@ The official image installs its toolchain as `1.95.0`. rustup treats a `rust-too
 says `1.95` as a different toolchain and would try to download it at run time, which fails as a
 non-root user. The Dockerfile therefore installs the toolchain under exactly the channel's name
 and uninstalls the other one.
+
+A channel of `X.Y` floats within its patch releases. The image tag and `rustup toolchain install`
+both take the newest `X.Y.z` when the layer is first built, and the layer cache then freezes it on
+that machine. The preflight accepts any `X.Y.z` compiler for an `X.Y` channel. To pin the patch
+too, write `X.Y.Z` in `rust-toolchain.toml`.
 
 ## Gotchas
 

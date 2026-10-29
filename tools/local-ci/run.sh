@@ -5,7 +5,7 @@ set -euo pipefail
 #
 # Usage: ./tools/local-ci/run.sh [suite ...] [options]
 #
-#   Suites (default: both, in this order)
+#   Suites (default, or `all`: both, in this order)
 #     lint   cargo fmt --check; cargo clippy --workspace --all-targets -- -D warnings
 #     test   the guard scripts' self-test; cargo test --workspace (the headless App tests and
 #            the Sibling ordering comparator, spec §9)
@@ -27,7 +27,7 @@ set -euo pipefail
 #   inside it with ZIMGED_GATE_INSIDE=1. Nothing from the host leaks in -- no target/, no
 #   ~/.cargo, no config -- and the working tree is never touched. After a pass of all suites the
 #   launcher records it as a git note (refs/notes/gate) on the tested commit's TREE and pushes it;
-#   the release workflow refuses to build a tree without one (check-gate-record.sh).
+#   the release workflow's gate-record job (#41) refuses a tree without one (check-gate-record.sh).
 #
 #   --in-place. The suites run here, in the working tree, with whatever toolchain rustup resolves
 #   for rust-toolchain.toml. Useful while iterating; never a gate.
@@ -87,6 +87,12 @@ fi
 # in-place   -- the working tree and the host toolchain; not a gate result
 # clean-room -- the launcher (the default)
 if [[ "${ZIMGED_GATE_INSIDE:-0}" == "1" ]]; then
+  # Only the launcher sets the marker, inside the gate container. Leaked into a host shell it would
+  # silently skip the clean room, so refuse it there.
+  if [[ ! -f /.dockerenv ]]; then
+    echo "ERROR: ZIMGED_GATE_INSIDE=1 is set, but this is not the gate container. Unset it." >&2
+    exit 1
+  fi
   MODE="inside"
 elif (( IN_PLACE == 1 )); then
   MODE="in-place"
@@ -175,6 +181,8 @@ sweep_run_containers() {
 # Set by the launcher once the run directory exists, so an abort before the gate container even
 # starts (a failed clone or image build) still says where the directory was left.
 GATE_RUN_DIR=""
+# Set once a failure has been explained, so on_exit does not add a generic line after it.
+FAILURE_REPORTED=0
 
 # `set -e` aborts silently on its own; name the exit code, and sweep when armed.
 on_exit() {
@@ -183,7 +191,7 @@ on_exit() {
     echo
     sweep_run_containers || true
   fi
-  if (( rc != 0 )); then
+  if (( rc != 0 && FAILURE_REPORTED == 0 )); then
     echo >&2
     echo "ERROR: gate run aborted (exit code ${rc}). See the message above for the cause." >&2
     if [[ -n "${GATE_RUN_DIR}" && -d "${GATE_RUN_DIR}" ]]; then
@@ -368,7 +376,7 @@ launch_clean_room() {
     else
       echo "       Fix it in a NEW commit (not an amend) and run the gate again." >&2
     fi
-    GATE_RUN_DIR=""   # reported just above; on_exit need not repeat it
+    FAILURE_REPORTED=1   # explained just above; on_exit need not repeat it
     exit "${rc}"
   fi
 

@@ -75,42 +75,46 @@ expect "the active rustc matches" 0 "1.95" -- \
   "${PIN}" "${WORK}/pin-ok" --rustc "rustc 1.95.0 (59807616e 2026-04-14)"
 expect "the active rustc is another version" 1 "rustc 1.94.1" -- \
   "${PIN}" "${WORK}/pin-ok" --rustc "rustc 1.94.1 (e408947bf 2026-03-25)"
-expect "1.9 does not match a 1.95 rustc prefix-wise" 1 "" -- \
+expect "channel 1.95 does not match rustc 1.951" 1 "" -- \
   "${PIN}" "${WORK}/pin-ok" --rustc "rustc 1.951.0 (0000000 2099-01-01)"
 expect "a patch-level channel needs that exact patch" 1 "" -- \
   "${PIN}" "${WORK}/pin-patch" --rustc "rustc 1.95.1 (0000000 2026-05-01)"
+
+expect "--rustc without a value is a usage error" 2 "Usage" -- "${PIN}" "${WORK}/pin-ok" --rustc
 
 # --- check-gate-record.sh ----------------------------------------------------------------------
 
 echo "check-gate-record.sh"
 
 repo="${WORK}/record"
+g() { git -C "${repo}" -c user.name=t -c user.email=t@t "$@"; }
 git init --quiet "${repo}"
-git -C "${repo}" -c user.name=t -c user.email=t@t commit --quiet --allow-empty -m one
-git -C "${repo}" -c user.name=t -c user.email=t@t commit --quiet --allow-empty -m two
+g commit --quiet --allow-empty -m one
+g commit --quiet --allow-empty -m two
 echo a > "${repo}/a"
-git -C "${repo}" add a
-git -C "${repo}" -c user.name=t -c user.email=t@t commit --quiet -m three
+g add a
+g commit --quiet -m three
 in_repo() { (cd "${repo}" && "$@"); }
 
 expect "no argument prints usage" 2 "Usage" -- in_repo "${RECORD}"
 expect "an ungated tree fails" 1 "no gate record" -- in_repo "${RECORD}" HEAD
 expect "a bad commit-ish fails" 1 "does not resolve" -- in_repo "${RECORD}" no-such-ref
 
-git -C "${repo}" -c user.name=t -c user.email=t@t notes --ref=gate add -m "PASS lint test · rust 1.95 · now" "HEAD^{tree}" 2>/dev/null
+g notes --ref=gate add -m "PASS lint test · rust 1.95 · now" "HEAD^{tree}" 2>/dev/null
 expect "a full-pass note on the tree passes" 0 "PASS lint test" -- in_repo "${RECORD}" HEAD
 expect "the previous commit's tree is still ungated" 1 "no gate record" -- in_repo "${RECORD}" HEAD~1
 
 # A merge-like commit with the same tree carries the record.
-same_tree="$(git -C "${repo}" -c user.name=t -c user.email=t@t commit-tree -p HEAD -m merge "HEAD^{tree}")"
+same_tree="$(g commit-tree -p HEAD -m merge "HEAD^{tree}")"
 expect "another commit with the same tree passes" 0 "PASS lint test" -- in_repo "${RECORD}" "${same_tree}"
 
-git -C "${repo}" -c user.name=t -c user.email=t@t notes --ref=gate add -f -m "PASS lint · rust 1.95 · now" "HEAD^{tree}" 2>/dev/null
+g notes --ref=gate add -f -m "PASS lint · rust 1.95 · now" "HEAD^{tree}" 2>/dev/null
 expect "a subset note is not a full pass" 1 "does not record a full pass" -- in_repo "${RECORD}" HEAD
 
-git -C "${repo}" -c user.name=t -c user.email=t@t notes --ref=gate add -f -m "PASS lint test · rust 1.95 · now" "HEAD" 2>/dev/null
-git -C "${repo}" -c user.name=t -c user.email=t@t notes --ref=gate add -f -m "PASS lint · rust 1.95 · now" "HEAD^{tree}" 2>/dev/null
-expect "a note on the commit instead of the tree does not count" 1 "" -- in_repo "${RECORD}" HEAD
+g notes --ref=gate remove "HEAD^{tree}" 2>/dev/null
+g notes --ref=gate add -f -m "PASS lint test · rust 1.95 · now" "HEAD" 2>/dev/null
+expect "a full-pass note on the commit instead of the tree does not count" 1 "no gate record" -- \
+  in_repo "${RECORD}" HEAD
 
 echo
 echo "${PASSED} passed, ${FAILED} failed"

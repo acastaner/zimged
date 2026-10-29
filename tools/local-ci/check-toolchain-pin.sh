@@ -21,7 +21,13 @@ root="."
 rustc_line=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --rustc) rustc_line="${2:-}"; shift ;;
+    --rustc)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "ERROR: --rustc needs a value (the output of rustc --version)." >&2
+        sed -n '/^# Usage:/p' "$0" | sed 's/^# \{0,1\}//' >&2
+        exit 2
+      fi
+      rustc_line="$2"; shift ;;
     -h|--help) sed -n '/^# Usage:/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) root="$1" ;;
   esac
