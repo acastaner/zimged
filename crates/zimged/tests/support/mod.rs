@@ -17,6 +17,20 @@ use zimged_platform::Platform;
 /// Logical window size of the headless App, in points (1 point = 1 pixel).
 pub const WINDOW: egui::Vec2 = egui::vec2(1000.0, 700.0);
 
+/// A file dropped onto the window, as the windowing layer hands it to egui.
+#[derive(Debug)]
+struct DroppedPath(PathBuf);
+
+impl egui::DroppedFile for DroppedPath {
+    fn path(&self) -> &Path {
+        &self.0
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, String> {
+        std::fs::read(&self.0).map_err(|e| e.to_string())
+    }
+}
+
 pub struct TestApp {
     pub harness: Harness<'static, ZimgedApp>,
     /// Holds the copied fixtures; dropped (deleted) with the TestApp.
@@ -105,6 +119,21 @@ impl TestApp {
             assert!(Instant::now() < deadline, "app still busy after 10 s");
             std::thread::sleep(Duration::from_millis(2));
         }
+    }
+
+    /// Press Ctrl (Cmd on macOS) + `key`, as the user does. Takes effect on the next frame.
+    pub fn press_ctrl(&mut self, key: egui::Key) {
+        self.harness
+            .key_press_modifiers(egui::Modifiers::COMMAND, key);
+    }
+
+    /// Drop a file onto the window. Takes effect on the next frame.
+    pub fn drop_file(&mut self, path: impl Into<PathBuf>) {
+        let file = DroppedPath(path.into());
+        self.harness
+            .input_mut()
+            .dropped_files
+            .push(std::sync::Arc::new(file));
     }
 
     /// The text of a status-bar field, found by its accessibility label (e.g. "File name").

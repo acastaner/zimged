@@ -23,7 +23,8 @@ impl Layout {
 }
 
 /// Draw the canvas in the remaining space.
-pub fn show(ui: &mut egui::Ui, shown: Option<&ShownImage>, error: Option<&str>) -> Layout {
+/// Without an Image, `message` (an error or the empty-window hint) is centred on it.
+pub fn show(ui: &mut egui::Ui, shown: Option<&ShownImage>, message: Option<&str>) -> Layout {
     let frame = egui::Frame::NONE.fill(ui.visuals().extreme_bg_color);
     egui::CentralPanel::default()
         .frame(frame)
@@ -38,8 +39,8 @@ pub fn show(ui: &mut egui::Ui, shown: Option<&ShownImage>, error: Option<&str>) 
                 ui.painter()
                     .image(image.texture.id(), dest, uv, egui::Color32::WHITE);
                 image_rect = Some(dest);
-            } else if let Some(error) = error {
-                ui.centered_and_justified(|ui| ui.label(error));
+            } else if let Some(message) = message {
+                ui.centered_and_justified(|ui| ui.label(message));
             }
             Layout {
                 area: rect,

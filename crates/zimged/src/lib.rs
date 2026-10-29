@@ -7,6 +7,7 @@ pub mod app;
 pub mod bench;
 pub mod commands;
 pub mod decode;
+mod input;
 pub mod startup;
 mod ui;
 
