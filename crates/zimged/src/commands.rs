@@ -9,4 +9,6 @@ use std::path::PathBuf;
 pub enum Command {
     /// Open this file as the Image (§3.5).
     Open(PathBuf),
+    /// Show the native open dialog and open the file chosen in it (Ctrl+O, §3.5).
+    OpenDialog,
 }
