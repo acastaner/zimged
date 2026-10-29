@@ -52,3 +52,25 @@ The first run, which decoded at 2560×1600, gave the same ranking: Qt Wayland p5
 ## Not measured
 
 Windows and macOS (no hosts available), a balanced or performance power profile, and a native X11 session.
+
+## Rerun with the performance power profile
+
+The user switched the power profile; `powerprofilesctl` reports **performance** (EPP `performance`). Same method, 15 runs per setup, each after 1.5 s idle. Results are in `bench/results-linux-balanced.json`; the file name is wrong, the profile was performance.
+
+| Setup | First image p50 / p90 / max | Phases (median ms) | Flip every 200 ms: p50 / p90 | Holding the key: p50 / p90 / max |
+|---|---|---|---|---|
+| Qt, Wayland | 135 / 146 / 151 | decoded 55 · QApplication 121 · painted 135 | 3.4 / 3.7 | 10.6 / 42.5 / 122 |
+| Qt, X11 | 144 / 158 / 162 | decoded 54 · QApplication 125 · painted 144 | 3.5 / 4.0 | 11.8 / 41.3 / 125 |
+| egui + glow, Wayland | **96 / 110 / 118** | decoded 77 · renderer ready 94 · painted 96 | 2.0 / 5.7 | 33.2 / 66.9 / 160 |
+| egui + glow, X11 | **95 / 101 / 102** | decoded 78 · renderer ready 92 · painted 95 | 0.8 / 1.0 | 25.0 / 66.5 / 158 |
+| egui + wgpu, Wayland | 221 / 239 / 241 | decoded 75 · renderer ready 215 · painted 221 | 1.4 / 8.3 | 25.5 / 67.4 / 154 |
+| egui + wgpu, X11 | 245 / 281 / 288 | decoded 75 · renderer ready 242 · painted 245 | 1.0 / 1.3 | 16.9 / 67.4 / 158 |
+
+**Cold start:**
+- **egui + glow has the most headroom:** p90 is about 100–110 ms against the 150 ms budget. Decoding and GL setup run in parallel and finish at about the same time.
+- **Qt meets the budget only just:** p90 is 146 ms on Wayland, and its X11 p90 is 158 ms, which misses. Its critical path is `QApplication` setup (about 115 ms after `main`), not decoding. Its reduced-size JPEG decode is the fastest decode measured (about 49 ms after `main`, against about 75 ms for Rust's full decode plus resize).
+- **wgpu fails the budget:** about 220–245 ms, all of it GPU device setup.
+
+**Switching Siblings:** every setup is far under 50 ms at a normal pace. Holding the key, Qt is better (p90 about 42 ms, against about 67 ms for egui), helped by its cheaper scaled decode. Both have a long tail of 120–160 ms on progressive JPEGs.
+
+**Power profile:** the result depends heavily on it. Under power-saver nothing came under 225 ms (median).
