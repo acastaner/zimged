@@ -1,63 +1,75 @@
-//! The canvas (§2): the Image, fit to the window.
+//! The canvas (§2): the Image, fit or zoomed (§3.1).
 
 use zimged_codec::Size;
 
 use crate::app::ShownImage;
+use crate::view::View;
 
 /// Where the canvas and the Image ended up this frame, in points.
 #[derive(Clone, Copy, Debug)]
 pub struct Layout {
     pub area: egui::Rect,
     pub image: Option<egui::Rect>,
+    /// The size of the texture the Image was drawn from.
+    pub drawn: Option<Size>,
     pub pixels_per_point: f32,
 }
 
 impl Layout {
     /// The canvas size in physical pixels.
     pub fn area_px(&self) -> Size {
-        Size::new(
-            (self.area.width() * self.pixels_per_point).round() as u32,
-            (self.area.height() * self.pixels_per_point).round() as u32,
-        )
+        to_px(self.area.size(), self.pixels_per_point)
     }
+
+    /// The Image's on-screen size in physical pixels.
+    pub fn image_px(&self) -> Option<Size> {
+        Some(to_px(self.image?.size(), self.pixels_per_point))
+    }
+}
+
+fn to_px(size: egui::Vec2, ppp: f32) -> Size {
+    Size::new((size.x * ppp).round() as u32, (size.y * ppp).round() as u32)
 }
 
 /// Draw the canvas in the remaining space.
 /// Without an Image, `message` (an error or the empty-window hint) is centred on it.
-pub fn show(ui: &mut egui::Ui, shown: Option<&ShownImage>, message: Option<&str>) -> Layout {
+pub fn show(
+    ui: &mut egui::Ui,
+    shown: Option<&ShownImage>,
+    view: &mut View,
+    message: Option<&str>,
+) -> Layout {
     let frame = egui::Frame::NONE.fill(ui.visuals().extreme_bg_color);
     egui::CentralPanel::default()
         .frame(frame)
         .show(ui, |ui| {
             let rect = ui.max_rect();
             let ppp = ui.ctx().pixels_per_point();
-            let mut image_rect = None;
+            let mut layout = Layout {
+                area: rect,
+                image: None,
+                drawn: None,
+                pixels_per_point: ppp,
+            };
             if let Some(image) = shown {
-                let size = fit(image.original_size, rect.size(), ppp);
-                let dest = egui::Rect::from_center_size(rect.center(), size);
+                let dest = view.image_rect(image.original_size, rect, ppp);
+                let texture = image.texture_for(to_px(dest.size(), ppp));
                 let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-                ui.painter()
-                    .image(image.texture.id(), dest, uv, egui::Color32::WHITE);
-                image_rect = Some(dest);
+                ui.painter().with_clip_rect(rect).image(
+                    texture.id(),
+                    dest,
+                    uv,
+                    egui::Color32::WHITE,
+                );
+                layout.image = Some(dest);
+                layout.drawn = Some(Size::new(
+                    texture.size()[0] as u32,
+                    texture.size()[1] as u32,
+                ));
             } else if let Some(message) = message {
                 ui.centered_and_justified(|ui| ui.label(message));
             }
-            Layout {
-                area: rect,
-                image: image_rect,
-                pixels_per_point: ppp,
-            }
+            layout
         })
         .inner
-}
-
-/// The on-screen size, in points, of an image of `original` pixels fit into `available` points:
-/// the aspect ratio kept, and never above 100% (one image pixel per physical pixel).
-fn fit(original: Size, available: egui::Vec2, pixels_per_point: f32) -> egui::Vec2 {
-    let original_px = egui::vec2(original.width as f32, original.height as f32);
-    let available_px = available * pixels_per_point;
-    let scale = (available_px.x / original_px.x)
-        .min(available_px.y / original_px.y)
-        .min(1.0);
-    original_px * scale / pixels_per_point
 }

@@ -37,4 +37,10 @@ impl Platform {
             dialogs: Arc::new(MemoryFileDialogs::default()),
         }
     }
+
+    /// The same adapters, with this config store.
+    pub fn with_config(mut self, store: Arc<dyn ConfigStore>) -> Self {
+        self.config = store;
+        self
+    }
 }
