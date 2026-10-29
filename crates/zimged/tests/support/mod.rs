@@ -17,6 +17,20 @@ use zimged_platform::Platform;
 /// Logical window size of the headless App, in points (1 point = 1 pixel).
 pub const WINDOW: egui::Vec2 = egui::vec2(1000.0, 700.0);
 
+/// A file dropped onto the window, as the windowing layer hands it to egui.
+#[derive(Debug)]
+struct DroppedPath(PathBuf);
+
+impl egui::DroppedFile for DroppedPath {
+    fn path(&self) -> &Path {
+        &self.0
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, String> {
+        std::fs::read(&self.0).map_err(|e| e.to_string())
+    }
+}
+
 pub struct TestApp {
     pub harness: Harness<'static, ZimgedApp>,
     /// Holds the copied fixtures; dropped (deleted) with the TestApp.
@@ -50,14 +64,18 @@ impl TestApp {
     }
 
     pub fn with_platform(platform: Platform) -> Self {
-        Self::with_launch(|launch| launch.platform = platform)
+        Self::from_launch(Launch::new(platform))
     }
 
     /// A headless App with no Image open, its [`Launch`] (in-memory platform) adjusted by `adjust`.
     pub fn with_launch(adjust: impl FnOnce(&mut Launch)) -> Self {
-        let dir = tempfile::tempdir().expect("temp dir");
         let mut launch = Launch::new(Platform::in_memory());
         adjust(&mut launch);
+        Self::from_launch(launch)
+    }
+
+    fn from_launch(launch: Launch) -> Self {
+        let dir = tempfile::tempdir().expect("temp dir");
         let harness = Harness::builder()
             .with_size(WINDOW)
             .build_eframe(move |cc| ZimgedApp::new(cc, launch));
@@ -68,6 +86,12 @@ impl TestApp {
     /// running when the app is created (§1.3). Copies the fixtures first; the first one is launched.
     /// Doesn't wait: call [`Self::settle`] (or step the harness) yourself.
     pub fn launch(names: &[&str]) -> Self {
+        Self::launch_scaled(names, 1.0)
+    }
+
+    /// Like [`Self::launch`], on a HiDPI screen of `pixels_per_point` physical pixels per point. The
+    /// window is still [`WINDOW`] points.
+    pub fn launch_scaled(names: &[&str], pixels_per_point: f32) -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = copy_fixtures(dir.path(), names);
         let mut launch = Launch::new(Platform::in_memory());
@@ -75,6 +99,7 @@ impl TestApp {
         launch.first_image = Some(PendingDecode::spawn(path, move || display_box));
         let harness = Harness::builder()
             .with_size(WINDOW)
+            .with_pixels_per_point(pixels_per_point)
             .build_eframe(move |cc| ZimgedApp::new(cc, launch));
         Self { harness, dir }
     }
@@ -122,12 +147,6 @@ impl TestApp {
         app
     }
 
-    /// Press a key (no modifiers) and wait until idle.
-    pub fn press(&mut self, key: egui::Key) {
-        self.harness.key_press(key);
-        self.settle();
-    }
-
     /// Turn the mouse wheel by `lines` notches over the canvas (negative: down) and wait until idle.
     pub fn wheel(&mut self, lines: f32) {
         self.harness.event(egui::Event::MouseWheel {
@@ -170,6 +189,55 @@ impl TestApp {
             assert!(Instant::now() < deadline, "app still busy after 10 s");
             std::thread::sleep(Duration::from_millis(2));
         }
+    }
+
+    /// Press and release a key (no modifiers), then settle.
+    pub fn press(&mut self, key: egui::Key) {
+        self.harness.key_press(key);
+        self.settle();
+    }
+
+    /// Ctrl+wheel with the pointer at `pos` (points): `notches` up (positive, zoom in) or down.
+    pub fn ctrl_wheel_at(&mut self, pos: egui::Pos2, notches: f32) {
+        self.harness.hover_at(pos);
+        self.harness.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, notches),
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Wheel,
+            modifiers: egui::Modifiers::COMMAND,
+        });
+        self.settle();
+    }
+
+    /// Resize (or maximise) the window the way the OS does: the new size and maximised state arrive
+    /// as viewport info with the next frame, which this runs.
+    pub fn resize_window(&mut self, size: egui::Vec2, maximised: bool) {
+        self.harness.set_size(size);
+        let viewport = self
+            .harness
+            .input_mut()
+            .viewports
+            .entry(egui::ViewportId::ROOT)
+            .or_default();
+        viewport.inner_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size));
+        viewport.maximized = Some(maximised);
+        self.harness.run();
+    }
+
+    /// Press Ctrl (Cmd on macOS) + `key`, as the user does. Takes effect on the next frame.
+    pub fn press_ctrl(&mut self, key: egui::Key) {
+        self.harness
+            .key_press_modifiers(egui::Modifiers::COMMAND, key);
+    }
+
+    /// Drop a file onto the window. Takes effect on the next frame.
+    pub fn drop_file(&mut self, path: impl Into<PathBuf>) {
+        let file = DroppedPath(path.into());
+        self.harness
+            .input_mut()
+            .dropped_files
+            .push(std::sync::Arc::new(file));
     }
 
     /// The text of a status-bar field, found by its accessibility label (e.g. "File name").
