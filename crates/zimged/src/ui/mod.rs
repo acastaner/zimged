@@ -2,4 +2,5 @@
 //! strip get their own modules here when their tickets land.
 
 pub mod canvas;
+pub mod menu_bar;
 pub mod status_bar;

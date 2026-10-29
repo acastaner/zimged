@@ -27,6 +27,8 @@ lcms2 = { version = "6.1", features = ["static"] }
 libavif-sys = { version = "0.17", default-features = false, features = ["codec-dav1d"] }
 fast_image_resize = "6"
 directories = "6"
+serde = { version = "1", features = ["derive"] }
+toml = "1"
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal", "wayland"] }
 pollster = "0.4"
 tempfile = "3"

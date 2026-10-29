@@ -10,8 +10,9 @@ use zimged_codec::{DisplayImage, Size, fit_within};
 use zimged_platform::{Config, Platform};
 
 use crate::Command;
+use crate::config_save::ConfigSaver;
 use crate::decode::{DecodeResult, PendingDecode};
-use crate::ui::{canvas, status_bar};
+use crate::ui::{canvas, menu_bar, status_bar};
 use crate::view::{View, ZOOM_STEP, Zoom};
 
 /// The largest Image whose full-resolution pixels are decoded (§4.7). Larger ones are view-only and
@@ -117,6 +118,7 @@ pub struct ZimgedApp {
     ctx: egui::Context,
     platform: Platform,
     config: Config,
+    config_saver: ConfigSaver,
     pending: Option<PendingDecode>,
     shown: Option<ShownImage>,
     /// "Can't open <name>: <reason>" (§5.2), shown on the canvas instead of an image.
@@ -144,6 +146,7 @@ impl ZimgedApp {
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         Self {
             ctx: cc.egui_ctx.clone(),
+            config_saver: ConfigSaver::new(launch.platform.config.clone()),
             platform: launch.platform,
             config: launch.config,
             pending: launch.first_image,
@@ -171,13 +174,24 @@ impl ZimgedApp {
             Command::ZoomAround { factor, around } => self.zoom(factor, Some(around)),
             Command::ZoomFit => self.view = View::fit(),
             Command::ToggleFullscreen => self.fullscreen = !self.fullscreen,
+            Command::SetAllowMultipleInstances(allow) => {
+                self.update_config(|config| config.allow_multiple_instances = allow);
+            }
         }
     }
 
-    /// Is background work still pending (a decode, an answer from the open dialog, …)? Tests wait
-    /// for this to clear.
+    /// The settings in effect (§8.3), including changes not yet written to `config.toml`.
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
+    /// Is background work still pending (a decode, an answer from the open dialog, a config write,
+    /// …)? Tests wait for this to clear.
     pub fn is_busy(&self) -> bool {
-        self.pending.is_some() || self.upgrade.is_some() || self.open_dialog.is_some()
+        self.pending.is_some()
+            || self.upgrade.is_some()
+            || self.open_dialog.is_some()
+            || self.config_saver.is_busy()
     }
 
     /// Is the window fullscreen (or about to be)?
@@ -196,6 +210,45 @@ impl ZimgedApp {
             layout.area,
             layout.pixels_per_point,
         );
+    }
+
+    /// Change the settings and schedule a (debounced) write of `config.toml`.
+    fn update_config(&mut self, change: impl FnOnce(&mut Config)) {
+        let before = self.config.clone();
+        change(&mut self.config);
+        if self.config != before {
+            self.config_saver.changed();
+        }
+    }
+
+    /// Remember the window's restored size and maximised state (§2, §8.3). A fullscreen or
+    /// minimised window isn't recorded.
+    fn track_window(&mut self, ctx: &egui::Context) {
+        let (inner, maximised, fullscreen, minimised) = ctx.input(|i| {
+            let viewport = i.viewport();
+            (
+                viewport.inner_rect,
+                viewport.maximized,
+                viewport.fullscreen,
+                viewport.minimized,
+            )
+        });
+        // `self.fullscreen` covers the frames before the window reports entering fullscreen; the
+        // viewport flag covers those before it reports leaving it.
+        if self.fullscreen || fullscreen == Some(true) || minimised == Some(true) {
+            return;
+        }
+        self.update_config(|config| {
+            if let Some(maximised) = maximised {
+                config.window.maximised = maximised;
+            }
+            if !config.window.maximised
+                && let Some(inner) = inner
+            {
+                config.window.width = inner.width().round();
+                config.window.height = inner.height().round();
+            }
+        });
     }
 
     /// Ctrl+O. Only one open dialog at a time: asking again while it is up does nothing.
@@ -423,8 +476,17 @@ impl eframe::App for ZimgedApp {
         self.poll_decode(&ctx);
         self.poll_upgrade(&ctx);
         self.sync_fullscreen(&ctx);
+        self.track_window(&ctx);
+        self.config_saver.poll(&ctx, &self.config);
 
+        // Fullscreen hides all chrome (§2): the menu bar and the status bar.
         if !self.fullscreen {
+            let menu = menu_bar::MenuBar {
+                allow_multiple_instances: self.config.allow_multiple_instances,
+            };
+            if let Some(command) = menu_bar::show(ui, &menu) {
+                self.execute(command);
+            }
             status_bar::show(ui, &self.status_bar());
         }
         // Laying out keeps the zoomed Image in bounds, so the view comes back updated.
@@ -448,6 +510,10 @@ impl eframe::App for ZimgedApp {
             }
             ctx.request_repaint();
         }
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.config_saver.flush(&self.config);
     }
 }
 
