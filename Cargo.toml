@@ -23,6 +23,8 @@ egui_kittest = { version = "0.37", features = ["eframe"] }
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 fast_image_resize = "6"
 directories = "6"
+serde = { version = "1", features = ["derive"] }
+toml = "1"
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal", "wayland"] }
 pollster = "0.4"
 tempfile = "3"
@@ -30,6 +32,8 @@ tempfile = "3"
 [profile.release]
 lto = "thin"
 codegen-units = 4
+# Release artifacts ship stripped (#41): every package format gets the same binary.
+strip = true
 
 # Decoding a JPEG unoptimised is slow; optimise dependencies even in dev and test builds.
 [profile.dev.package."*"]

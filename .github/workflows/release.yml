@@ -1,0 +1,175 @@
+# zimged release (#41, spec §8.5 and §9).
+#
+# A pushed tag vX.Y.Z builds the release artifacts and publishes a GitHub release. GitHub runs no
+# tests: the gate runs on the maintainer's machine (tools/local-ci/run.sh) and records a pass as a
+# git note on the commit's tree. The gate-record job refuses any tree without that note, and every
+# other job needs it. See packaging/README.md for the release checklist.
+#
+# Linux: tarball, .deb, .rpm, AUR PKGBUILD and a Flatpak bundle. Windows and macOS (#42) add their
+# jobs after gate-record and to the release job's `needs`.
+name: release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  gate-record:
+    name: gate-record
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      rust: ${{ steps.meta.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch the gate records
+        run: |
+          if ! git fetch --no-tags origin refs/notes/gate:refs/notes/gate; then
+            echo "::error::origin has no refs/notes/gate: run ./tools/local-ci/run.sh and push the note."
+            exit 1
+          fi
+
+      - name: Refuse an ungated tree
+        run: bash tools/local-ci/check-gate-record.sh HEAD
+
+      - name: Check the tag, the version and the release notes
+        id: meta
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          rust="$(bash tools/local-ci/check-toolchain-pin.sh .)"
+          version="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -n1)"
+          if [[ "${TAG}" != "v${version}" ]]; then
+            echo "::error::tag ${TAG} does not match the workspace version ${version} in Cargo.toml."
+            exit 1
+          fi
+          if ! grep -q "<release version=\"${version}\"" packaging/linux/io.github.acastaner.zimged.metainfo.xml; then
+            echo "::error::packaging/linux/io.github.acastaner.zimged.metainfo.xml has no <release version=\"${version}\">."
+            exit 1
+          fi
+          python3 packaging/release_notes.py "${version}" > /dev/null
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "rust=${rust}" >> "${GITHUB_OUTPUT}"
+
+  linux:
+    name: linux (x86_64)
+    needs: gate-record
+    runs-on: ubuntu-24.04
+    # The gate's base image (tools/local-ci/Dockerfile): the same toolchain, and Debian bookworm's
+    # glibc 2.36, so the binary runs on any distribution at least that recent.
+    container: rust:${{ needs.gate-record.outputs.rust }}-slim-bookworm
+    env:
+      CARGO_TERM_COLOR: never
+      RUST: ${{ needs.gate-record.outputs.rust }}
+    steps:
+      - name: Install the build tools
+        # git before checkout, so it is a real clone; dpkg-dev for cargo-deb's dpkg-shlibdeps.
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git dpkg-dev
+
+      - uses: actions/checkout@v5
+
+      - name: Install the pinned toolchain
+        # rust-toolchain.toml says X.Y; the image installed it as X.Y.Z, which rustup treats as a
+        # different toolchain (tools/local-ci/README.md, "Bumping Rust").
+        run: |
+          rustup toolchain install "${RUST}" --profile minimal
+          bash tools/local-ci/check-toolchain-pin.sh . --rustc "$(rustc --version)"
+
+      - name: Install the packagers
+        run: cargo install --locked cargo-deb@3.8.0 cargo-generate-rpm@0.21.1
+
+      - name: Build zimged
+        run: cargo build --release --locked -p zimged
+
+      - name: Fetch the tag's source archive for the PKGBUILD
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          curl -fsSL -o "${RUNNER_TEMP}/source.tar.gz" \
+            "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz"
+
+      - name: Package
+        run: packaging/linux/build.sh dist tarball deb rpm pkgbuild "${RUNNER_TEMP}/source.tar.gz" flatpak
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  flatpak:
+    name: flatpak (x86_64)
+    needs: [gate-record, linux]
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08
+      options: --privileged
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux
+          path: dist
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: dist/flatpak/io.github.acastaner.zimged.yml
+          bundle: zimged-${{ needs.gate-record.outputs.version }}-x86_64.flatpak
+          cache: false
+          upload-artifact: false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: zimged-${{ needs.gate-record.outputs.version }}-x86_64.flatpak
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: [gate-record, linux, flatpak]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.gate-record.outputs.version }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect the assets
+        run: |
+          mkdir assets
+          cp artifacts/linux/*.tar.gz artifacts/linux/*.deb artifacts/linux/*.rpm assets/
+          cp artifacts/flatpak/*.flatpak assets/
+          tar --owner=0 --group=0 --numeric-owner -C artifacts/linux/aur \
+            -czf "assets/zimged-${VERSION}-aur.tar.gz" PKGBUILD .SRCINFO
+          (cd assets && sha256sum -- * > SHA256SUMS)
+          ls -l assets
+
+      - name: Write the release notes
+        run: python3 packaging/release_notes.py "${VERSION}" > "${RUNNER_TEMP}/notes.md"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${TAG}" assets/* --verify-tag \
+            --title "zimged ${VERSION}" --notes-file "${RUNNER_TEMP}/notes.md"
