@@ -12,9 +12,12 @@ publish.workspace = true
 zimged-core.workspace = true
 zimged-codec.workspace = true
 zimged-platform.workspace = true
+zimged-render.workspace = true
 eframe.workspace = true
 egui.workspace = true
 
 [dev-dependencies]
 egui_kittest.workspace = true
 tempfile.workspace = true
+# Golden PNGs (tests/golden) and generated fixtures.
+image = { workspace = true, features = ["png"] }

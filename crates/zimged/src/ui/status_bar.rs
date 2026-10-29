@@ -10,12 +10,17 @@ use crate::app::Zoom;
 pub const LABEL_FILE_NAME: &str = "File name";
 pub const LABEL_PIXEL_SIZE: &str = "Pixel size";
 pub const LABEL_ZOOM: &str = "Zoom";
+pub const LABEL_MESSAGE: &str = "Message";
 
 /// What the status bar shows this frame. `None` fields are left out.
 pub struct StatusBar<'a> {
     pub file_name: Option<&'a str>,
+    /// Unsaved changes: ` •` follows the file name.
+    pub modified: bool,
     pub pixel_size: Option<Size>,
     pub zoom: Option<Zoom>,
+    /// The message slot, last on the right.
+    pub message: Option<&'a str>,
 }
 
 pub fn show(ui: &mut egui::Ui, bar: &StatusBar<'_>) {
@@ -23,7 +28,8 @@ pub fn show(ui: &mut egui::Ui, bar: &StatusBar<'_>) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 16.0;
             if let Some(name) = bar.file_name {
-                field(ui, LABEL_FILE_NAME, name);
+                let marker = if bar.modified { " •" } else { "" };
+                field(ui, LABEL_FILE_NAME, &format!("{name}{marker}"));
             }
             // The Sibling position `n / N` goes here (#15).
             if let Some(size) = bar.pixel_size {
@@ -32,7 +38,10 @@ pub fn show(ui: &mut egui::Ui, bar: &StatusBar<'_>) {
             if let Some(zoom) = bar.zoom {
                 field(ui, LABEL_ZOOM, &zoom.label());
             }
-            // Then the animation state and the transient message slot.
+            // The animation state goes here.
+            if let Some(message) = bar.message {
+                field(ui, LABEL_MESSAGE, message);
+            }
         });
     });
 }

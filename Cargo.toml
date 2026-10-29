@@ -24,6 +24,10 @@ image = { version = "0.25", default-features = false, features = ["jpeg"] }
 fast_image_resize = "6"
 directories = "6"
 tempfile = "3"
+# Prebuilt Skia binaries are downloaded at build time (binary-cache). The default features plus
+# textlayout match a published binary set (`jpegd-jpege-pdf-textlayout`), so no C++ toolchain is
+# needed; another feature set can force a from-source build (LLVM, Python, Ninja).
+skia-safe = { version = "0.156", features = ["textlayout"] }
 
 [profile.release]
 lto = "thin"

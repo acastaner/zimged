@@ -71,6 +71,11 @@ impl Decoded {
         Size::new(w, h)
     }
 
+    /// The full-resolution pixels: 8-bit RGB, tightly packed, row-major.
+    pub fn into_rgb(self) -> Vec<u8> {
+        self.0.into_raw()
+    }
+
     /// Reduce to fit inside `max` (physical pixels), keeping the aspect ratio, never enlarging.
     pub fn into_display(self, max: Size) -> DisplayImage {
         let original_size = self.size();

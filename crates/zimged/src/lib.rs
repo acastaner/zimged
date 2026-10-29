@@ -7,7 +7,10 @@ pub mod app;
 pub mod bench;
 pub mod commands;
 pub mod decode;
+mod editor;
+mod input;
 pub mod startup;
+pub mod tools;
 mod ui;
 
 pub use app::{Launch, ZimgedApp};
