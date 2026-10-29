@@ -1,0 +1,20 @@
+[package]
+name = "zimged"
+description = "A small, very fast image viewer and quick editor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+zimged-core.workspace = true
+zimged-codec.workspace = true
+zimged-platform.workspace = true
+eframe.workspace = true
+egui.workspace = true
+
+[dev-dependencies]
+egui_kittest.workspace = true
+tempfile.workspace = true

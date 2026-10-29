@@ -1,0 +1,12 @@
+[package]
+name = "zimged-platform"
+description = "OS adapters behind traits: config directory, clipboard, trash, dialogs, single instance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+directories.workspace = true

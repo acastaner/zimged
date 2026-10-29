@@ -1,0 +1,13 @@
+[package]
+name = "zimged-codec"
+description = "Decoding (display size and full resolution), colour conversion, encoding and safe saves"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+image.workspace = true
+fast_image_resize.workspace = true

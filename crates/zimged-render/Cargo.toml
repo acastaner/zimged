@@ -1,0 +1,12 @@
+[package]
+name = "zimged-render"
+description = "Skia rendering of a zimged Document: on-screen composite, Flatten, effects, resampling"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+zimged-core.workspace = true
