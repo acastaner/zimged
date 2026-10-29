@@ -9,6 +9,7 @@ pub mod commands;
 mod config_save;
 pub mod decode;
 mod input;
+mod pan;
 pub mod startup;
 mod ui;
 pub mod view;

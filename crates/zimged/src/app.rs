@@ -12,6 +12,7 @@ use zimged_platform::{Config, Platform};
 use crate::Command;
 use crate::config_save::ConfigSaver;
 use crate::decode::{DecodeResult, PendingDecode};
+use crate::pan::PanGesture;
 use crate::ui::{canvas, menu_bar, status_bar};
 use crate::view::{View, ZOOM_STEP, Zoom};
 
@@ -122,6 +123,8 @@ pub struct ZimgedApp {
     error: Option<String>,
     upgrade: Option<Upgrade>,
     view: View,
+    /// The pan drag in progress (Space+left or middle button).
+    pan: PanGesture,
     /// Wanted fullscreen state (F11). Chrome is hidden while it's on.
     fullscreen: bool,
     /// The last fullscreen state sent to the window, and the last one the window reported.
@@ -151,6 +154,7 @@ impl ZimgedApp {
             error: None,
             upgrade: None,
             view: View::fit(),
+            pan: PanGesture::default(),
             fullscreen: false,
             fullscreen_sent: None,
             fullscreen_seen: None,
@@ -169,6 +173,7 @@ impl ZimgedApp {
             Command::ZoomIn => self.zoom(ZOOM_STEP, None),
             Command::ZoomOut => self.zoom(1.0 / ZOOM_STEP, None),
             Command::ZoomAround { factor, around } => self.zoom(factor, Some(around)),
+            Command::Pan(delta) => self.pan_by(delta),
             Command::ZoomFit => self.view = View::fit(),
             Command::ToggleFullscreen => self.fullscreen = !self.fullscreen,
             Command::SetAllowMultipleInstances(allow) => {
@@ -207,6 +212,24 @@ impl ZimgedApp {
             layout.area,
             layout.pixels_per_point,
         );
+    }
+
+    fn pan_by(&mut self, delta: egui::Vec2) {
+        let (Some(shown), Some(layout)) = (&self.shown, self.canvas) else {
+            return;
+        };
+        self.view.pan_by(
+            delta,
+            shown.original_size,
+            layout.area,
+            layout.pixels_per_point,
+        );
+    }
+
+    /// Does the pointer belong to panning this frame? The active tool leaves it alone while it does
+    /// (Space and the middle button take precedence over tools).
+    pub fn pan_owns_pointer(&self) -> bool {
+        self.pan.owns_pointer(&self.ctx)
     }
 
     /// Change the settings and schedule a (debounced) write of `config.toml`.
@@ -452,7 +475,10 @@ impl eframe::App for ZimgedApp {
             self.first_paint = FirstPaint::Done;
             self.after_first_paint(&ctx);
         }
-        for command in crate::input::commands(&ctx, self.canvas.map(|c| c.area)) {
+        let canvas_area = self.canvas.map(|c| c.area);
+        let mut commands = crate::input::commands(&ctx, canvas_area);
+        commands.extend(self.pan.commands(&ctx, canvas_area));
+        for command in commands {
             self.execute(command);
         }
         self.poll_open_dialog();

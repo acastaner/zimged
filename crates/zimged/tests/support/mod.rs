@@ -147,6 +147,60 @@ impl TestApp {
         self.settle();
     }
 
+    /// Drag with `button` from `from` to `to` (points), in a few pointer moves, holding Space
+    /// throughout when `space` is set; then settle.
+    pub fn drag(
+        &mut self,
+        button: egui::PointerButton,
+        from: egui::Pos2,
+        to: egui::Pos2,
+        space: bool,
+    ) {
+        self.harness.hover_at(from);
+        if space {
+            self.harness.key_down(egui::Key::Space);
+        }
+        self.harness.run();
+        self.harness.event(egui::Event::PointerButton {
+            pos: from,
+            button,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        self.harness.run();
+        for step in 1..=4 {
+            self.harness.hover_at(from.lerp(to, step as f32 / 4.0));
+            self.harness.run();
+        }
+        self.harness.event(egui::Event::PointerButton {
+            pos: to,
+            button,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        if space {
+            self.harness.key_up(egui::Key::Space);
+        }
+        self.settle();
+    }
+
+    /// Turn the mouse wheel `notches` with `modifiers` held and the pointer at `pos`; then settle.
+    pub fn wheel_at(&mut self, pos: egui::Pos2, notches: f32, modifiers: egui::Modifiers) {
+        self.harness.hover_at(pos);
+        self.harness.event(egui::Event::ModifiersChanged(modifiers));
+        self.harness.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, notches),
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Wheel,
+            modifiers,
+        });
+        self.harness.run();
+        self.harness
+            .event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        self.settle();
+    }
+
     /// Resize (or maximise) the window the way the OS does: the new size and maximised state arrive
     /// as viewport info with the next frame, which this runs.
     pub fn resize_window(&mut self, size: egui::Vec2, maximised: bool) {
