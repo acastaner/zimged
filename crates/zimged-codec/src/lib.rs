@@ -138,6 +138,23 @@ impl Decoded {
     }
 }
 
+/// The extensions of the formats zimged reads (§5.1), lowercase. A file is a Sibling candidate when
+/// its extension matches one of these case-insensitively (§3.2).
+pub const READ_EXTENSIONS: &[&str] = &[
+    "jpg", "jpeg", "png", "webp", "gif", "bmp", "ico", "tif", "tiff", "avif",
+];
+
+/// Does `path` have the extension of a format zimged reads (case-insensitive)?
+pub fn has_read_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            READ_EXTENSIONS
+                .iter()
+                .any(|known| known.eq_ignore_ascii_case(ext))
+        })
+}
+
 /// Decode a file at its full resolution.
 pub fn decode(path: &Path) -> Result<Decoded, DecodeError> {
     let reader = ImageReader::open(path)

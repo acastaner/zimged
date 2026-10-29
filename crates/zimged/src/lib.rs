@@ -10,6 +10,7 @@ mod config_save;
 pub mod decode;
 mod input;
 mod pan;
+mod siblings;
 pub mod startup;
 mod ui;
 pub mod view;
