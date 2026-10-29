@@ -11,4 +11,15 @@ pub enum Command {
     Open(PathBuf),
     /// Show the native open dialog and open the file chosen in it (Ctrl+O, §3.5).
     OpenDialog,
+    /// Zoom in one step around the canvas centre (`+`, §3.1).
+    ZoomIn,
+    /// Zoom out one step around the canvas centre (`-`, §3.1).
+    ZoomOut,
+    /// Multiply the zoom by `factor`, keeping the Image point under `around` (in points) in place
+    /// (Ctrl+wheel, §3.1).
+    ZoomAround { factor: f32, around: egui::Pos2 },
+    /// Back to fit-to-window (`0`, §3.1).
+    ZoomFit,
+    /// Enter or leave fullscreen (F11, §2).
+    ToggleFullscreen,
 }

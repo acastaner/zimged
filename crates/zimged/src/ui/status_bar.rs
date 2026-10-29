@@ -5,7 +5,7 @@
 
 use zimged_codec::Size;
 
-use crate::app::Zoom;
+use crate::view::Zoom;
 
 pub const LABEL_FILE_NAME: &str = "File name";
 pub const LABEL_PIXEL_SIZE: &str = "Pixel size";
