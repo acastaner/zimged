@@ -3,7 +3,8 @@
 //! Keep this file thin. Chrome lives in `ui/` (one module per bar), commands in `commands.rs`, and
 //! domain state in `zimged-core`. `ui()` polls background work, then lays out the panels.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 
 use zimged_codec::{DisplayImage, Size};
 use zimged_platform::{Config, Platform};
@@ -75,8 +76,12 @@ enum FirstPaint {
     Done,
 }
 
+/// The canvas text when there is no Image (§2).
+pub const EMPTY_WINDOW_HINT: &str = "Open (Ctrl+O), drop or paste (Ctrl+V) an image";
+
 pub struct ZimgedApp {
-    #[expect(dead_code, reason = "used by the clipboard, trash and dialog tickets")]
+    /// To wake the UI from background work.
+    ctx: egui::Context,
     platform: Platform,
     config: Config,
     pending: Option<PendingDecode>,
@@ -87,6 +92,8 @@ pub struct ZimgedApp {
     /// The canvas as laid out in the last frame.
     canvas: Option<canvas::Layout>,
     first_paint: FirstPaint,
+    /// The open dialog while it is up: receives the chosen path, or `None` on Cancel.
+    open_dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
 }
 
 impl ZimgedApp {
@@ -95,6 +102,7 @@ impl ZimgedApp {
             pending.wake(&cc.egui_ctx);
         }
         Self {
+            ctx: cc.egui_ctx.clone(),
             platform: launch.platform,
             config: launch.config,
             pending: launch.first_image,
@@ -103,18 +111,52 @@ impl ZimgedApp {
             zoom: Zoom::Fit,
             canvas: None,
             first_paint: FirstPaint::Waiting,
+            open_dialog: None,
         }
     }
 
     pub fn execute(&mut self, command: Command) {
         match command {
+            // #35: with unsaved changes, opening (from the launch argument, the dialog or a drop)
+            // first asks Save / Discard / Cancel (§6.4). Every open comes through here.
             Command::Open(path) => self.open(&path),
+            Command::OpenDialog => self.show_open_dialog(),
         }
     }
 
-    /// Is background work still pending (a decode, …)? Tests wait for this to clear.
+    /// Is background work still pending (a decode, an answer from the open dialog, …)? Tests wait
+    /// for this to clear.
     pub fn is_busy(&self) -> bool {
-        self.pending.is_some()
+        self.pending.is_some() || self.open_dialog.is_some()
+    }
+
+    /// Ctrl+O. Only one open dialog at a time: asking again while it is up does nothing.
+    fn show_open_dialog(&mut self) {
+        if self.open_dialog.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        self.open_dialog = Some(rx);
+        let ctx = self.ctx.clone();
+        self.platform.dialogs.pick_image(Box::new(move |chosen| {
+            let _ = tx.send(chosen);
+            ctx.request_repaint();
+        }));
+    }
+
+    fn poll_open_dialog(&mut self) {
+        let Some(rx) = &self.open_dialog else {
+            return;
+        };
+        let chosen = match rx.try_recv() {
+            Ok(chosen) => chosen,
+            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Disconnected) => None,
+        };
+        self.open_dialog = None;
+        if let Some(path) = chosen {
+            self.execute(Command::Open(path));
+        }
     }
 
     fn open(&mut self, path: &Path) {
@@ -176,6 +218,18 @@ impl ZimgedApp {
         })
     }
 
+    /// The text the canvas shows instead of an Image: the decode error, or the empty-window hint.
+    fn canvas_message(&self) -> Option<&str> {
+        if self.shown.is_some() {
+            return None;
+        }
+        if let Some(error) = &self.error {
+            return Some(error);
+        }
+        // While the first Image decodes, the canvas stays blank rather than flash the hint.
+        self.pending.is_none().then_some(EMPTY_WINDOW_HINT)
+    }
+
     fn status_bar(&self) -> status_bar::StatusBar<'_> {
         status_bar::StatusBar {
             file_name: self.shown.as_ref().map(|s| s.file_name.as_str()),
@@ -193,10 +247,14 @@ impl eframe::App for ZimgedApp {
             self.first_paint = FirstPaint::Done;
             self.after_first_paint(&ctx);
         }
+        for command in crate::input::commands(&ctx) {
+            self.execute(command);
+        }
+        self.poll_open_dialog();
         self.poll_decode(&ctx);
 
         status_bar::show(ui, &self.status_bar());
-        self.canvas = Some(canvas::show(ui, self.shown.as_ref(), self.error.as_deref()));
+        self.canvas = Some(canvas::show(ui, self.shown.as_ref(), self.canvas_message()));
 
         if self.first_paint == FirstPaint::Waiting && self.shown.is_some() {
             // Same convention as the spike: the mark is taken while building the frame that draws
