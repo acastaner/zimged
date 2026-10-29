@@ -97,6 +97,23 @@ fn f11_toggles_fullscreen_and_hides_the_status_bar() {
 }
 
 #[test]
+fn f11_hides_the_menu_bar_too() {
+    use egui_kittest::kittest::Queryable;
+
+    let mut app = TestApp::open_fixture("small-320x240.jpg");
+    assert!(app.harness.query_by_label("View").is_some());
+
+    app.press(Key::F11);
+    assert!(
+        app.harness.query_by_label("View").is_none(),
+        "fullscreen hides all chrome (§2)"
+    );
+
+    app.press(Key::F11);
+    assert!(app.harness.query_by_label("View").is_some());
+}
+
+#[test]
 fn zooming_past_the_display_size_decode_brings_full_resolution() {
     let mut app = TestApp::open_fixture("large-2400x1600.jpg");
     // The headless default is 2048; a real GL context reports 8192 or more.
@@ -120,11 +137,15 @@ fn zooming_past_the_display_size_decode_brings_full_resolution() {
 #[test]
 fn hidpi_screen_redecodes_for_its_physical_pixels() {
     // The startup decode targets the configured window size at scale 1 (1600×1000 → 1500×1000);
-    // at 2 pixels per point the 1000-point-wide canvas is 2000 physical pixels wide.
+    // at 2 pixels per point the canvas is twice as many physical pixels, and the redecode fits
+    // the 3:2 Image into that.
     let mut app = TestApp::launch_scaled(&["large-2400x1600.jpg"], 2.0);
     app.settle();
 
     let canvas = app.harness.state().canvas().unwrap();
-    assert_eq!(canvas.decoded_size.width, 2000);
+    let physical = canvas.area.size() * 2.0;
+    let expected = physical.x.min(physical.y * 1.5).round() as u32;
+    assert!(expected > 1500, "{physical:?}");
+    assert_eq!(canvas.decoded_size.width, expected);
     assert_eq!(app.status("Zoom"), "Fit");
 }

@@ -107,6 +107,28 @@ fn the_maximised_state_is_remembered_with_the_restored_size() {
 }
 
 #[test]
+fn a_fullscreen_window_is_not_remembered() {
+    let store = Arc::new(MemoryConfigStore::default());
+    let mut app = TestApp::with_platform(platform_with(&store));
+
+    app.resize_window(egui::vec2(1280.0, 800.0), false);
+    app.resize_window(egui::vec2(1920.0, 1050.0), true);
+    app.settle();
+    app.press(egui::Key::F11);
+    // The fullscreen window fills the screen and is no longer maximised.
+    app.resize_window(egui::vec2(1920.0, 1080.0), false);
+    app.settle();
+
+    assert!(app.harness.state().is_fullscreen());
+    let next = Launch::new(platform_with(&store));
+    assert!(next.config.window.maximised);
+    assert_eq!(
+        (next.config.window.width, next.config.window.height),
+        (1280.0, 800.0)
+    );
+}
+
+#[test]
 fn on_disk_the_config_is_written_whole_with_no_temporary_file_left() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("zimged").join("config.toml");
