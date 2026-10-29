@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 
-use zimged_codec::{DecodeError, DisplayImage, Size};
+use zimged_codec::{DecodeError, DisplayImage, Pixels, Size};
 
 /// A display-size decode, shareable between the cache and the screen.
 pub type Decoded = Result<Arc<DisplayImage>, Arc<DecodeError>>;
@@ -55,7 +55,9 @@ impl State {
     }
 
     fn insert(&mut self, path: PathBuf, decoded: Decoded, display_box: Size, cap: usize) {
-        let bytes = decoded.as_ref().map_or(0, |image| image.rgb.len());
+        let bytes = decoded.as_ref().map_or(0, |image| match &image.pixels {
+            Pixels::Rgb(bytes) | Pixels::Rgba(bytes) => bytes.len(),
+        });
         let used = self.next_tick();
         if let Some(old) = self.cache.insert(
             path,

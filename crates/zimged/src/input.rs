@@ -68,7 +68,7 @@ pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>) -> Vec<Command>
 }
 
 /// §3.1: wheel down is the next Sibling, wheel up the previous one. Ctrl+wheel zooms instead
-/// (above).
+/// (above) and Shift+wheel pans ([`crate::pan`], #43).
 fn wheel(ctx: &egui::Context, commands: &mut Vec<Command>) {
     let id = egui::Id::unique("zimged_wheel_points");
     let mut points: f32 = ctx.data(|d| d.get_temp(id)).unwrap_or(0.0);
@@ -83,7 +83,7 @@ fn wheel(ctx: &egui::Context, commands: &mut Vec<Command>) {
             else {
                 continue;
             };
-            if modifiers.ctrl || modifiers.command || delta.y == 0.0 {
+            if modifiers.ctrl || modifiers.command || modifiers.shift || delta.y == 0.0 {
                 continue;
             }
             // A positive y moves the content down: the wheel turned up.

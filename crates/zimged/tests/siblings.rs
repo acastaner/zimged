@@ -41,6 +41,23 @@ fn wheel_down_is_next_and_wheel_up_is_previous() {
 }
 
 #[test]
+fn shift_wheel_and_ctrl_wheel_do_not_move_to_a_sibling() {
+    // Shift+wheel pans (#43) and Ctrl+wheel zooms (#18); only the plain wheel navigates.
+    let mut app = TestApp::open_in_folder(SMALL, &["a.jpg", "b.jpg", "c.jpg"], "b.jpg");
+    let over_canvas = egui::pos2(500.0, 300.0);
+
+    app.wheel_at(over_canvas, -1.0, egui::Modifiers::SHIFT);
+    assert_eq!(app.status("File name"), "b.jpg");
+
+    app.wheel_at(over_canvas, 1.0, egui::Modifiers::COMMAND);
+    assert_eq!(app.status("File name"), "b.jpg");
+    assert_ne!(app.status("Zoom"), "Fit");
+
+    app.wheel_at(over_canvas, -1.0, egui::Modifiers::NONE);
+    assert_eq!(app.status("File name"), "c.jpg");
+}
+
+#[test]
 fn no_wrap_around_at_the_ends() {
     let mut app = TestApp::open_in_folder(SMALL, &["a.jpg", "b.jpg"], "b.jpg");
     assert_eq!(app.status_field("Message"), None);
