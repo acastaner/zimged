@@ -4,6 +4,7 @@
 //! domain state in `zimged-core`. `ui()` polls background work, then lays out the panels.
 
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 
 use zimged_codec::{DisplayImage, Size, fit_within};
 use zimged_platform::{Config, Platform};
@@ -105,8 +106,12 @@ enum FirstPaint {
     Done,
 }
 
+/// The canvas text when there is no Image (§2).
+pub const EMPTY_WINDOW_HINT: &str = "Open (Ctrl+O), drop or paste (Ctrl+V) an image";
+
 pub struct ZimgedApp {
-    #[expect(dead_code, reason = "used by the clipboard, trash and dialog tickets")]
+    /// To wake the UI from background work.
+    ctx: egui::Context,
     platform: Platform,
     config: Config,
     pending: Option<PendingDecode>,
@@ -123,6 +128,8 @@ pub struct ZimgedApp {
     /// The canvas as laid out in the last frame.
     canvas: Option<canvas::Layout>,
     first_paint: FirstPaint,
+    /// The open dialog while it is up: receives the chosen path, or `None` on Cancel.
+    open_dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
 }
 
 impl ZimgedApp {
@@ -133,6 +140,7 @@ impl ZimgedApp {
         // Ctrl+plus / minus / 0 would scale the whole UI; the image zoom is on plain +, - and 0.
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         Self {
+            ctx: cc.egui_ctx.clone(),
             platform: launch.platform,
             config: launch.config,
             pending: launch.first_image,
@@ -145,12 +153,16 @@ impl ZimgedApp {
             fullscreen_seen: None,
             canvas: None,
             first_paint: FirstPaint::Waiting,
+            open_dialog: None,
         }
     }
 
     pub fn execute(&mut self, command: Command) {
         match command {
+            // #35: with unsaved changes, opening (from the launch argument, the dialog or a drop)
+            // first asks Save / Discard / Cancel (§6.4). Every open comes through here.
             Command::Open(path) => self.open(&path),
+            Command::OpenDialog => self.show_open_dialog(),
             Command::ZoomIn => self.zoom(ZOOM_STEP, None),
             Command::ZoomOut => self.zoom(1.0 / ZOOM_STEP, None),
             Command::ZoomAround { factor, around } => self.zoom(factor, Some(around)),
@@ -159,9 +171,10 @@ impl ZimgedApp {
         }
     }
 
-    /// Is background work still pending (a decode, …)? Tests wait for this to clear.
+    /// Is background work still pending (a decode, an answer from the open dialog, …)? Tests wait
+    /// for this to clear.
     pub fn is_busy(&self) -> bool {
-        self.pending.is_some() || self.upgrade.is_some()
+        self.pending.is_some() || self.upgrade.is_some() || self.open_dialog.is_some()
     }
 
     /// Is the window fullscreen (or about to be)?
@@ -180,6 +193,35 @@ impl ZimgedApp {
             layout.area,
             layout.pixels_per_point,
         );
+    }
+
+    /// Ctrl+O. Only one open dialog at a time: asking again while it is up does nothing.
+    fn show_open_dialog(&mut self) {
+        if self.open_dialog.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        self.open_dialog = Some(rx);
+        let ctx = self.ctx.clone();
+        self.platform.dialogs.pick_image(Box::new(move |chosen| {
+            let _ = tx.send(chosen);
+            ctx.request_repaint();
+        }));
+    }
+
+    fn poll_open_dialog(&mut self) {
+        let Some(rx) = &self.open_dialog else {
+            return;
+        };
+        let chosen = match rx.try_recv() {
+            Ok(chosen) => chosen,
+            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Disconnected) => None,
+        };
+        self.open_dialog = None;
+        if let Some(path) = chosen {
+            self.execute(Command::Open(path));
+        }
     }
 
     fn open(&mut self, path: &Path) {
@@ -328,6 +370,18 @@ impl ZimgedApp {
         })
     }
 
+    /// The text the canvas shows instead of an Image: the decode error, or the empty-window hint.
+    fn canvas_message(&self) -> Option<&str> {
+        if self.shown.is_some() {
+            return None;
+        }
+        if let Some(error) = &self.error {
+            return Some(error);
+        }
+        // While the first Image decodes, the canvas stays blank rather than flash the hint.
+        self.pending.is_none().then_some(EMPTY_WINDOW_HINT)
+    }
+
     fn status_bar(&self) -> status_bar::StatusBar<'_> {
         status_bar::StatusBar {
             file_name: self.shown.as_ref().map(|s| s.file_name.as_str()),
@@ -345,22 +399,26 @@ impl eframe::App for ZimgedApp {
             self.first_paint = FirstPaint::Done;
             self.after_first_paint(&ctx);
         }
-        self.poll_decode(&ctx);
-        self.poll_upgrade(&ctx);
         for command in crate::input::commands(&ctx, self.canvas.map(|c| c.area)) {
             self.execute(command);
         }
+        self.poll_open_dialog();
+        self.poll_decode(&ctx);
+        self.poll_upgrade(&ctx);
         self.sync_fullscreen(&ctx);
 
         if !self.fullscreen {
             status_bar::show(ui, &self.status_bar());
         }
+        // Laying out keeps the zoomed Image in bounds, so the view comes back updated.
+        let mut view = self.view;
         self.canvas = Some(canvas::show(
             ui,
             self.shown.as_ref(),
-            &mut self.view,
-            self.error.as_deref(),
+            &mut view,
+            self.canvas_message(),
         ));
+        self.view = view;
         self.request_pixels(&ctx);
 
         if self.first_paint == FirstPaint::Waiting && self.shown.is_some() {

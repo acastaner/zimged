@@ -9,6 +9,8 @@ use std::path::PathBuf;
 pub enum Command {
     /// Open this file as the Image (§3.5).
     Open(PathBuf),
+    /// Show the native open dialog and open the file chosen in it (Ctrl+O, §3.5).
+    OpenDialog,
     /// Zoom in one step around the canvas centre (`+`, §3.1).
     ZoomIn,
     /// Zoom out one step around the canvas centre (`-`, §3.1).

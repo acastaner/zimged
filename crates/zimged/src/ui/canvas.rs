@@ -32,11 +32,12 @@ fn to_px(size: egui::Vec2, ppp: f32) -> Size {
 }
 
 /// Draw the canvas in the remaining space.
+/// Without an Image, `message` (an error or the empty-window hint) is centred on it.
 pub fn show(
     ui: &mut egui::Ui,
     shown: Option<&ShownImage>,
     view: &mut View,
-    error: Option<&str>,
+    message: Option<&str>,
 ) -> Layout {
     let frame = egui::Frame::NONE.fill(ui.visuals().extreme_bg_color);
     egui::CentralPanel::default()
@@ -65,8 +66,8 @@ pub fn show(
                     texture.size()[0] as u32,
                     texture.size()[1] as u32,
                 ));
-            } else if let Some(error) = error {
-                ui.centered_and_justified(|ui| ui.label(error));
+            } else if let Some(message) = message {
+                ui.centered_and_justified(|ui| ui.label(message));
             }
             layout
         })
