@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use zimged_codec::Size;
-use zimged_core::{Document, Property, PropertyKind, Shape, Style};
-use zimged_render::{Composite, Renderer, Source, View};
+use zimged_core::{Document, PixelData, Property, PropertyKind, Shape, Style};
+use zimged_render::{Composite, Renderer, Source, SourcePixels, View};
 
 use crate::decode::PendingFullDecode;
 use crate::tools::{Pointer, Tool, ToolContext, ToolId};
@@ -22,12 +22,13 @@ pub const MAX_EDIT_PIXELS: u64 = 100_000_000;
 
 pub const VIEW_ONLY_MESSAGE: &str = "View only: image too large to edit";
 
-/// The display-size pixels of the shown Image, which the composite draws from at Fit.
-pub struct DisplayPixels {
-    /// Unique per decoded Image: the renderer's cache key.
+/// The display-size pixels of the shown Image (shared with its texture), which the composite draws
+/// from unless zoomed past them.
+#[derive(Clone, Copy)]
+pub struct DisplayPixels<'a> {
+    /// Unique per decode: the renderer's cache key.
     pub key: u64,
-    pub size: Size,
-    pub rgb: Arc<Vec<u8>>,
+    pub image: &'a egui::ColorImage,
 }
 
 /// The editor's state for the open Image.
@@ -311,10 +312,11 @@ impl Editor {
         ctx: &egui::Context,
         layout: &Layout,
         response: &egui::Response,
-        display: Option<&DisplayPixels>,
+        display: Option<DisplayPixels<'_>>,
+        pointer_is_ours: bool,
     ) -> EditorPaint {
         let revision = self.document().map(|d| d.revision());
-        if self.can_edit() {
+        if self.can_edit() && (pointer_is_ours || self.pointer_down) {
             self.pointer(ctx, layout, response);
         }
         if self.document().map(|d| d.revision()) != revision {
@@ -341,19 +343,19 @@ impl Editor {
         let press_origin = ctx.input(|i| i.pointer.press_origin());
         let current = response.interact_pointer_pos();
 
-        if response.drag_started()
+        if response.drag_started_by(egui::PointerButton::Primary)
             && let Some(origin) = press_origin
         {
             self.pointer_down = true;
             self.with_tool(layout, |tool, cx| tool.press(cx, at(origin)));
         }
         if self.pointer_down
-            && response.dragged()
+            && response.dragged_by(egui::PointerButton::Primary)
             && let Some(pos) = current
         {
             self.with_tool(layout, |tool, cx| tool.drag(cx, at(pos)));
         }
-        if self.pointer_down && response.drag_stopped() {
+        if self.pointer_down && response.drag_stopped_by(egui::PointerButton::Primary) {
             self.pointer_down = false;
             let pos = current
                 .or_else(|| ctx.input(|i| i.pointer.latest_pos()))
@@ -392,7 +394,7 @@ impl Editor {
         &mut self,
         ctx: &egui::Context,
         layout: &Layout,
-        display: &DisplayPixels,
+        display: DisplayPixels<'_>,
     ) -> Option<(egui::TextureId, egui::Rect)> {
         let e = self.edited.as_mut()?;
         if e.doc.annotations().is_empty() {
@@ -406,20 +408,23 @@ impl Editor {
             height: px.height,
         };
         // Zoomed in past the display-size decode, draw from the full-resolution pixels (§7.2).
-        let display_density = display.size.width as f32 / e.doc.width() as f32;
+        let display_density = display.image.width() as f32 / e.doc.width() as f32;
         let wanted_density = px.width as f32 / region.width().max(1.0);
         let source = match e.doc.full_resolution() {
             Some(full) if wanted_density > display_density => Source {
                 key: display.key * 2 + 1,
                 width: full.width,
                 height: full.height,
-                rgb: &full.rgb,
+                pixels: match &full.data {
+                    PixelData::Rgb(rgb) => SourcePixels::Rgb(rgb),
+                    PixelData::Rgba(rgba) => SourcePixels::Rgba(rgba),
+                },
             },
             _ => Source {
                 key: display.key * 2,
-                width: display.size.width,
-                height: display.size.height,
-                rgb: &display.rgb,
+                width: display.image.width() as u32,
+                height: display.image.height() as u32,
+                pixels: SourcePixels::RgbaPremultiplied(display.image.as_raw()),
             },
         };
         let key = (e.doc.revision(), source.key, view);

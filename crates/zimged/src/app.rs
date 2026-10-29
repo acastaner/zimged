@@ -17,6 +17,7 @@ use crate::Command;
 use crate::config_save::ConfigSaver;
 use crate::decode::{DecodeResult, PendingDecode};
 use crate::editor::{DisplayPixels, Editor, MAX_EDIT_PIXELS, VIEW_ONLY_MESSAGE};
+use crate::pan::PanGesture;
 use crate::tools::ToolId;
 use crate::ui::{canvas, menu_bar, property_bar, status_bar, tool_strip};
 use crate::view::{View, ZOOM_STEP, Zoom};
@@ -65,13 +66,16 @@ pub(crate) struct ShownImage {
     /// The display-size decode (§5.2), re-decoded larger if the canvas outgrows it (a resize, or a
     /// HiDPI scale factor the startup decode couldn't know).
     display: egui::TextureHandle,
+    /// `display`'s pixels, shared with egui (no copy). Tests read them; so will the on-screen
+    /// composite (§7.2).
+    display_pixels: Arc<egui::ColorImage>,
+    /// Identifies `display_pixels` for the Skia renderer's cache (a new key per decode).
+    display_key: u64,
     /// The full-resolution decode, once zoomed past the display-size one (§7.2). Capped at the GPU's
     /// largest texture.
     full: Option<egui::TextureHandle>,
     /// The largest decode asked for so far, so a size that can't be bettered isn't asked for again.
     requested: Size,
-    /// The display-size pixels on the CPU, which the Skia composite draws from (§7.2).
-    pub display_pixels: DisplayPixels,
 }
 
 impl ShownImage {
@@ -130,6 +134,8 @@ pub struct ZimgedApp {
     error: Option<String>,
     upgrade: Option<Upgrade>,
     view: View,
+    /// The pan drag in progress (Space+left or middle button).
+    pan: PanGesture,
     /// Wanted fullscreen state (F11). Chrome is hidden while it's on.
     fullscreen: bool,
     /// The last fullscreen state sent to the window, and the last one the window reported.
@@ -160,6 +166,7 @@ impl ZimgedApp {
             error: None,
             upgrade: None,
             view: View::fit(),
+            pan: PanGesture::default(),
             fullscreen: false,
             fullscreen_sent: None,
             fullscreen_seen: None,
@@ -179,6 +186,7 @@ impl ZimgedApp {
             Command::ZoomIn => self.zoom(ZOOM_STEP, None),
             Command::ZoomOut => self.zoom(1.0 / ZOOM_STEP, None),
             Command::ZoomAround { factor, around } => self.zoom(factor, Some(around)),
+            Command::Pan(delta) => self.pan_by(delta),
             Command::ZoomFit => self.view = View::fit(),
             Command::ToggleFullscreen => self.fullscreen = !self.fullscreen,
             Command::SetAllowMultipleInstances(allow) => {
@@ -257,6 +265,24 @@ impl ZimgedApp {
             layout.area,
             layout.pixels_per_point,
         );
+    }
+
+    fn pan_by(&mut self, delta: egui::Vec2) {
+        let (Some(shown), Some(layout)) = (&self.shown, self.canvas) else {
+            return;
+        };
+        self.view.pan_by(
+            delta,
+            shown.original_size,
+            layout.area,
+            layout.pixels_per_point,
+        );
+    }
+
+    /// Does the pointer belong to panning this frame? The active tool leaves it alone while it does
+    /// (Space and the middle button take precedence over tools).
+    pub fn pan_owns_pointer(&self) -> bool {
+        self.pan.owns_pointer(&self.ctx)
     }
 
     /// Change the settings and schedule a (debounced) write of `config.toml`.
@@ -354,14 +380,16 @@ impl ZimgedApp {
         match result {
             Ok(image) => {
                 self.editor.open(&path, image.original_size);
+                let (display, display_pixels) = upload(ctx, &image, Pixels::Display);
                 self.shown = Some(ShownImage {
                     path,
                     file_name,
                     original_size: image.original_size,
-                    display: upload(ctx, &image, Pixels::Display),
+                    display,
+                    display_pixels,
+                    display_key: next_display_key(),
                     full: None,
                     requested: image.size,
-                    display_pixels: display_pixels(image),
                 });
                 self.upgrade = None;
                 self.error = None;
@@ -391,11 +419,12 @@ impl ZimgedApp {
         if upgrade.pending.path() != shown.path || image.original_size != shown.original_size {
             return;
         }
-        let texture = upload(ctx, &image, upgrade.pixels);
+        let (texture, pixels) = upload(ctx, &image, upgrade.pixels);
         match upgrade.pixels {
             Pixels::Display => {
                 shown.display = texture;
-                shown.display_pixels = display_pixels(image);
+                shown.display_pixels = pixels;
+                shown.display_key = next_display_key();
             }
             Pixels::Full => shown.full = Some(texture),
         }
@@ -491,6 +520,15 @@ impl ZimgedApp {
         self.pending.is_none().then_some(EMPTY_WINDOW_HINT)
     }
 
+    /// A pixel of the display-size decode on screen (after orientation and colour conversion):
+    /// `None` when no Image is shown or `(x, y)` is outside it.
+    pub fn shown_pixel(&self, x: u32, y: u32) -> Option<egui::Color32> {
+        let pixels = &self.shown.as_ref()?.display_pixels;
+        let [w, h] = pixels.size;
+        let (x, y) = (x as usize, y as usize);
+        (x < w && y < h).then(|| pixels.pixels[y * w + x])
+    }
+
     fn status_bar(&self) -> status_bar::StatusBar<'_> {
         status_bar::StatusBar {
             file_name: self.shown.as_ref().map(|s| s.file_name.as_str()),
@@ -535,7 +573,10 @@ impl eframe::App for ZimgedApp {
             self.first_paint = FirstPaint::Done;
             self.after_first_paint(&ctx);
         }
-        for command in crate::input::commands(&ctx, self.canvas.map(|c| c.area)) {
+        let canvas_area = self.canvas.map(|c| c.area);
+        let mut commands = crate::input::commands(&ctx, canvas_area);
+        commands.extend(self.pan.commands(&ctx, canvas_area));
+        for command in commands {
             self.execute(command);
         }
         self.poll_open_dialog();
@@ -564,14 +605,21 @@ impl eframe::App for ZimgedApp {
         // Laying out keeps the zoomed Image in bounds, so the view comes back updated.
         let mut view = self.view;
         let message = self.canvas_message().map(str::to_owned);
+        // Space and the middle button pan; the tools leave the pointer alone meanwhile (#43).
+        let tools_get_pointer = !self.pan_owns_pointer();
         let editor = &mut self.editor;
-        let display = self.shown.as_ref().map(|s| &s.display_pixels);
+        let display = self.shown.as_ref().map(|s| DisplayPixels {
+            key: s.display_key,
+            image: &s.display_pixels,
+        });
         self.canvas = Some(canvas::show(
             ui,
             self.shown.as_ref(),
             &mut view,
             message.as_deref(),
-            |ui, layout, response| editor.canvas(ui.ctx(), layout, response, display),
+            |ui, layout, response| {
+                editor.canvas(ui.ctx(), layout, response, display, tools_get_pointer)
+            },
         ));
         self.view = view;
         self.request_pixels(&ctx);
@@ -609,11 +657,16 @@ fn file_name(path: &Path) -> String {
         .into_owned()
 }
 
-fn upload(ctx: &egui::Context, image: &DisplayImage, kind: Pixels) -> egui::TextureHandle {
-    let pixels = egui::ColorImage::from_rgb(
-        [image.size.width as usize, image.size.height as usize],
-        &image.rgb,
-    );
+fn upload(
+    ctx: &egui::Context,
+    image: &DisplayImage,
+    kind: Pixels,
+) -> (egui::TextureHandle, Arc<egui::ColorImage>) {
+    let size = [image.size.width as usize, image.size.height as usize];
+    let pixels = Arc::new(match &image.pixels {
+        zimged_codec::Pixels::Rgb(rgb) => egui::ColorImage::from_rgb(size, rgb),
+        zimged_codec::Pixels::Rgba(rgba) => egui::ColorImage::from_rgba_unmultiplied(size, rgba),
+    });
     let (name, options) = match kind {
         Pixels::Display => ("image", egui::TextureOptions::LINEAR),
         // Drawn anywhere from just above the display size down: mipmaps keep it from aliasing.
@@ -625,17 +678,13 @@ fn upload(ctx: &egui::Context, image: &DisplayImage, kind: Pixels) -> egui::Text
             },
         ),
     };
-    ctx.load_texture(name, pixels, options)
+    (ctx.load_texture(name, pixels.clone(), options), pixels)
 }
 
-/// Keep a display-size decode's pixels for the Skia composite, with a fresh renderer cache key.
-fn display_pixels(image: DisplayImage) -> DisplayPixels {
+/// A fresh cache key for a display-size decode's pixels (see [`DisplayPixels`]).
+fn next_display_key() -> u64 {
     static NEXT_KEY: AtomicU64 = AtomicU64::new(1);
-    DisplayPixels {
-        key: NEXT_KEY.fetch_add(1, Ordering::Relaxed),
-        size: image.size,
-        rgb: Arc::new(image.rgb),
-    }
+    NEXT_KEY.fetch_add(1, Ordering::Relaxed)
 }
 
 fn texture_size(texture: &egui::TextureHandle) -> Size {

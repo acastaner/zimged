@@ -35,6 +35,9 @@ pub enum Command {
     /// Multiply the zoom by `factor`, keeping the Image point under `around` (in points) in place
     /// (Ctrl+wheel, §3.1).
     ZoomAround { factor: f32, around: egui::Pos2 },
+    /// Move a zoomed Image by this many points (Space+drag, middle-drag, Shift+wheel; #43). A
+    /// view change only: not an undo step, and the Image stays saved.
+    Pan(egui::Vec2),
     /// Back to fit-to-window (`0`, §3.1).
     ZoomFit,
     /// Enter or leave fullscreen (F11, §2).

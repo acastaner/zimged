@@ -7,7 +7,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use zimged_codec::{DecodeError, DisplayImage, Size};
-use zimged_core::Pixels;
+use zimged_core::{PixelData, Pixels};
 
 pub type DecodeResult = Result<DisplayImage, DecodeError>;
 pub type FullDecodeResult = Result<Pixels, DecodeError>;
@@ -114,11 +114,16 @@ impl PendingFullDecode {
     pub fn spawn_full(path: PathBuf) -> Self {
         Self::spawn_job(path, "full-decode", |path| {
             zimged_codec::decode(path).map(|d| {
+                // Oriented and colour-converted like the display decode, but not reduced.
                 let size = d.size();
+                let image = d.into_display(size);
                 Pixels {
-                    width: size.width,
-                    height: size.height,
-                    rgb: d.into_rgb(),
+                    width: image.size.width,
+                    height: image.size.height,
+                    data: match image.pixels {
+                        zimged_codec::Pixels::Rgb(rgb) => PixelData::Rgb(rgb),
+                        zimged_codec::Pixels::Rgba(rgba) => PixelData::Rgba(rgba),
+                    },
                 }
             })
         })

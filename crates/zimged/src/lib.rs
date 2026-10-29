@@ -10,6 +10,7 @@ mod config_save;
 pub mod decode;
 mod editor;
 mod input;
+mod pan;
 pub mod startup;
 pub mod tools;
 mod ui;

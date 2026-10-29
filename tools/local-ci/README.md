@@ -33,13 +33,15 @@ bookkeeping **before** the final gate run.
 
 | Suite | Commands |
 |---|---|
-| `lint` | `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings` |
-| `test` | `tools/local-ci/test_local_ci.sh`, `cargo test --workspace` |
+| `lint` | `cargo fmt --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
+| `test` | `tools/local-ci/test_local_ci.sh`, `cargo test --workspace --all-features` |
 
 Both run after `cargo fetch --locked`, which fails if `Cargo.toml` and `Cargo.lock` disagree.
-`cargo test --workspace` covers both seams of spec §9: the headless App under `egui_kittest`,
-which needs no display or GPU, and the Sibling ordering comparator. The tests need no network,
-Docker or secrets.
+`cargo test --workspace --all-features` covers both seams of spec §9: the headless App under
+`egui_kittest`, which needs no display or GPU, and the Sibling ordering comparator. The tests need
+no network, Docker or secrets. `--all-features` turns on AVIF (libavif + dav1d, built from
+source), which needs cmake, meson, ninja and nasm: the gate image installs them, and `--in-place`
+needs them on the host.
 
 ## Two modes
 

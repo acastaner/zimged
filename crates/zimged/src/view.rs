@@ -71,6 +71,15 @@ impl View {
         egui::Rect::from_min_size(min.to_pos2(), size)
     }
 
+    /// Move the Image by `delta` points, kept in bounds. Does nothing at Fit.
+    pub fn pan_by(&mut self, delta: egui::Vec2, original: Size, area: egui::Rect, ppp: f32) {
+        let Zoom::Scale(scale) = self.zoom else {
+            return;
+        };
+        let size = size_points(original, scale, ppp);
+        self.pan = clamp_pan(self.pan + delta, size, area.size());
+    }
+
     /// Multiply the scale by `factor`, keeping the Image point under `anchor` (default: the canvas
     /// centre) where it is.
     pub fn zoom_by(

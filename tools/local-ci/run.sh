@@ -6,9 +6,11 @@ set -euo pipefail
 # Usage: ./tools/local-ci/run.sh [suite ...] [options]
 #
 #   Suites (default, or `all`: both, in this order)
-#     lint   cargo fmt --check; cargo clippy --workspace --all-targets -- -D warnings
-#     test   the guard scripts' self-test; cargo test --workspace (the headless App tests and
-#            the Sibling ordering comparator, spec §9)
+#     lint   cargo fmt --check; cargo clippy --workspace --all-targets --all-features -- -D warnings
+#     test   the guard scripts' self-test; cargo test --workspace --all-features (the headless App
+#            tests and the Sibling ordering comparator, spec §9)
+#     --all-features builds AVIF (libavif + dav1d), which needs cmake, meson, ninja and nasm: the
+#     gate image has them; --in-place needs them on the host.
 #
 #   Options
 #     --in-place        run in the working tree with the host toolchain (fast iteration).
@@ -213,8 +215,8 @@ run_lint() {
   banner "lint -- rustfmt, clippy"
   echo "--- cargo fmt --check ---"
   cargo fmt --check
-  echo "--- cargo clippy --workspace --all-targets -- -D warnings ---"
-  cargo clippy --workspace --all-targets -- -D warnings
+  echo "--- cargo clippy --workspace --all-targets --all-features -- -D warnings ---"
+  cargo clippy --workspace --all-targets --all-features -- -D warnings
 }
 
 run_test() {
@@ -225,8 +227,8 @@ run_test() {
   ./tools/local-ci/test_local_ci.sh
   # Both seams of spec §9: the headless App (egui_kittest, crates/zimged/tests) and the Sibling
   # ordering comparator. No display, GPU or network is needed.
-  echo "--- cargo test --workspace ---"
-  cargo test --workspace
+  echo "--- cargo test --workspace --all-features ---"
+  cargo test --workspace --all-features
 }
 
 # --- Run: the suites (inside the gate container, or --in-place) ------------------------------

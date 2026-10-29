@@ -18,12 +18,21 @@ use crate::geometry::{Point, Rect};
 use crate::history::{History, Snapshot, Step, StepKind};
 use crate::style::{Property, Style};
 
-/// Full-resolution Image pixels: 8-bit RGB, tightly packed, row-major.
+/// Full-resolution Image pixels: 8-bit sRGB, tightly packed, row-major.
 #[derive(Clone)]
 pub struct Pixels {
     pub width: u32,
     pub height: u32,
-    pub rgb: Vec<u8>,
+    pub data: PixelData,
+}
+
+/// The channels of [`Pixels`].
+#[derive(Clone)]
+pub enum PixelData {
+    /// Opaque images.
+    Rgb(Vec<u8>),
+    /// Images with an alpha channel, not premultiplied.
+    Rgba(Vec<u8>),
 }
 
 impl std::fmt::Debug for Pixels {

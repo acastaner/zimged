@@ -414,6 +414,21 @@ fn fullscreen_hides_the_tool_strip_and_the_property_bar() {
 }
 
 #[test]
+fn panning_drags_leave_the_rectangle_tool_alone() {
+    let mut app = TestApp::open_fixture("large-2400x1600.jpg");
+    app.press(Key::R);
+    for _ in 0..4 {
+        app.press(Key::Plus);
+    }
+    let (a, b) = (egui::pos2(500.0, 300.0), egui::pos2(400.0, 250.0));
+    app.drag(egui::PointerButton::Middle, a, b, false);
+    app.drag(egui::PointerButton::Primary, a, b, true);
+
+    assert!(app.doc().annotations().is_empty());
+    assert_eq!(app.harness.state().tool(), ToolId::Rectangle);
+}
+
+#[test]
 fn zoomed_in_the_rectangle_keeps_its_image_pixels_and_the_composite_its_resolution() {
     let mut app = TestApp::open_fixture("large-2400x1600.jpg");
     app.press(Key::R);

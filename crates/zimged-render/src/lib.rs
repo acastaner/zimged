@@ -20,8 +20,17 @@ pub struct Source<'a> {
     pub key: u64,
     pub width: u32,
     pub height: u32,
-    /// 8-bit RGB, tightly packed.
-    pub rgb: &'a [u8],
+    pub pixels: SourcePixels<'a>,
+}
+
+/// 8-bit sRGB, tightly packed, row-major.
+#[derive(Clone, Copy)]
+pub enum SourcePixels<'a> {
+    Rgb(&'a [u8]),
+    /// Straight (not premultiplied) alpha.
+    Rgba(&'a [u8]),
+    /// Premultiplied alpha, as egui keeps its images.
+    RgbaPremultiplied(&'a [u8]),
 }
 
 /// What to render: `region` of the Image (in Image pixels) scaled onto `width`×`height` pixels.
@@ -119,17 +128,24 @@ impl Default for Renderer {
 }
 
 fn to_skia_image(source: &Source<'_>) -> sk::Image {
-    let mut rgba = Vec::with_capacity(source.width as usize * source.height as usize * 4);
-    for px in source.rgb.chunks_exact(3) {
-        rgba.extend_from_slice(&[px[0], px[1], px[2], 255]);
-    }
+    let (data, alpha) = match source.pixels {
+        SourcePixels::Rgb(rgb) => {
+            let mut rgba = Vec::with_capacity(source.width as usize * source.height as usize * 4);
+            for px in rgb.chunks_exact(3) {
+                rgba.extend_from_slice(&[px[0], px[1], px[2], 255]);
+            }
+            (sk::Data::new_copy(&rgba), sk::AlphaType::Opaque)
+        }
+        SourcePixels::Rgba(rgba) => (sk::Data::new_copy(rgba), sk::AlphaType::Unpremul),
+        SourcePixels::RgbaPremultiplied(rgba) => (sk::Data::new_copy(rgba), sk::AlphaType::Premul),
+    };
     let info = sk::ImageInfo::new(
         (source.width as i32, source.height as i32),
         sk::ColorType::RGBA8888,
-        sk::AlphaType::Opaque,
+        alpha,
         None,
     );
-    sk::images::raster_from_data(&info, sk::Data::new_copy(&rgba), source.width as usize * 4)
+    sk::images::raster_from_data(&info, data, source.width as usize * 4)
         .expect("a Skia image from the decoded pixels")
 }
 
