@@ -1,20 +1,20 @@
 //! The startup path (§1.3). The cold-start budget (§1.2) depends on this ordering:
 //!
 //! 1. `main()` starts the first-image decode and the config read, each on its own thread.
-//! 2. Single instance (#39) slots in after the config read, before the window, and only when
-//!    *Allow multiple instances* is off.
+//! 2. Only when *Allow multiple instances* is off: offer the path to a running instance over the
+//!    single-instance socket (§8.4) and exit if it answers; else this process becomes the listener.
 //! 3. eframe creates the window and the GL context (glow) while the decode runs.
 //! 4. The first frame with the image is painted as soon as both are ready.
 //! 5. Everything else waits for [`crate::ZimgedApp`]'s after-first-paint hook.
 //!
 //! Nothing else may run here. Check every addition against the budget with `tools/bench`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 
 use zimged_codec::Size;
-use zimged_platform::{Config, Platform};
+use zimged_platform::{Config, HandOff, Platform};
 
 use crate::app::{Launch, ZimgedApp, startup_display_box};
 use crate::decode::PendingDecode;
@@ -22,6 +22,28 @@ use crate::decode::PendingDecode;
 /// How long the first frame waits for the first-image decode once the window is ready. A 12 MP
 /// JPEG decodes in well under this on the reference machine.
 const FIRST_FRAME_WAIT: Duration = Duration::from_millis(400);
+
+/// What startup does after [`single_instance`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartupStep {
+    /// Go on: create the window.
+    OpenWindow,
+    /// A running instance took the path: exit without a window.
+    Exit,
+}
+
+/// §1.3 step 2 / §8.4. With *Allow multiple instances* on (the default) the socket isn't touched.
+/// Off: hand `path` to a running instance and exit if it answers; if nothing answers, this
+/// process becomes the listener (the running app picks up arrivals each frame).
+pub fn single_instance(platform: &Platform, config: &Config, path: Option<&Path>) -> StartupStep {
+    if config.allow_multiple_instances {
+        return StartupStep::OpenWindow;
+    }
+    match platform.instance.hand_off_or_listen(path) {
+        HandOff::Answered => StartupStep::Exit,
+        HandOff::Listening | HandOff::Alone => StartupStep::OpenWindow,
+    }
+}
 
 pub fn run() -> eframe::Result {
     crate::bench::mark("main");
@@ -48,7 +70,10 @@ pub fn run() -> eframe::Result {
     let config = config_read.join().unwrap_or_default();
     let _ = box_tx.send(startup_display_box(&config));
 
-    // 2. Single instance (#39) goes here.
+    // 2. Single instance: only when multiple instances aren't allowed.
+    if single_instance(&platform, &config, path.as_deref()) == StartupStep::Exit {
+        return Ok(());
+    }
 
     // 3. The window and GL context, in parallel with the decode.
     let title = match &path {
