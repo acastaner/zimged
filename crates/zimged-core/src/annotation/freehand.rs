@@ -3,6 +3,7 @@
 use super::Shape;
 use super::line::distance_to_segment;
 use crate::geometry::{Affine, Point, Rect};
+use crate::image_op::ImageTransform;
 use crate::style::{PropertyKind, Style};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -81,6 +82,10 @@ impl Shape for Freehand {
         for p in &mut self.points {
             *p = t.apply(*p);
         }
+    }
+
+    fn image_transform(&mut self, t: &ImageTransform) {
+        self.transform(&t.affine());
     }
 
     fn properties(&self) -> &'static [PropertyKind] {

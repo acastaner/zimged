@@ -2,6 +2,7 @@
 
 use super::Shape;
 use crate::geometry::{Affine, Point, Rect};
+use crate::image_op::ImageTransform;
 use crate::style::{PropertyKind, Style};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -53,6 +54,10 @@ impl Shape for Ellipse {
 
     fn transform(&mut self, t: &Affine) {
         self.rect = t.apply_rect(self.rect);
+    }
+
+    fn image_transform(&mut self, t: &ImageTransform) {
+        self.transform(&t.affine());
     }
 
     fn properties(&self) -> &'static [PropertyKind] {

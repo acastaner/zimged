@@ -2,6 +2,7 @@
 
 use super::Shape;
 use crate::geometry::{Affine, Point, Rect};
+use crate::image_op::ImageTransform;
 use crate::style::{PropertyKind, Style};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -35,6 +36,10 @@ impl Shape for Line {
     fn transform(&mut self, t: &Affine) {
         self.from = t.apply(self.from);
         self.to = t.apply(self.to);
+    }
+
+    fn image_transform(&mut self, t: &ImageTransform) {
+        self.transform(&t.affine());
     }
 
     fn properties(&self) -> &'static [PropertyKind] {
@@ -86,6 +91,10 @@ impl Shape for Arrow {
     fn transform(&mut self, t: &Affine) {
         self.from = t.apply(self.from);
         self.to = t.apply(self.to);
+    }
+
+    fn image_transform(&mut self, t: &ImageTransform) {
+        self.transform(&t.affine());
     }
 
     fn properties(&self) -> &'static [PropertyKind] {

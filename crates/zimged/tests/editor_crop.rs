@@ -10,7 +10,7 @@ use egui::{Key, Modifiers};
 use egui_kittest::kittest::Queryable;
 use support::TestApp;
 use zimged::tools::ToolId;
-use zimged_core::{PixelData, Pixels};
+use zimged_core::{AnnotationShape, PixelData, Pixels};
 
 /// A 320×240 Image, shown at 100%.
 fn app_with_image() -> TestApp {
@@ -270,6 +270,59 @@ fn undoing_every_step_after_a_crop_leaves_the_image_unmodified() {
     assert_eq!(app.status("File name"), "small-320x240.jpg");
     // Back to the plain Image texture.
     assert!(app.harness.state().composite().is_none());
+}
+
+/// Every point of every Annotation's geometry, in Image pixels.
+fn geometry_points(app: &TestApp) -> Vec<Vec<zimged_core::Point>> {
+    app.doc()
+        .annotations()
+        .iter()
+        .map(|a| match &a.shape {
+            AnnotationShape::Line(l) => vec![l.from, l.to],
+            AnnotationShape::Arrow(l) => vec![l.from, l.to],
+            AnnotationShape::Freehand(f) => f.points.clone(),
+            other => panic!("unexpected Annotation: {other:?}"),
+        })
+        .collect()
+}
+
+#[test]
+fn lines_arrows_and_freehand_strokes_keep_their_image_position_through_a_crop_and_undo() {
+    let mut app = app_with_image();
+    app.press(Key::L);
+    app.drag_px((60.0, 50.0), (140.0, 90.0));
+    app.press(Key::A);
+    app.drag_px((80.0, 160.0), (200.0, 120.0));
+    app.press(Key::F);
+    app.drag_path_px(&[
+        (100.0, 60.0),
+        (110.0, 70.0),
+        (120.0, 75.0),
+        (130.0, 90.0),
+        (150.0, 110.0),
+    ]);
+    let before = geometry_points(&app);
+    assert_eq!(before.len(), 3);
+
+    crop_to_region(&mut app);
+
+    // Each point moved with the Image: (−40, −30).
+    let after = geometry_points(&app);
+    assert_eq!(after.len(), 3);
+    for (b, a) in before.iter().zip(&after) {
+        assert_eq!(b.len(), a.len());
+        for (pb, pa) in b.iter().zip(a) {
+            assert!(
+                (pa.x - (pb.x - 40.0)).abs() < 1e-3 && (pa.y - (pb.y - 30.0)).abs() < 1e-3,
+                "{pb:?} -> {pa:?}"
+            );
+        }
+    }
+
+    app.key_with(Modifiers::COMMAND, Key::Z);
+
+    assert_eq!((app.doc().width(), app.doc().height()), (320, 240));
+    assert_eq!(geometry_points(&app), before);
 }
 
 // ---- The History's pixel cap (§4.8) ----
