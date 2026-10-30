@@ -16,10 +16,11 @@ mod ellipse;
 mod freehand;
 mod rectangle;
 pub mod select;
+pub mod text;
 
 use zimged_core::{
     AnnotationShape, Arrow, Document, Ellipse, Freehand, Inset, Line, Point, PropertyKind, Rect,
-    Rectangle, Style,
+    Rectangle, Style, Text,
 };
 
 /// Every tool, in tool-strip order (§4.1).
@@ -119,6 +120,7 @@ impl ToolId {
             AnnotationShape::Arrow(_) => ToolId::Arrow,
             AnnotationShape::Freehand(_) => ToolId::Freehand,
             AnnotationShape::Inset(_) => ToolId::Inset,
+            AnnotationShape::Text(_) => ToolId::Text,
         }
     }
 
@@ -146,6 +148,7 @@ impl ToolId {
         match self {
             ToolId::Select => Some(Box::new(select::Select::default())),
             ToolId::Rectangle => Some(Box::new(rectangle::new())),
+            ToolId::Text => Some(Box::new(text::TextTool)),
             ToolId::Ellipse => Some(Box::new(ellipse::new())),
             ToolId::Line => Some(Box::new(drag_segment::line())),
             ToolId::Arrow => Some(Box::new(drag_segment::arrow())),
@@ -163,6 +166,7 @@ impl ToolId {
     pub fn properties(self) -> &'static [PropertyKind] {
         match self {
             ToolId::Rectangle => Rectangle::PROPERTIES,
+            ToolId::Text => Text::PROPERTIES,
             ToolId::Ellipse => Ellipse::PROPERTIES,
             ToolId::Line => Line::PROPERTIES,
             ToolId::Arrow => Arrow::PROPERTIES,

@@ -28,6 +28,8 @@ pub struct EditorPaint {
     pub composite: Option<(egui::TextureId, egui::Rect)>,
     /// The selection's bounds, in points: drawn as a dashed box with 8 handles.
     pub selection: Option<egui::Rect>,
+    /// Painted last, on top of everything (the text caret, #28).
+    pub overlay: Vec<egui::Shape>,
     /// The crop tool's region, in points: the rest of the Image is dimmed.
     pub crop: Option<egui::Rect>,
     /// The select tool's rubber band, in points: a dashed box without handles.
@@ -151,6 +153,7 @@ pub fn show(
             if let Some(selection) = paint.selection {
                 paint_selection(&painter, selection);
             }
+            painter.extend(paint.overlay);
             if let Some(band) = paint.rubber_band {
                 paint_dashed_box(&painter, band);
             }

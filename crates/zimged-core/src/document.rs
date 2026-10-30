@@ -369,11 +369,13 @@ impl Document {
         self.assert_in_gesture();
         let id = AnnotationId(self.next_id);
         self.next_id += 1;
-        self.annotations.push(Annotation {
+        let mut annotation = Annotation {
             id,
             shape: shape.into(),
             style,
-        });
+        };
+        annotation.relayout();
+        self.annotations.push(annotation);
         self.revision += 1;
         id
     }
@@ -482,6 +484,7 @@ impl Document {
         for a in &mut self.annotations {
             if selection.contains(&a.id) {
                 a.style.set(property.clone());
+                a.relayout();
             }
         }
         self.revision += 1;

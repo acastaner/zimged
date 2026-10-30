@@ -12,12 +12,14 @@ mod freehand;
 mod inset;
 mod line;
 mod rectangle;
+pub mod text;
 
 pub use ellipse::Ellipse;
 pub use freehand::Freehand;
 pub use inset::Inset;
 pub use line::{Arrow, Line};
 pub use rectangle::Rectangle;
+pub use text::Text;
 
 use crate::geometry::{Affine, Point, Rect};
 use crate::image_op::ImageTransform;
@@ -95,6 +97,7 @@ macro_rules! shapes {
 
 shapes! {
     Rectangle(Rectangle),
+    Text(Text),
     Ellipse(Ellipse),
     Line(Line),
     Arrow(Arrow),
@@ -123,6 +126,14 @@ impl Annotation {
         self.shape.hit(p, &self.style, tolerance)
     }
 
+    /// Bring geometry that depends on the style up to date after a style change (a text box's
+    /// layout, #28).
+    pub fn relayout(&mut self) {
+        if let AnnotationShape::Text(t) = &mut self.shape {
+            t.restyle(&self.style);
+        }
+    }
+
     /// The area it covers on the Image: its bounds plus half the line. A crop removes an
     /// Annotation whose extent doesn't overlap the new Image.
     pub fn extent(&self) -> Rect {
@@ -137,6 +148,8 @@ impl Annotation {
         let s = t.size_scale();
         if s != 1.0 {
             self.style.thickness *= s;
+            self.style.font_size *= s;
+            self.relayout();
         }
     }
 }

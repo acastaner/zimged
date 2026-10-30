@@ -329,3 +329,16 @@ fn a_window_started_from_the_clipboard_shows_the_clipboard_image() {
     assert_eq!(app.status("File name"), "Clipboard image •");
     assert_eq!(app.status("Pixel size"), "30×20");
 }
+
+#[test]
+fn leaving_an_unsaved_clipboard_image_asks_first() {
+    let (mut app, clipboard) = app();
+    clipboard.put(vec![ClipboardItem::new(PNG, png(64, 32, [0, 128, 0, 255]))]);
+    ctrl(&mut app, Key::V);
+    let other = app.add_fixtures(&["small-320x240.jpg"]);
+    app.drop_file(&other);
+    app.settle();
+    // Its pixels exist only in this window (§3.5): "Save changes?" (§6.4).
+    assert!(app.harness.query_by_label("Save changes?").is_some());
+    assert_eq!(app.status("File name"), "Clipboard image •");
+}

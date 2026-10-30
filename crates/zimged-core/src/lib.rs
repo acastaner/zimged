@@ -13,7 +13,7 @@ pub mod style;
 
 pub use annotation::{
     Annotation, AnnotationId, AnnotationShape, Arrow, Ellipse, Freehand, Inset, Line, Rectangle,
-    Shape,
+    Shape, Text,
 };
 pub use document::{Document, PixelData, Pixels, Restack};
 pub use geometry::{Affine, Handle, Point, Rect, Vector};

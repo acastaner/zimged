@@ -28,7 +28,7 @@ use crate::save::{CLIPBOARD_IMAGE, CopyJob, PendingCopy, PendingSave, SaveJob};
 use crate::siblings::{Navigation, Step};
 use crate::tools::ToolId;
 use crate::ui::resize_dialog::{self, ResizeDialog};
-use crate::ui::{canvas, menu_bar, property_bar, status_bar, tool_strip};
+use crate::ui::{canvas, menu_bar, property_bar, status_bar, tool_strip, unsaved_dialog};
 use crate::view::{View, ZOOM_STEP, Zoom};
 
 /// The largest Image whose full-resolution pixels are decoded (§4.7). Larger ones are view-only and
@@ -164,6 +164,21 @@ struct Saving {
     stamp: SaveStamp,
 }
 
+/// What waits on the unsaved-changes prompt (#35, §6.4): done right away without unsaved changes,
+/// else after Save (once the file is written) or Discard.
+#[derive(Clone, Debug)]
+enum Proceed {
+    Open(PathBuf),
+    Go(Direction),
+    Close,
+}
+
+/// The unsaved-changes prompt while it is up.
+struct UnsavedPrompt {
+    file_name: String,
+    then: Proceed,
+}
+
 /// Where the app is on the way to its first painted image (§1.3 steps 4 and 5).
 #[derive(Clone, Copy, PartialEq)]
 enum FirstPaint {
@@ -216,6 +231,12 @@ pub struct ZimgedApp {
     saving: Option<Saving>,
     /// A save asked for while the Document waits for its pixels (a queued crop): started then.
     queued_save: Option<(PathBuf, zimged_codec::SaveFormat)>,
+    /// "Save changes?" while it is up (#35).
+    unsaved_prompt: Option<UnsavedPrompt>,
+    /// The action the prompt's Save is holding until the save (and any Save As dialog) is done.
+    after_save: Option<Proceed>,
+    /// The window is closing: a close request was let through, or sent after the prompt.
+    closing: bool,
     /// The Resize dialog while it is up (modal, §6.4).
     resize_dialog: Option<ResizeDialog>,
     /// A copy of the Image running on the worker thread (§6.2), and the Document it copies.
@@ -262,6 +283,9 @@ impl ZimgedApp {
             save_dialog: None,
             saving: None,
             queued_save: None,
+            unsaved_prompt: None,
+            after_save: None,
+            closing: false,
             resize_dialog: None,
             copying: None,
             queued_copy: false,
@@ -275,12 +299,12 @@ impl ZimgedApp {
 
     pub fn execute(&mut self, command: Command) {
         match command {
-            // #35: with unsaved changes, opening (from the launch argument, the dialog or a drop)
-            // first asks Save / Discard / Cancel (§6.4). Every open comes through here.
-            Command::Open(path) => self.open(&path),
+            // With unsaved changes, opening (the dialog or a drop) and moving to a Sibling first ask
+            // Save / Discard / Cancel (§6.4). Every open comes through here.
+            Command::Open(path) => self.proceed_or_ask(Proceed::Open(path)),
             Command::OpenDialog => self.show_open_dialog(),
-            Command::NextSibling => self.go(Direction::Forward),
-            Command::PreviousSibling => self.go(Direction::Backward),
+            Command::NextSibling => self.proceed_or_ask(Proceed::Go(Direction::Forward)),
+            Command::PreviousSibling => self.proceed_or_ask(Proceed::Go(Direction::Backward)),
             Command::ZoomIn => self.zoom(ZOOM_STEP, None),
             Command::ZoomOut => self.zoom(1.0 / ZOOM_STEP, None),
             Command::ZoomAround { factor, around } => self.zoom(factor, Some(around)),
@@ -333,6 +357,21 @@ impl ZimgedApp {
 
     pub fn tool(&self) -> ToolId {
         self.editor.tool()
+    }
+
+    /// A tool's current style: its defaults for the next Annotation (§4.3).
+    pub fn tool_style(&self, tool: ToolId) -> zimged_core::Style {
+        self.editor.tool_style(tool)
+    }
+
+    /// Is a text box being edited (§4.4)?
+    pub fn editing_text(&self) -> bool {
+        self.editor.editing_text()
+    }
+
+    /// The installed font families, once listed (on first use of the text tool, §7.2).
+    pub fn font_families(&self) -> Option<&[String]> {
+        self.editor.font_families()
     }
 
     /// Has Skia been initialised (§1.3: only on the first Annotation)?
@@ -436,10 +475,11 @@ impl ZimgedApp {
             || self.queued_copy
             || self.incoming.is_some()
             || self.trashed.as_ref().is_some_and(|t| t.waits_for_scan)
+            || self.after_save.is_some()
     }
 
     /// Does the Image have unsaved changes (` •` after the file name)? Edits to the Document, or a
-    /// file deleted from outside zimged (§3.2), or a clipboard image not saved yet (§3.5). #35's
+    /// file deleted from outside zimged (§3.2), or a clipboard image not saved yet (§3.5). The
     /// Save / Discard / Cancel prompt asks whenever this is true, and saving writes the file back.
     pub fn is_modified(&self) -> bool {
         self.document().is_some_and(|d| d.is_modified())
@@ -447,6 +487,108 @@ impl ZimgedApp {
                 .shown
                 .as_ref()
                 .is_some_and(|s| s.deleted_from_disk || s.path.is_none())
+    }
+
+    /// Is the window closing (a close let through, or confirmed in the unsaved-changes prompt)?
+    pub fn is_closing(&self) -> bool {
+        self.closing
+    }
+
+    /// Is a modal dialog up? Window input (shortcuts, wheel, drops, pan) waits meanwhile.
+    fn dialog_up(&self) -> bool {
+        self.unsaved_prompt.is_some() || self.resize_dialog.is_some()
+    }
+
+    // ---- The unsaved-changes flow (#35, §6.4) ----
+
+    /// Do `then` now, or, with unsaved changes, ask Save / Discard / Cancel first. Asked again while
+    /// the prompt is up (or its save runs), nothing happens.
+    fn proceed_or_ask(&mut self, then: Proceed) {
+        if self.unsaved_prompt.is_some() || self.after_save.is_some() {
+            return;
+        }
+        let asks = self.is_modified()
+            && match &then {
+                // Only when the move would leave this Image (not at an end of the list).
+                Proceed::Go(direction) => self
+                    .path
+                    .as_deref()
+                    .is_some_and(|from| self.navigation.would_move(from, *direction)),
+                Proceed::Open(_) | Proceed::Close => true,
+            };
+        if !asks {
+            return self.proceed(then);
+        }
+        let file_name = self
+            .shown
+            .as_ref()
+            .map(|s| s.file_name.clone())
+            .or_else(|| self.path.as_deref().map(file_name))
+            .unwrap_or_default();
+        self.unsaved_prompt = Some(UnsavedPrompt { file_name, then });
+    }
+
+    fn proceed(&mut self, then: Proceed) {
+        match then {
+            Proceed::Open(path) => self.open(&path),
+            Proceed::Go(direction) => self.go(direction),
+            Proceed::Close => {
+                self.closing = true;
+                self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+    }
+
+    /// The window manager asks to close the window: hold it while there are unsaved changes.
+    fn on_close_requested(&mut self, ctx: &egui::Context) {
+        if !ctx.input(|i| i.viewport().close_requested()) || self.closing {
+            return;
+        }
+        if self.is_modified() || self.unsaved_prompt.is_some() || self.after_save.is_some() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.proceed_or_ask(Proceed::Close);
+        } else {
+            self.closing = true;
+        }
+    }
+
+    /// The prompt, while it is up, and the user's answer.
+    fn unsaved_prompt(&mut self, ctx: &egui::Context) {
+        let Some(prompt) = &self.unsaved_prompt else {
+            return;
+        };
+        let Some(answer) = unsaved_dialog::show(ctx, &prompt.file_name) else {
+            return;
+        };
+        let prompt = self.unsaved_prompt.take().expect("checked above");
+        match answer {
+            unsaved_dialog::Answer::Cancel => {}
+            unsaved_dialog::Answer::Discard => self.proceed(prompt.then),
+            unsaved_dialog::Answer::Save => {
+                self.after_save = Some(prompt.then);
+                self.save();
+            }
+        }
+    }
+
+    /// Once the prompt's save is over: proceed if it left nothing unsaved; else (it failed, or
+    /// Save As was cancelled) stay put.
+    fn poll_after_save(&mut self) {
+        if self.after_save.is_none()
+            || self.saving.is_some()
+            || self.save_dialog.is_some()
+            || self.queued_save.is_some()
+        {
+            return;
+        }
+        // After Save As the window shows the new file: move on from it once its folder is known.
+        if matches!(self.after_save, Some(Proceed::Go(_))) && !self.navigation.is_scanned() {
+            return;
+        }
+        let then = self.after_save.take().expect("checked above");
+        if !self.is_modified() {
+            self.proceed(then);
+        }
     }
 
     /// Is the Image's directory being watched for changes (§3.2)?
@@ -571,8 +713,8 @@ impl ZimgedApp {
         self.pending = Some(PendingDecode::spawn(path.to_owned(), move || display_box));
     }
 
-    /// Move to the next or previous Sibling (§3.1). #35: with unsaved changes this first asks
-    /// Save / Discard / Cancel (§6.4).
+    /// Move to the next or previous Sibling (§3.1). Callers go through
+    /// [`Self::proceed_or_ask`], which asks Save / Discard / Cancel first with unsaved changes (§6.4).
     fn go(&mut self, direction: Direction) {
         let Some(from) = self.path.clone() else {
             return;
@@ -678,6 +820,8 @@ impl ZimgedApp {
         }
         // #38: when the Image is an edited animation and `target` is its own file, ask "Overwrite
         // animated image?" (Cancel, Save As..., Overwrite; §6.4) here, before anything is written.
+        // A text box being edited is finished first, so it is saved (#28).
+        self.editor.finish_text_editing();
         let Some(source) = self.editor.save_source() else {
             return;
         };
@@ -913,8 +1057,8 @@ impl ZimgedApp {
     /// Move the file on screen (or that failed to open) to the system trash and show the next
     /// Sibling, or the previous one at the end of the list (§3.1). It is taken out of the Sibling
     /// list right away, so #21's watcher seeing it vanish has nothing left to do for it.
-    /// #35: with unsaved changes, ask Save / Discard / Cancel first (§6.4), as moving to a Sibling
-    /// does.
+    /// No unsaved-changes prompt (#35): §6.4 asks before moving to a Sibling, opening, dropping or
+    /// closing; trashing is an explicit "throw this file away", and saving it first is pointless.
     fn trash_file(&mut self) {
         let Some(path) = self.path.clone() else {
             return;
@@ -1326,6 +1470,7 @@ impl ZimgedApp {
                 selection,
                 crop,
                 hint: self.editor.tool().hint(),
+                fonts: self.editor.font_families().unwrap_or_default(),
             },
         );
         if out.apply_crop {
@@ -1359,20 +1504,23 @@ impl eframe::App for ZimgedApp {
             self.first_paint = FirstPaint::Done;
             self.after_first_paint(&ctx);
         }
+        self.on_close_requested(&ctx);
         let canvas_area = self.canvas.map(|c| c.area);
-        // A modal dialog has the keyboard and the pointer to itself (§6.4).
-        if self.resize_dialog.is_none() {
+        // A modal dialog has the keyboard and the pointer to itself (§6.4); Esc is its Cancel.
+        if !self.dialog_up() {
             let mut commands = crate::input::commands(&ctx, canvas_area);
             commands.extend(self.pan.commands(&ctx, canvas_area));
             for command in commands {
                 self.execute(command);
             }
         }
+        self.unsaved_prompt(&ctx);
         self.poll_open_dialog();
         self.poll_save_dialog();
         self.poll_save(&ctx);
         self.poll_copy(&ctx);
         self.poll_incoming(&ctx);
+        self.poll_after_save();
         self.follow_directory(&ctx);
         self.poll_decode(&ctx);
         self.poll_upgrade(&ctx);

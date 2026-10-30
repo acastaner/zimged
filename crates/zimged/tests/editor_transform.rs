@@ -205,6 +205,7 @@ fn geometry(app: &TestApp) -> Vec<Vec<(i32, i32)>> {
                 let [x0, y0, x1, y1] = rounded(i.rect);
                 vec![(x0, y0), (x1, y1)]
             }
+            AnnotationShape::Text(t) => vec![rounded_point(t.origin)],
         })
         .collect()
 }

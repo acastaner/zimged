@@ -15,6 +15,9 @@ pub const LABEL_ARROWHEADS: &str = "Arrowheads";
 pub const LABEL_BORDER_COLOUR: &str = "Border colour";
 pub const LABEL_NO_BORDER: &str = "No border";
 pub const LABEL_DELETE: &str = "Delete";
+pub const LABEL_TEXT_COLOUR: &str = "Text colour";
+pub const LABEL_FONT: &str = "Font";
+pub const LABEL_FONT_SIZE: &str = "Size";
 pub const LABEL_CROP_SIZE: &str = "Crop size";
 pub const LABEL_APPLY: &str = "Apply";
 pub const LABEL_CANCEL: &str = "Cancel";
@@ -31,6 +34,8 @@ pub struct PropertyBar<'a> {
     pub crop: Option<zimged_codec::Size>,
     /// Shown when there are no controls.
     pub hint: &'a str,
+    /// The installed font families for the font control (listed on first use of the text tool).
+    pub fonts: &'a [String],
 }
 
 /// What the user did in the property bar this frame.
@@ -53,7 +58,7 @@ pub fn show(ui: &mut egui::Ui, bar: &PropertyBar<'_>) -> Output {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
             for kind in bar.properties {
-                control(ui, *kind, bar.style, &mut out);
+                control(ui, *kind, bar, &mut out);
             }
             if bar.selection && ui.button("Delete").accessible_name(LABEL_DELETE).clicked() {
                 out.delete = true;
@@ -92,7 +97,8 @@ pub fn show(ui: &mut egui::Ui, bar: &PropertyBar<'_>) -> Output {
     out
 }
 
-fn control(ui: &mut egui::Ui, kind: PropertyKind, style: &Style, out: &mut Output) {
+fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &mut Output) {
+    let style = bar.style;
     match kind {
         PropertyKind::LineColour => {
             ui.label("Line");
@@ -159,6 +165,48 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, style: &Style, out: &mut Outpu
                 .changed()
             {
                 out.changes.push(Property::Shadow(on));
+            }
+        }
+        PropertyKind::TextColour => {
+            ui.label("Text");
+            if let Some(c) = colour(ui, style.line, LABEL_TEXT_COLOUR, kind, out) {
+                out.changes.push(Property::TextColour(c));
+            }
+        }
+        PropertyKind::Font => {
+            let mut chosen = None;
+            let response = egui::ComboBox::from_id_salt("font")
+                .selected_text(style.font.as_str())
+                .width(160.0)
+                .height(400.0)
+                .show_ui(ui, |ui| {
+                    for family in bar.fonts {
+                        if ui
+                            .selectable_label(*family == style.font, family.as_str())
+                            .clicked()
+                        {
+                            chosen = Some(family.clone());
+                        }
+                    }
+                })
+                .response;
+            response.accessible_name(LABEL_FONT);
+            if let Some(family) = chosen.filter(|f| *f != style.font) {
+                out.changes.push(Property::Font(family));
+            }
+        }
+        PropertyKind::FontSize => {
+            ui.label("Size");
+            let mut value = style.font_size;
+            let range = zimged_core::style::FONT_SIZE_RANGE;
+            let response = ui
+                .add(egui::DragValue::new(&mut value).range(range).speed(0.25))
+                .accessible_name(LABEL_FONT_SIZE);
+            if response.dragged() || response.has_focus() {
+                out.active = Some(kind);
+            }
+            if response.changed() && value != style.font_size {
+                out.changes.push(Property::FontSize(value));
             }
         }
         PropertyKind::Arrowheads => {

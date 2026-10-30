@@ -7,3 +7,4 @@ pub mod property_bar;
 pub mod resize_dialog;
 pub mod status_bar;
 pub mod tool_strip;
+pub mod unsaved_dialog;

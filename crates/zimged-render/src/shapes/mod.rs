@@ -8,6 +8,7 @@ mod freehand;
 mod inset;
 mod line;
 mod rectangle;
+mod text;
 
 use skia_safe as sk;
 use zimged_core::{Annotation, AnnotationShape};
@@ -16,6 +17,7 @@ pub fn draw(canvas: &sk::Canvas, annotation: &Annotation) {
     let style = &annotation.style;
     match &annotation.shape {
         AnnotationShape::Rectangle(s) => rectangle::draw(canvas, s, style),
+        AnnotationShape::Text(s) => text::draw(canvas, s, style),
         AnnotationShape::Ellipse(s) => ellipse::draw(canvas, s, style),
         AnnotationShape::Line(s) => line::draw(canvas, s, style),
         AnnotationShape::Arrow(s) => arrow::draw(canvas, s, style),
