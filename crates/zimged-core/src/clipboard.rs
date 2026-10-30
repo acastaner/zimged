@@ -7,7 +7,8 @@
 //! ```
 //!
 //! Positions are Image pixels, relative to the copied Image's top-left corner (see
-//! [`crate::geometry`]); styles are [`Style`] as `config.toml` writes it. Annotations are listed
+//! [`crate::geometry`]); styles are [`Style`] as `config.toml` writes it, plus the magnify
+//! highlight's `magnification` (which the config keeps as `magnify_factor`). Annotations are listed
 //! bottom to top. Ids and Step counter numbers are not copied: the Document a paste goes into
 //! gives the Annotations new ids, so pasted Step counters take its next numbers. A Text's layout
 //! is measured again there. An Inset's pixels travel as base64 (see [`pixels_serde`]).
@@ -25,7 +26,50 @@ const VERSION: u32 = 1;
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CopiedAnnotation {
     pub shape: AnnotationShape,
+    #[serde(with = "style_serde")]
     pub style: Style,
+}
+
+/// A style in the JSON: [`Style`] as `config.toml` writes it, plus `magnification`. The config
+/// leaves that out (it is the `magnify_factor` setting), but a pasted magnify highlight keeps the
+/// factor it was copied with.
+mod style_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use crate::style::Style;
+
+    #[derive(Serialize)]
+    struct Out<'a> {
+        #[serde(flatten)]
+        style: &'a Style,
+        magnification: f32,
+    }
+
+    #[derive(Deserialize)]
+    struct In {
+        #[serde(flatten)]
+        style: Style,
+        magnification: Option<f32>,
+    }
+
+    pub fn serialize<S: Serializer>(style: &Style, s: S) -> Result<S::Ok, S::Error> {
+        Out {
+            style,
+            magnification: style.magnification,
+        }
+        .serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Style, D::Error> {
+        let In {
+            mut style,
+            magnification,
+        } = In::deserialize(d)?;
+        if let Some(factor) = magnification {
+            style.magnification = factor;
+        }
+        Ok(style)
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

@@ -5,6 +5,7 @@ mod support;
 use std::sync::Arc;
 
 use egui::{Key, Modifiers};
+use egui_kittest::kittest::NodeT;
 use support::TestApp;
 use zimged::tools::ToolId;
 use zimged_core::AnnotationShape;
@@ -132,6 +133,57 @@ fn a_copied_highlight_is_in_the_json_but_not_in_the_png() {
     let png = decode_png(&clipboard.get(PNG).expect("an image/png"));
     let (w, h) = png.dimensions();
     assert!((43..=60).contains(&w) && (33..=50).contains(&h), "{w}×{h}");
+}
+
+#[test]
+fn a_pasted_magnify_highlight_keeps_its_magnification() {
+    // Two windows on one clipboard; the second keeps the default magnify_factor (2).
+    let clipboard = Arc::new(MemoryClipboard::default());
+    let mut first = app_with("small-320x240.jpg", &clipboard);
+    let mut second = app_with("small-320x240.jpg", &clipboard);
+    first.press(Key::H);
+    first.drag_px((120.0, 100.0), (200.0, 160.0));
+    first.control("Magnify highlight").click();
+    first.settle();
+    first.control("Magnification").set_value_accesskit(4.0);
+    first.settle();
+
+    ctrl(&mut first, Key::C);
+    let json: serde_json::Value =
+        serde_json::from_slice(&clipboard.get(ANNOTATIONS).expect("the JSON")).unwrap();
+    assert_eq!(json["annotations"][0]["style"]["magnification"], 4.0);
+
+    ctrl(&mut second, Key::V);
+    assert_eq!(second.doc().selection().len(), 1);
+    let shown = second
+        .control("Magnification")
+        .accesskit_node()
+        .numeric_value();
+    assert_eq!(shown, Some(4.0), "the property bar shows the pasted factor");
+}
+
+#[test]
+fn a_pasted_magnification_out_of_range_is_clamped() {
+    let clipboard = Arc::new(MemoryClipboard::default());
+    let mut app = app_with("small-320x240.jpg", &clipboard);
+    let json = r#"{"zimged_annotations": 1, "annotations": [
+        {"shape": {"type": "highlight", "rect": {"min": {"x": 10.0, "y": 10.0},
+         "max": {"x": 60.0, "y": 40.0}}},
+         "style": {"highlight_mode": "magnify", "magnification": 1000.0}}]}"#;
+    clipboard.put(vec![ClipboardItem::new(
+        ANNOTATIONS,
+        json.as_bytes().to_vec(),
+    )]);
+
+    ctrl(&mut app, Key::V);
+
+    // The property bar's control clamps what it shows; the Document must hold the clamped value.
+    assert_eq!(app.doc().annotations()[0].style.magnification, 10.0);
+    assert_eq!(
+        app.doc().undo_len(),
+        1,
+        "the paste alone: nothing restyled it afterwards"
+    );
 }
 
 #[test]
