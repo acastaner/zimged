@@ -39,8 +39,8 @@ struct Edited {
     path: PathBuf,
     view_only: bool,
     full_decode: Option<PendingFullDecode>,
-    /// A crop applied before the full-resolution pixels arrived: done when they do.
-    queued_crop: Option<Rect>,
+    /// Image operations chosen before the full-resolution pixels arrived: done when they do.
+    queued: Vec<ImageOp>,
     /// The last composite, its texture, and what it was rendered for.
     composite: Option<CompositeTexture>,
 }
@@ -121,7 +121,7 @@ impl Editor {
             path: path.to_owned(),
             view_only,
             full_decode: None,
-            queued_crop: None,
+            queued: Vec::new(),
             composite: None,
         });
         if view_only {
@@ -233,20 +233,39 @@ impl Editor {
     }
 
     /// Enter or Apply with the crop tool: crop to its region (§4.7), then back to the select tool.
-    /// Before the full-resolution pixels have arrived, the crop waits for them.
     pub fn apply_crop(&mut self) {
         let Some(region) = self.crop.filter(|_| self.tool == ToolId::Crop) else {
             return;
         };
-        if self.edited_idle().is_none() {
+        self.image_operation(ImageOp::Crop(region));
+        self.set_tool(ToolId::Select);
+    }
+
+    /// An Image operation is about to be chosen (the Resize dialog is up): start the
+    /// full-resolution decode now (§4.7).
+    pub fn prepare_image_operation(&mut self) {
+        if self.can_edit() {
+            self.start_full_decode();
+        }
+    }
+
+    /// Carry out an Image operation (§4.7) as one History step. Before the full-resolution pixels
+    /// have arrived (this starts their decode), it waits for them. Ignored mid-gesture and on a
+    /// view-only Image. Any other operation ends the crop tool (its region would no longer fit).
+    pub fn image_operation(&mut self, op: ImageOp) {
+        if !self.can_edit() || self.edited_idle().is_none() {
             return;
+        }
+        if self.tool == ToolId::Crop && !matches!(op, ImageOp::Crop(_)) {
+            self.set_tool(ToolId::Select);
         }
         self.start_full_decode();
         let e = self.edited.as_mut().expect("checked above");
-        if !e.doc.crop(region) {
-            e.queued_crop = Some(region);
+        if !e.queued.is_empty() || e.doc.full_resolution().is_none() {
+            e.queued.push(op);
+        } else {
+            op.apply(&mut e.doc);
         }
-        self.set_tool(ToolId::Select);
     }
 
     /// Cancel (Esc) with the crop tool: drop the region and go back to the select tool.
@@ -308,8 +327,8 @@ impl Editor {
             if let Ok(pixels) = result {
                 e.doc.set_full_resolution(Arc::new(pixels));
             }
-            if let Some(region) = e.queued_crop.take() {
-                e.doc.crop(region);
+            for op in std::mem::take(&mut e.queued) {
+                op.apply(&mut e.doc);
             }
         }
     }
@@ -522,6 +541,35 @@ impl Editor {
         }
         let c = e.composite.as_ref()?;
         Some((c.texture.id(), c.dest))
+    }
+}
+
+/// An Image operation (§4.7), as the editor queues it until the full-resolution pixels arrive.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ImageOp {
+    /// Crop to this region (Image pixels).
+    Crop(Rect),
+    Rotate {
+        clockwise: bool,
+    },
+    Flip {
+        horizontal: bool,
+    },
+    /// Resize to this many pixels (Mitchell cubic up, mipmap + cubic down).
+    Resize {
+        width: u32,
+        height: u32,
+    },
+}
+
+impl ImageOp {
+    fn apply(self, doc: &mut Document) -> bool {
+        match self {
+            ImageOp::Crop(region) => doc.crop(region),
+            ImageOp::Rotate { clockwise } => doc.rotate(clockwise),
+            ImageOp::Flip { horizontal } => doc.flip(horizontal),
+            ImageOp::Resize { width, height } => doc.resize(width, height, zimged_render::resample),
+        }
     }
 }
 

@@ -144,6 +144,68 @@ impl Document {
         true
     }
 
+    /// Turn the Image a quarter, clockwise or not, as one step. Needs the full-resolution pixels;
+    /// returns false without them.
+    pub fn rotate(&mut self, clockwise: bool) -> bool {
+        let Some(full) = &self.full_resolution else {
+            return false;
+        };
+        let pixels = full.rotate90(clockwise);
+        let (width, height) = (self.width as f32, self.height as f32);
+        self.image_operation(
+            pixels,
+            ImageTransform::Rotate90 {
+                clockwise,
+                width,
+                height,
+            },
+        );
+        true
+    }
+
+    /// Mirror the Image (left-right when `horizontal`, else top-bottom) as one step. Needs the
+    /// full-resolution pixels; returns false without them.
+    pub fn flip(&mut self, horizontal: bool) -> bool {
+        let Some(full) = &self.full_resolution else {
+            return false;
+        };
+        let pixels = full.flip(horizontal);
+        let (width, height) = (self.width as f32, self.height as f32);
+        self.image_operation(
+            pixels,
+            ImageTransform::Flip {
+                horizontal,
+                width,
+                height,
+            },
+        );
+        true
+    }
+
+    /// Resize the Image to `width`×`height` as one step; `resample` computes the new pixels (Skia,
+    /// in `zimged-render`). Annotations scale with it, line thickness included. Needs the
+    /// full-resolution pixels; returns false without them, for an empty size, or for the current
+    /// size (nothing to do).
+    pub fn resize(
+        &mut self,
+        width: u32,
+        height: u32,
+        resample: impl FnOnce(&Pixels, u32, u32) -> Pixels,
+    ) -> bool {
+        let Some(full) = &self.full_resolution else {
+            return false;
+        };
+        if width == 0 || height == 0 || (width, height) == (self.width, self.height) {
+            return false;
+        }
+        let pixels = resample(full, width, height);
+        assert_eq!((pixels.width, pixels.height), (width, height));
+        let sx = width as f32 / self.width as f32;
+        let sy = height as f32 / self.height as f32;
+        self.image_operation(pixels, ImageTransform::Resize { sx, sy });
+        true
+    }
+
     /// Replace the Image with `pixels` (the result of an Image operation), move every Annotation
     /// through `transform`, and remove those left entirely outside the new Image. One History step
     /// that stores the pixels and Annotations from before; the History's pixel cap is enforced.

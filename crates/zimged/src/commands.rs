@@ -31,6 +31,14 @@ pub enum Command {
     /// Cancel with the crop tool: drop the region and go back to the select tool (Esc does the
     /// same through `SelectTool`).
     CancelCrop,
+    /// Image › Rotate left / Rotate right (§4.7): turn the Image a quarter.
+    Rotate { clockwise: bool },
+    /// Image › Flip horizontal / Flip vertical (§4.7).
+    Flip { horizontal: bool },
+    /// Image › Resize…: open the Resize dialog (§6.4).
+    ShowResizeDialog,
+    /// Resize the Image to this many pixels (the Resize dialog's **Resize**, §4.7).
+    Resize { width: u32, height: u32 },
     /// Show the next Sibling (§3.1: wheel down, →).
     NextSibling,
     /// Show the previous Sibling (§3.1: wheel up, ←).
