@@ -90,6 +90,9 @@ pub(crate) struct ShownImage {
     may_animate: bool,
     /// Its frames, playing (or still decoding), until it turns out to be a still image.
     animation: Option<Animation>,
+    /// The file was deleted from outside zimged while on screen (§3.2): the Image stays open and is
+    /// treated as unsaved, since its pixels now exist only here.
+    deleted_from_disk: bool,
 }
 
 impl ShownImage {
@@ -281,6 +284,19 @@ impl ZimgedApp {
             || self.navigation.is_busy()
     }
 
+    /// Does the Image have unsaved changes (` •` after the file name)? Edits to the Document, or a
+    /// file deleted from outside zimged (§3.2). #35's Save / Discard / Cancel prompt asks whenever
+    /// this is true, and saving writes the file back.
+    pub fn is_modified(&self) -> bool {
+        self.document().is_some_and(|d| d.is_modified())
+            || self.shown.as_ref().is_some_and(|s| s.deleted_from_disk)
+    }
+
+    /// Is the Image's directory being watched for changes (§3.2)?
+    pub fn is_watching_directory(&self) -> bool {
+        self.navigation.is_watching()
+    }
+
     /// The files in the display-size cache (§3.3) and their total size in bytes.
     pub fn cached_siblings(&self) -> (Vec<PathBuf>, usize) {
         self.navigation.cached()
@@ -424,6 +440,17 @@ impl ZimgedApp {
         }
     }
 
+    /// Follow changes to the Image's folder made from outside zimged (§3.2).
+    fn follow_directory(&mut self, ctx: &egui::Context) {
+        let display_box = self.display_box();
+        let deleted = self
+            .navigation
+            .follow_changes(ctx, self.path.as_deref(), display_box);
+        if deleted && let Some(shown) = &mut self.shown {
+            shown.deleted_from_disk = true;
+        }
+    }
+
     fn poll_decode(&mut self, ctx: &egui::Context) {
         if let Some((path, decoded)) = self
             .navigation
@@ -465,6 +492,7 @@ impl ZimgedApp {
                     requested: image.size,
                     may_animate: image.may_animate,
                     animation: None,
+                    deleted_from_disk: false,
                 });
                 self.upgrade = None;
                 self.error = None;
@@ -621,8 +649,8 @@ impl ZimgedApp {
         }
     }
 
-    /// §1.3 step 5: runs once, on the frame after the first image was painted. The Sibling scan,
-    /// directory watcher, prefetch, and UI font loading start from here, never before.
+    /// §1.3 step 5: runs once, on the frame after the first image was painted. The Sibling scan and
+    /// directory watcher (both in `navigation.start`), prefetch, and UI font loading start from here, never before.
     fn after_first_paint(&mut self, ctx: &egui::Context) {
         if let Some(path) = self.path.clone() {
             self.navigation.start(ctx, &path);
@@ -693,7 +721,7 @@ impl ZimgedApp {
     fn status_bar(&self) -> status_bar::StatusBar<'_> {
         status_bar::StatusBar {
             file_name: self.shown.as_ref().map(|s| s.file_name.as_str()),
-            modified: self.document().is_some_and(|d| d.is_modified()),
+            modified: self.is_modified(),
             position: self.path.as_deref().map(|p| self.navigation.position(p)),
             pixel_size: self.shown.as_ref().map(|s| s.original_size),
             zoom: self.shown.as_ref().map(|_| self.view.zoom),
@@ -756,6 +784,7 @@ impl eframe::App for ZimgedApp {
             self.execute(command);
         }
         self.poll_open_dialog();
+        self.follow_directory(&ctx);
         self.poll_decode(&ctx);
         self.poll_upgrade(&ctx);
         self.play_animation(&ctx);

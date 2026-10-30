@@ -12,6 +12,7 @@ publish.workspace = true
 icu_collator.workspace = true
 icu_locale_core.workspace = true
 libc.workspace = true
+notify.workspace = true
 unicode-normalization.workspace = true
 zimged-codec.workspace = true
 

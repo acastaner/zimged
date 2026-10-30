@@ -6,9 +6,11 @@
 pub mod order;
 pub mod prefetch;
 pub mod scan;
+pub mod watch;
 
 pub use prefetch::{Decoded, Prefetcher};
-pub use scan::{PendingScan, Sibling, SiblingList};
+pub use scan::{PendingScan, Scanned, Sibling, SiblingList};
+pub use watch::{Change, DirWatcher};
 
 /// Which way the user last moved through the Siblings (§3.3). Forward at startup.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
