@@ -69,6 +69,15 @@ pub enum Command {
     Save,
     /// Ctrl+Shift+S: the native Save As dialog, offering PNG, JPEG and WebP.
     SaveAs,
+    /// Ctrl+C (§6.2): with nothing selected, copy the Flattened Image as PNG.
+    Copy,
+    /// Ctrl+V (§6.3): insert the clipboard image as an Inset; in the empty window, make it the
+    /// Image (§3.5).
+    Paste,
+    /// Ctrl+Shift+V, *File › New from clipboard*: open the clipboard image in a new window.
+    NewFromClipboard,
+    /// Ctrl+drop (§3.5, §4.6): insert this image file as an Inset.
+    InsertFile(PathBuf),
     /// View → *Allow multiple instances* (§8.3, §8.4). Persisted; takes effect at the next start.
     SetAllowMultipleInstances(bool),
 }

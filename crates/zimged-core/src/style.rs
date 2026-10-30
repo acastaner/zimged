@@ -72,7 +72,7 @@ impl<'de> serde::Deserialize<'de> for Rgba {
     }
 }
 
-/// A fill colour in `config.toml`: a colour, or `"none"`.
+/// A fill or border colour in `config.toml`: a colour, or `"none"`.
 mod fill_serde {
     use super::Rgba;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -116,6 +116,9 @@ pub struct Style {
     pub font_size: f32,
     /// Which ends of an arrow carry a head.
     pub arrowheads: Arrowheads,
+    /// An Inset's border (§4.6): `None` is no border; its width is `thickness`.
+    #[serde(with = "fill_serde")]
+    pub border: Option<Rgba>,
 }
 
 /// Which ends of an arrow carry a head (§4.1 A).
@@ -170,6 +173,7 @@ impl Default for Style {
             font: DEFAULT_FONT.to_owned(),
             font_size: 20.0,
             arrowheads: Arrowheads::End,
+            border: None,
         }
     }
 }
@@ -187,6 +191,7 @@ pub enum PropertyKind {
     Font,
     FontSize,
     Arrowheads,
+    BorderColour,
 }
 
 /// A style property with its value: one change in the property bar.
@@ -201,6 +206,8 @@ pub enum Property {
     Font(String),
     FontSize(f32),
     Arrowheads(Arrowheads),
+    /// `None` is no border.
+    BorderColour(Option<Rgba>),
 }
 
 impl Property {
@@ -215,6 +222,7 @@ impl Property {
             Property::Font(_) => PropertyKind::Font,
             Property::FontSize(_) => PropertyKind::FontSize,
             Property::Arrowheads(_) => PropertyKind::Arrowheads,
+            Property::BorderColour(_) => PropertyKind::BorderColour,
         }
     }
 }
@@ -243,6 +251,7 @@ impl Style {
             PropertyKind::Font => Property::Font(self.font.clone()),
             PropertyKind::FontSize => Property::FontSize(self.font_size),
             PropertyKind::Arrowheads => Property::Arrowheads(self.arrowheads),
+            PropertyKind::BorderColour => Property::BorderColour(self.border),
         }
     }
 
@@ -283,6 +292,7 @@ impl Style {
                 self.font_size = s.clamp(*FONT_SIZE_RANGE.start(), *FONT_SIZE_RANGE.end())
             }
             Property::Arrowheads(a) => self.arrowheads = a,
+            Property::BorderColour(c) => self.border = c,
         }
     }
 }

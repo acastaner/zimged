@@ -38,6 +38,9 @@ pollster = "0.4"
 # The system trash (§8.2). chrono is only for listing the trash, which zimged never does.
 trash = { version = "5", default-features = false, features = ["coinit_apartmentthreaded"] }
 tempfile = "3"
+# The clipboard (§8.1): clipboard-rs on Windows, macOS and X11; its `wayland` backend is
+# wl-clipboard-rs (data-control), falling back to X11 (XWayland) without data-control.
+clipboard-rs = { version = "0.3.5", features = ["wayland"] }
 # Prebuilt Skia binaries are downloaded at build time (binary-cache). The default features plus
 # textlayout match a published binary set (`jpegd-jpege-pdf-textlayout`), so no C++ toolchain is
 # needed; another feature set can force a from-source build (LLVM, Python, Ninja).

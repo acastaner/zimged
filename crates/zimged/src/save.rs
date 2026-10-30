@@ -14,6 +14,9 @@ use zimged_render::{Composite, Renderer, Source, SourcePixels};
 
 use crate::decode::{Pending, decode_full};
 
+/// The name of an Image pasted into the empty window, until it is saved (§3.5).
+pub const CLIPBOARD_IMAGE: &str = "Clipboard image";
+
 /// What to save, and where.
 pub(crate) struct SaveJob {
     /// What is drawn: the size, the Annotations and (when decoded) the full-resolution pixels.
@@ -48,30 +51,7 @@ impl PendingSave {
 }
 
 fn run(job: SaveJob) -> SaveResult {
-    let (full, decoded) = match job.drawing.full_resolution() {
-        Some(full) => (full.clone(), None),
-        None => {
-            let decoded = job
-                .source
-                .as_deref()
-                .ok_or_else(|| "no pixels to save".to_owned())
-                .and_then(|source| decode_full(source).map_err(|e| e.to_string()))
-                .ok()
-                .filter(|p| (p.width, p.height) == (job.drawing.width(), job.drawing.height()));
-            let full = match (decoded, &job.fallback) {
-                (Some(pixels), _) => Arc::new(pixels),
-                (None, Some(fallback)) => Arc::new(from_color_image(fallback)),
-                (None, None) => return Err("the file changed or went away on disk".into()),
-            };
-            (full.clone(), Some(full))
-        }
-    };
-    if (full.width, full.height) != (job.drawing.width(), job.drawing.height()) {
-        return Err("the file changed on disk".into());
-    }
-    let mut drawing = job.drawing;
-    drawing.set_full_resolution(full.clone());
-    let flattened = flatten(&drawing, &full);
+    let (flattened, decoded) = flatten_drawing(job.drawing, job.source.as_deref(), &job.fallback)?;
     let info = job
         .source
         .as_deref()
@@ -88,6 +68,65 @@ fn run(job: SaveJob) -> SaveResult {
     )
     .map_err(|e| e.to_string())?;
     Ok(Saved { decoded })
+}
+
+/// What to copy to the clipboard (§6.2): the same as a save, without a target file.
+pub(crate) struct CopyJob {
+    pub drawing: Document,
+    pub source: Option<PathBuf>,
+    pub fallback: Option<Arc<egui::ColorImage>>,
+    pub clipboard: Arc<dyn zimged_platform::Clipboard>,
+}
+
+pub(crate) type PendingCopy = Pending<SaveResult>;
+
+impl PendingCopy {
+    /// Flatten, encode as PNG and put on the clipboard, on the worker thread (§7.3).
+    pub fn spawn_copy(job: CopyJob) -> Self {
+        Self::spawn_job(PathBuf::new(), "worker", move |_| copy(job))
+    }
+}
+
+fn copy(job: CopyJob) -> SaveResult {
+    let (flattened, decoded) = flatten_drawing(job.drawing, job.source.as_deref(), &job.fallback)?;
+    let (pixels, size) = straight(&flattened);
+    let png = zimged_codec::encode_png_plain(&pixels, size).map_err(|e| e.to_string())?;
+    job.clipboard
+        .write(vec![zimged_platform::ClipboardItem::new(
+            zimged_platform::clipboard::IMAGE_PNG,
+            png,
+        )])?;
+    Ok(Saved { decoded })
+}
+
+/// Flatten `drawing` at full resolution, decoding its pixels from `source` (or taking `fallback`)
+/// when the Document hasn't got them yet; those decoded pixels come back too.
+fn flatten_drawing(
+    mut drawing: Document,
+    source: Option<&Path>,
+    fallback: &Option<Arc<egui::ColorImage>>,
+) -> Result<(Composite, Option<Arc<Pixels>>), String> {
+    let (full, decoded) = match drawing.full_resolution() {
+        Some(full) => (full.clone(), None),
+        None => {
+            let decoded = source
+                .ok_or_else(|| "no pixels to save".to_owned())
+                .and_then(|source| decode_full(source).map_err(|e| e.to_string()))
+                .ok()
+                .filter(|p| (p.width, p.height) == (drawing.width(), drawing.height()));
+            let full = match (decoded, fallback) {
+                (Some(pixels), _) => Arc::new(pixels),
+                (None, Some(fallback)) => Arc::new(from_color_image(fallback)),
+                (None, None) => return Err("the file changed or went away on disk".into()),
+            };
+            (full.clone(), Some(full))
+        }
+    };
+    if (full.width, full.height) != (drawing.width(), drawing.height()) {
+        return Err("the file changed on disk".into());
+    }
+    drawing.set_full_resolution(full.clone());
+    Ok((flatten(&drawing, &full), decoded))
 }
 
 /// Flatten (§7.2): the same renderer as the canvas, over the whole Image at full resolution.
@@ -161,8 +200,12 @@ pub(crate) fn in_place_format(path: &Path) -> Option<SaveFormat> {
     SaveFormat::from_path(path)
 }
 
-/// What Save As suggests: the file itself, or the same name as PNG for a read-only format.
-pub(crate) fn suggestion(path: &Path) -> PathBuf {
+/// What Save As suggests: the file itself, or the same name as PNG for a read-only format. A
+/// clipboard Image (no file) suggests "Clipboard image.png".
+pub(crate) fn suggestion(path: Option<&Path>) -> PathBuf {
+    let Some(path) = path else {
+        return PathBuf::from(format!("{CLIPBOARD_IMAGE}.png"));
+    };
     if in_place_format(path).is_some() {
         path.to_owned()
     } else {

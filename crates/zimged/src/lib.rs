@@ -12,6 +12,7 @@ pub mod decode;
 mod editor;
 mod input;
 mod pan;
+mod paste;
 mod save;
 mod siblings;
 pub mod startup;

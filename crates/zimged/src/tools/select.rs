@@ -34,6 +34,9 @@ enum Action {
         handle: Handle,
         bounds: Rect,
         originals: Vec<(AnnotationId, AnnotationShape)>,
+        /// A corner handle on a selection with an Inset: the aspect ratio stays unless Shift is
+        /// held (§4.6).
+        keep_aspect: bool,
     },
     /// A drag on empty space. `base` stays selected besides the enclosed Annotations (the
     /// previous selection with Shift, nothing without).
@@ -64,6 +67,31 @@ fn apply(cx: &mut ToolContext<'_>, originals: &[(AnnotationId, AnnotationShape)]
     }
 }
 
+fn is_corner(handle: Handle) -> bool {
+    let (u, v) = handle.anchor();
+    u != 0.5 && v != 0.5
+}
+
+/// Where a corner `handle` of `bounds` goes when dragged to `p` with the aspect ratio kept: the
+/// opposite corner stays, and the box scales by the larger of the two axes' scales.
+fn keeping_aspect(bounds: Rect, handle: Handle, p: Point) -> Point {
+    let (u, v) = handle.anchor();
+    let fixed = Point::new(
+        bounds.min.x + (1.0 - u) * bounds.width(),
+        bounds.min.y + (1.0 - v) * bounds.height(),
+    );
+    let (w, h) = (
+        bounds.width().max(f32::EPSILON),
+        bounds.height().max(f32::EPSILON),
+    );
+    let (dx, dy) = (p.x - fixed.x, p.y - fixed.y);
+    let scale = (dx.abs() / w).max(dy.abs() / h);
+    Point::new(
+        fixed.x + dx.signum() * scale * w,
+        fixed.y + dy.signum() * scale * h,
+    )
+}
+
 /// Is `inner` entirely inside the rubber band?
 fn encloses(band: Rect, inner: Rect) -> bool {
     band.contains(inner.min) && band.contains(inner.max)
@@ -77,10 +105,16 @@ impl Tool for Select {
         if let Some(bounds) = cx.doc.selection_bounds()
             && let Some(handle) = handle_at(bounds, p, cx.image_per_point)
         {
+            let originals = selected_shapes(cx);
+            let keep_aspect = is_corner(handle)
+                && originals
+                    .iter()
+                    .any(|(_, shape)| matches!(shape, AnnotationShape::Inset(_)));
             self.action = Some(Action::Resize {
                 handle,
                 bounds,
-                originals: selected_shapes(cx),
+                originals,
+                keep_aspect,
             });
             cx.doc.begin_gesture();
             return;
@@ -135,8 +169,14 @@ impl Tool for Select {
                 handle,
                 bounds,
                 originals,
+                keep_aspect,
             }) => {
-                let to = bounds.with_handle_at(*handle, pointer.pos);
+                let at = if *keep_aspect && !pointer.modifiers.shift {
+                    keeping_aspect(*bounds, *handle, pointer.pos)
+                } else {
+                    pointer.pos
+                };
+                let to = bounds.with_handle_at(*handle, at);
                 let t = Affine::rect_to_rect(*bounds, to);
                 apply(cx, originals, &t);
             }

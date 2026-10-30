@@ -201,6 +201,10 @@ fn geometry(app: &TestApp) -> Vec<Vec<(i32, i32)>> {
             AnnotationShape::Line(l) => vec![rounded_point(l.from), rounded_point(l.to)],
             AnnotationShape::Arrow(l) => vec![rounded_point(l.from), rounded_point(l.to)],
             AnnotationShape::Freehand(f) => f.points.iter().copied().map(rounded_point).collect(),
+            AnnotationShape::Inset(i) => {
+                let [x0, y0, x1, y1] = rounded(i.rect);
+                vec![(x0, y0), (x1, y1)]
+            }
             AnnotationShape::Text(t) => vec![rounded_point(t.origin)],
             AnnotationShape::StepCounter(s) => vec![rounded_point(s.centre)],
         })
