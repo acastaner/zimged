@@ -245,7 +245,10 @@ fn the_effect_recomputes_when_something_beneath_changes() {
     set(&mut app, Property::LineColour(Rgba::rgb(0, 0, 255)));
 
     let [r, g, b, _] = composite_px(&app, 101, 90);
-    assert!(b > 200 && r < 60 && g < 60, "magnified line now blue, was {before:?}");
+    assert!(
+        b > 200 && r < 60 && g < 60,
+        "magnified line now blue, was {before:?}"
+    );
 }
 
 #[test]
@@ -262,6 +265,24 @@ fn the_effect_follows_the_highlight_when_it_moves() {
     assert_eq!(composite_px(&app, 150, 120), [255, 255, 255, 255]);
     let [r, _, _, _] = composite_px(&app, 150, 65);
     assert!(r < 140, "white above the moved region is dimmed now");
+}
+
+#[test]
+fn a_highlight_follows_a_rotation_and_keeps_its_effect() {
+    let mut app = app_with_highlight(HighlightMode::Magnify);
+    app.harness
+        .state_mut()
+        .execute(Command::Rotate { clockwise: true });
+    app.settle();
+
+    // 320×240 turned clockwise: (x, y) → (240 - y, x), so (20, 20)–(180, 100) → (140, 20)–(220, 180).
+    let a = &app.doc().annotations()[0];
+    assert_eq!(a.style.highlight_mode, HighlightMode::Magnify);
+    let r = a.bounds();
+    assert_eq!(
+        [r.min.x, r.min.y, r.max.x, r.max.y].map(|v| v.round() as i32),
+        [140, 20, 220, 180]
+    );
 }
 
 #[test]

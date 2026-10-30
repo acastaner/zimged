@@ -9,17 +9,20 @@ use zimged_core::{Annotation, Document};
 
 #[derive(Clone, Copy)]
 pub struct Scene<'a> {
+    /// The whole Document (for what's derived from it, such as Step counter numbers).
+    pub doc: &'a Document,
     /// The Image's pixels, drawn over `image_rect`.
     image: &'a sk::Image,
     /// The Image's bounds in Image pixels.
     pub image_rect: sk::Rect,
-    /// Bottom to top.
+    /// The Annotations in this scene, bottom to top: a prefix of the Document's.
     annotations: &'a [Annotation],
 }
 
 impl<'a> Scene<'a> {
     pub fn new(image: &'a sk::Image, doc: &'a Document) -> Self {
         Self {
+            doc,
             image,
             image_rect: sk::Rect::from_wh(doc.width() as f32, doc.height() as f32),
             annotations: doc.annotations(),

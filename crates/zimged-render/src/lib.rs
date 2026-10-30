@@ -9,8 +9,12 @@
 //! resolution, so the screen and the file match.
 
 mod effects;
+mod resample;
 mod scene;
 mod shapes;
+pub mod text;
+
+pub use resample::resample;
 
 use skia_safe as sk;
 use zimged_core::{Document, Rect};
@@ -100,6 +104,17 @@ impl Renderer {
         }
     }
 
+    /// Flatten (§7.2): the whole Image plus every Annotation at full resolution, with the same
+    /// drawing code as the screen. `source` is the full-resolution pixels.
+    pub fn flatten(&mut self, doc: &Document, source: &Source<'_>) -> Composite {
+        let view = View {
+            region: doc.bounds(),
+            width: doc.width(),
+            height: doc.height(),
+        };
+        self.composite(doc, source, view)
+    }
+
     fn source_image(&mut self, source: &Source<'_>) -> &sk::Image {
         if self
             .source
@@ -142,6 +157,10 @@ fn to_skia_image(source: &Source<'_>) -> sk::Image {
 
 pub(crate) fn color(c: zimged_core::Rgba) -> sk::Color {
     sk::Color::from_argb(c.a, c.r, c.g, c.b)
+}
+
+pub(crate) fn point(p: zimged_core::Point) -> sk::Point {
+    sk::Point::new(p.x, p.y)
 }
 
 pub(crate) fn rect(r: Rect) -> sk::Rect {
