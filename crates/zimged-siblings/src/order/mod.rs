@@ -1,14 +1,24 @@
 //! Sibling ordering (spec §3.2): the file manager's own order, reproduced exactly, quirks included.
 //!
-//! One [`NameOrder`] per ordering rule. Today only [`GlibOrder`] (Nautilus and every non-KDE Linux
-//! desktop) exists; the Dolphin port (#16) and the native Windows and macOS comparisons (#17) are
-//! further implementations of the same trait, picked by [`platform_order`].
+//! One [`NameOrder`] per ordering rule, picked by [`platform_order`]: [`GlibOrder`] (Nautilus and
+//! every non-KDE Linux desktop), [`DolphinOrder`] (KDE), `ExplorerOrder` on Windows and
+//! `FinderOrder` on macOS (the OS's own comparisons).
 
+mod dolphin;
+#[cfg(windows)]
+mod explorer;
+#[cfg(target_os = "macos")]
+mod finder;
 mod glib;
 mod locale;
 
 use std::cmp::Ordering;
 
+pub use dolphin::DolphinOrder;
+#[cfg(windows)]
+pub use explorer::ExplorerOrder;
+#[cfg(target_os = "macos")]
+pub use finder::FinderOrder;
 pub use glib::GlibOrder;
 
 /// How a file manager orders file names.
@@ -32,9 +42,31 @@ pub trait NameOrder: Send + Sync {
     }
 }
 
-/// The ordering of the file manager on this platform and desktop, in the user's locale.
+/// The ordering of Explorer: `StrCmpLogicalW`, or ordinal under the `NoStrCmpLogical` policy.
+#[cfg(windows)]
 pub fn platform_order() -> Box<dyn NameOrder> {
-    // #16 picks the Dolphin port here when `XDG_CURRENT_DESKTOP` contains `KDE`; #17 the native
-    // Windows and macOS comparisons.
+    Box::new(ExplorerOrder::from_environment())
+}
+
+/// The ordering of Finder: `localizedStandardCompare:` in the user's locale.
+#[cfg(target_os = "macos")]
+pub fn platform_order() -> Box<dyn NameOrder> {
+    Box::new(FinderOrder)
+}
+
+/// The ordering of the file manager on this desktop, in the user's locale.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn platform_order() -> Box<dyn NameOrder> {
+    if cfg!(target_os = "linux")
+        && kde_session(std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref())
+    {
+        return Box::new(DolphinOrder::from_environment());
+    }
     Box::new(GlibOrder::from_environment())
+}
+
+/// Whether `XDG_CURRENT_DESKTOP` names a KDE session: one of its colon-separated entries is exactly
+/// `KDE` (registered values are case-sensitive).
+pub fn kde_session(xdg_current_desktop: Option<&str>) -> bool {
+    xdg_current_desktop.is_some_and(|desktops| desktops.split(':').any(|entry| entry == "KDE"))
 }

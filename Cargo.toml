@@ -38,6 +38,13 @@ tempfile = "3"
 skia-safe = { version = "0.156", features = ["textlayout"] }
 libc = "0.2"
 unicode-normalization = "0.1"
+# Sibling ordering on Windows (StrCmpLogicalW, the NoStrCmpLogical policy) and macOS (§3.2).
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Globalization", "Win32_System_Registry", "Win32_UI_Shell"] }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSObjCRuntime"] }
+# ICU4X collation with compiled-in CLDR data: the ICU that Dolphin's QCollator sits on (§3.2, #16).
+icu_collator = "2.4"
+icu_locale_core = "2.4"
 
 [profile.release]
 lto = "thin"

@@ -1,6 +1,7 @@
 //! The directory scan (§3.2): the Image's Siblings, in the file manager's order.
 
 use std::cmp::Ordering;
+use std::fs::DirEntry;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -60,9 +61,26 @@ fn display_name(path: &Path) -> String {
         .into_owned()
 }
 
-/// Is this file a Sibling candidate: not hidden, with a supported extension (§3.2)?
-fn is_candidate(name: &str, path: &Path) -> bool {
-    !name.starts_with('.') && zimged_codec::has_read_extension(path)
+/// Is this file a Sibling candidate: with a supported extension, and not hidden (§3.2)?
+fn is_candidate(entry: &DirEntry, name: &str, path: &Path) -> bool {
+    zimged_codec::has_read_extension(path) && !is_hidden(entry, name)
+}
+
+/// Hidden as Explorer sees it: the hidden attribute (read from the directory listing, no extra
+/// call). A leading `.` doesn't hide a file on Windows.
+#[cfg(windows)]
+fn is_hidden(entry: &DirEntry, _name: &str) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+    entry
+        .metadata()
+        .is_ok_and(|m| m.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0)
+}
+
+/// Hidden as the file managers see it: a leading `.`.
+#[cfg(not(windows))]
+fn is_hidden(_entry: &DirEntry, name: &str) -> bool {
+    name.starts_with('.')
 }
 
 /// Scan `dir` for Siblings and sort them with `order`.
@@ -72,7 +90,7 @@ pub fn scan(dir: &Path, order: Arc<dyn NameOrder>) -> io::Result<SiblingList> {
         let Ok(entry) = entry else { continue };
         let path = entry.path();
         let name = display_name(&path);
-        if !is_candidate(&name, &path) {
+        if !is_candidate(&entry, &name, &path) {
             continue;
         }
         // The file type comes from the directory listing itself; only symlinks cost a stat.

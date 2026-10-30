@@ -93,9 +93,19 @@ def main():
 
     flat((64, 48)).save(path("webp-64x48.webp"), quality=90)
 
-    frames = [flat((64, 48), c).convert("P", palette=Image.Palette.ADAPTIVE) for c in (COLOUR, OTHER)]
-    frames[0].save(path("anim-64x48.gif"), save_all=True, append_images=frames[1:], duration=100,
-                   loop=0)
+    flat((64, 48)).convert("P", palette=Image.Palette.ADAPTIVE).save(path("gif-64x48.gif"))
+
+    # Animations (§3.4) with uneven timing: COLOUR for 100 ms, then 300 ms of a frame whose left half
+    # is OTHER. In the GIF the second frame stores only that left half (a sub-rectangle drawn over
+    # frame 1, disposal "keep"), so the right half on screen proves the decoder composited it.
+    half = flat((64, 48))
+    half.paste(flat((32, 48), OTHER), (0, 0))
+    first = flat((64, 48)).convert("P", palette=Image.Palette.ADAPTIVE)
+    first.save(path("anim-partial-64x48.gif"), save_all=True,
+               append_images=[half.convert("P", palette=Image.Palette.ADAPTIVE)],
+               duration=[100, 300], loop=0, disposal=1, optimize=False)
+    flat((64, 48)).save(path("anim-64x48.webp"), save_all=True, append_images=[half],
+                        duration=[100, 300], loop=0, lossless=True)
 
     flat((64, 48)).save(path("bmp-64x48.bmp"))
     # ICO entries hold RGBA (the `image` crate rejects an RGB PNG entry).
