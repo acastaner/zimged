@@ -208,12 +208,23 @@ impl Shape for Text {
         }
     }
 
-    /// §4.7: the box moves to its new anchor (its centre follows the Image) but stays upright and
-    /// keeps its width. #33's resize scales the font size through the Style, then relayouts.
+    /// §4.7: the box moves to its new anchor but stays upright. Crop and resize keep the top-left
+    /// corner on the Image (a resize also scales a fixed width here, and the font size through
+    /// `Annotation::image_transform`, which then relayouts); rotations and flips centre the box on
+    /// its transformed centre.
     fn image_transform(&mut self, t: &ImageTransform) {
-        let b = self.bounds();
-        let c = t.affine().apply(b.center());
-        self.origin = Point::new(c.x - b.width() / 2.0, c.y - b.height() / 2.0);
+        let a = t.affine();
+        if a.b == 0.0 && a.c == 0.0 && a.a > 0.0 && a.d > 0.0 {
+            self.origin = a.apply(self.origin);
+            if let Some(w) = self.width {
+                self.width = Some(w * a.a);
+                self.measure();
+            }
+        } else {
+            let b = self.bounds();
+            let c = a.apply(b.center());
+            self.origin = Point::new(c.x - b.width() / 2.0, c.y - b.height() / 2.0);
+        }
     }
 
     fn properties(&self) -> &'static [PropertyKind] {

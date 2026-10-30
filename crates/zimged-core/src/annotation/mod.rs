@@ -145,6 +145,8 @@ impl Annotation {
         let s = t.size_scale();
         if s != 1.0 {
             self.style.thickness *= s;
+            self.style.font_size *= s;
+            self.relayout();
         }
     }
 }

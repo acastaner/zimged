@@ -470,6 +470,53 @@ fn finishing_mid_composition_drops_the_preedit() {
     assert_eq!(text_of(&app, 0), "A");
 }
 
+// ---- Image operations (§4.7) ----
+
+#[test]
+fn rotating_the_image_moves_the_text_but_keeps_it_upright() {
+    let mut app = app_with_hello();
+    let before = bounds_of(&app, 0);
+    app.harness
+        .state_mut()
+        .execute(Command::Rotate { clockwise: true });
+    app.settle();
+
+    let after = bounds_of(&app, 0);
+    // Same box, not turned: width and height unchanged.
+    assert!((after.width() - before.width()).abs() < 0.5, "{after:?}");
+    assert!((after.height() - before.height()).abs() < 0.5, "{after:?}");
+    // Its centre turned with the 320×240 Image: (x, y) → (240 - y, x).
+    let c = before.center();
+    let expected = (240.0 - c.y, c.x);
+    assert!((after.center().x - expected.0).abs() < 1.0, "{after:?}");
+    assert!((after.center().y - expected.1).abs() < 1.0, "{after:?}");
+    assert_eq!(text_of(&app, 0), "Hello");
+}
+
+#[test]
+fn resizing_the_image_scales_the_font_size() {
+    let mut app = app_with_hello();
+    let before = bounds_of(&app, 0);
+    app.harness.state_mut().execute(Command::Resize {
+        width: 640,
+        height: 480,
+    });
+    app.settle();
+
+    let a = &app.doc().annotations()[0];
+    assert_eq!(
+        a.style.font_size,
+        2.0 * zimged_core::Style::default().font_size
+    );
+    let after = a.bounds();
+    assert!((after.min.x - 2.0 * before.min.x).abs() < 1.0, "{after:?}");
+    assert!((after.min.y - 2.0 * before.min.y).abs() < 1.0, "{after:?}");
+    assert!(
+        (after.height() - 2.0 * before.height()).abs() < 3.0,
+        "{after:?}"
+    );
+}
+
 // ---- Saving ----
 
 #[test]
