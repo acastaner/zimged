@@ -237,12 +237,44 @@ impl TestApp {
             // than `max_steps` frames are fine here; the final `run` checks the app settles.
             let _ = self.harness.try_run();
             if !self.harness.state().is_busy() {
-                self.harness.run();
+                if self.harness.state().animation_frames() > 1 {
+                    // A playing animation (§3.4) repaints for ever: its frames are shorter than
+                    // kittest's 250 ms step, so egui never settles. One more frame will do.
+                    self.harness.step();
+                } else {
+                    self.harness.run();
+                }
                 return;
             }
             assert!(Instant::now() < deadline, "app still busy after 10 s");
             std::thread::sleep(Duration::from_millis(2));
         }
+    }
+
+    /// Run frames until `done` holds (something outside the app, like the directory watcher, has to
+    /// catch up), then settle. Panics after 10 s, naming `what`.
+    pub fn wait_until(&mut self, what: &str, done: impl Fn(&Self) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let _ = self.harness.try_run();
+            if done(self) {
+                self.settle();
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "still waiting for {what} after 10 s"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// Wait until the status bar's `label` field reads `text`.
+    pub fn wait_for_status(&mut self, label: &str, text: &str) {
+        let what = format!("{label:?} to read {text:?}");
+        self.wait_until(&what, |app| {
+            app.status_field(label).as_deref() == Some(text)
+        });
     }
 
     /// Press and release a key (no modifiers), then settle.
@@ -312,7 +344,8 @@ impl TestApp {
             source: egui::MouseWheelSource::Wheel,
             modifiers,
         });
-        self.harness.run();
+        // `try_run`: a prefetch decode landing mid-run asks for more frames than `max_steps`.
+        let _ = self.harness.try_run();
         self.harness
             .event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
         self.settle();

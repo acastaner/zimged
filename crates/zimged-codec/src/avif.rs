@@ -115,6 +115,7 @@ pub(crate) fn decode(data: &[u8]) -> Result<Decoded, DecodeError> {
         stored: size,
         orientation: Orientation::NoTransforms,
         icc,
+        may_animate: false,
     })
 }
 
