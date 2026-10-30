@@ -127,17 +127,42 @@ pub fn render_below(
         source.left + (visible.right - dest.left) * sx,
         source.top + (visible.bottom - dest.top) * sy,
     );
-    let device = canvas.local_to_device_as_3x3().map_rect(visible).0;
-    let width = device.width().ceil().max(1.0) as i32;
-    let height = device.height().ceil().max(1.0) as i32;
+    let (width, height) = device_size(canvas, visible);
+    Some(Rendered {
+        image: render_region(below, from, width, height)?,
+        dest: visible,
+    })
+}
+
+/// The size in device pixels (rounded up, at least 1) of `rect` (Image pixels) on `canvas`.
+pub fn device_size(canvas: &sk::Canvas, rect: sk::Rect) -> (i32, i32) {
+    let device = canvas.local_to_device_as_3x3().map_rect(rect).0;
+    (
+        device.width().ceil().max(1.0) as i32,
+        device.height().ceil().max(1.0) as i32,
+    )
+}
+
+/// The `region` of `below` (Image pixels) rendered offscreen into a `width`×`height` image,
+/// whatever is visible on the canvas (for effects that read around what they show: blur's margin,
+/// pixelate's whole blocks). Transparent where `region` leaves the Image.
+pub fn render_region(
+    below: &Scene<'_>,
+    region: sk::Rect,
+    width: i32,
+    height: i32,
+) -> Option<sk::Image> {
+    if region.is_empty() || width <= 0 || height <= 0 {
+        return None;
+    }
     let mut surface = sk::surfaces::raster_n32_premul((width, height))?;
     let offscreen = surface.canvas();
     offscreen.clear(sk::Color::TRANSPARENT);
-    offscreen.scale((width as f32 / from.width(), height as f32 / from.height()));
-    offscreen.translate((-from.left, -from.top));
+    offscreen.scale((
+        width as f32 / region.width(),
+        height as f32 / region.height(),
+    ));
+    offscreen.translate((-region.left, -region.top));
     below.draw(offscreen);
-    Some(Rendered {
-        image: surface.image_snapshot(),
-        dest: visible,
-    })
+    Some(surface.image_snapshot())
 }

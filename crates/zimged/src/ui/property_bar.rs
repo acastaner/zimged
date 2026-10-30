@@ -4,7 +4,9 @@
 //! accessibility label constant). Controls report changes as [`Property`] values; the app turns
 //! them into commands.
 
-use zimged_core::{Arrowheads, HighlightMode, Property, PropertyKind, Restack, Rgba, Style};
+use zimged_core::{
+    Arrowheads, HighlightMode, ObfuscateMode, Property, PropertyKind, Restack, Rgba, Style,
+};
 
 pub const LABEL_LINE_COLOUR: &str = "Line colour";
 pub const LABEL_FILL_COLOUR: &str = "Fill colour";
@@ -26,6 +28,7 @@ pub const LABEL_BRING_TO_FRONT: &str = "Bring to front";
 pub const LABEL_SEND_TO_BACK: &str = "Send to back";
 pub const LABEL_HIGHLIGHT_COLOUR: &str = "Highlight colour";
 pub const LABEL_MAGNIFICATION: &str = "Magnification";
+pub const LABEL_STRENGTH: &str = "Strength";
 
 /// The accessibility label of a highlight mode's button: "Text highlight", "Magnify highlight", …
 pub fn highlight_mode_label(mode: HighlightMode) -> String {
@@ -284,6 +287,41 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &m
                 if response.changed() && value != style.magnification {
                     out.changes.push(Property::Magnification(value));
                 }
+            }
+        }
+        // The mode buttons are labelled by the mode alone: "Pixelate", "Blur".
+        PropertyKind::ObfuscateMode => {
+            ui.label("Mode");
+            for mode in ObfuscateMode::ALL {
+                let on = style.obfuscate_mode == mode;
+                if ui
+                    .add(egui::Button::selectable(on, mode.name()))
+                    .accessible_name(mode.name())
+                    .clicked()
+                    && !on
+                {
+                    out.changes.push(Property::ObfuscateMode(mode));
+                }
+            }
+        }
+        // §4.2: the pixelate block size or the blur radius, in Image pixels.
+        PropertyKind::Strength => {
+            ui.label("Strength");
+            let mut value = style.strength;
+            let range = zimged_core::style::STRENGTH_RANGE;
+            let response = ui
+                .add(
+                    egui::DragValue::new(&mut value)
+                        .range(range)
+                        .speed(0.2)
+                        .suffix(" px"),
+                )
+                .accessible_name(LABEL_STRENGTH);
+            if response.dragged() || response.has_focus() {
+                out.active = Some(kind);
+            }
+            if response.changed() && value != style.strength {
+                out.changes.push(Property::Strength(value));
             }
         }
     }
