@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  zimged.app's Info.plist (#42, spec §8.5). packaging/macos/build.sh replaces @VERSION@.
+
+  CFBundleDocumentTypes covers every format zimged reads (spec §5.1). LSHandlerRank Alternate makes
+  zimged a secondary handler: it appears under Open With, and Launch Services never picks it as the
+  default; the user chooses. WebP and AVIF are also imported (UTImportedTypeDeclarations) for macOS
+  versions that don't declare them; where the system declares them, its declaration wins.
+
+  A new readable format: add its UTI (and extensions) here, and see the comment in
+  packaging/windows/zimged.wxs.
+-->
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleDisplayName</key>
+  <string>zimged</string>
+  <key>CFBundleExecutable</key>
+  <string>zimged</string>
+  <key>CFBundleIconFile</key>
+  <string>zimged</string>
+  <key>CFBundleIdentifier</key>
+  <string>io.github.acastaner.zimged</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>zimged</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>@VERSION@</string>
+  <key>CFBundleVersion</key>
+  <string>@VERSION@</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.graphics-design</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>11.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSHumanReadableCopyright</key>
+  <string>Copyright 2026 Arnaud Castaner. GPL-3.0-or-later.</string>
+
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>JPEG image</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array><string>public.jpeg</string></array>
+      <key>CFBundleTypeExtensions</key>
+      <array><string>jpg</string><string>jpeg</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>PNG image</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array><string>public.png</string></array>
+      <key>CFBundleTypeExtensions</key>
+      <array><string>png</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>WebP image</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array><string>org.webmproject.webp</string></array>
+      <key>CFBundleTypeExtensions</key>
+      <array><string>webp</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>GIF image</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array><string>com.compuserve.gif</string></array>
+      <key>CFBundleTypeExtensions</key>
+      <array><string>gif</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>BMP image</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array><string>com.microsoft.bmp</string></array>
+      <key>CFBundleTypeExtensions</key>
+      <array><string>bmp</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Windows icon</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array><string>com.microsoft.ico</string></array>
+      <key>CFBundleTypeExtensions</key>
+      <array><string>ico</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>TIFF image</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array><string>public.tiff</string></array>
+      <key>CFBundleTypeExtensions</key>
+      <array><string>tif</string><string>tiff</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>AVIF image</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array><string>public.avif</string></array>
+      <key>CFBundleTypeExtensions</key>
+      <array><string>avif</string></array>
+    </dict>
+  </array>
+
+  <key>UTImportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>org.webmproject.webp</string>
+      <key>UTTypeDescription</key>
+      <string>WebP image</string>
+      <key>UTTypeConformsTo</key>
+      <array><string>public.image</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array><string>webp</string></array>
+        <key>public.mime-type</key>
+        <array><string>image/webp</string></array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>public.avif</string>
+      <key>UTTypeDescription</key>
+      <string>AVIF image</string>
+      <key>UTTypeConformsTo</key>
+      <array><string>public.image</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array><string>avif</string></array>
+        <key>public.mime-type</key>
+        <array><string>image/avif</string></array>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>

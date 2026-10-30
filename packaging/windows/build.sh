@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# zimged -- build the Windows release artifacts (#42, spec §8.5) from an already-built binary.
+#
+# Usage: packaging/windows/build.sh <out-dir> <artifact>...
+#
+#   msi       <out>/zimged-<ver>-x86_64.msi (cargo wix --no-build, packaging/windows/zimged.wxs)
+#   winget    <out>/winget/acastaner.zimged*.yaml: the winget manifest for that MSI (needs `msi`
+#             first); submit it to microsoft/winget-pkgs by hand
+#
+# Runs in Git Bash on Windows (the release workflow's `windows` job), with the WiX Toolset v3 and
+# cargo-wix installed. It never builds zimged: run
+# `cargo build --release --locked -p zimged --features avif` first. The version is the workspace
+# version in Cargo.toml. The MSI adds zimged to *Open with* and never makes it the default handler
+# (spec §8.5; see the comment in zimged.wxs).
+
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+here="${root}/packaging/windows"
+cd "${root}"
+
+usage() { sed -n '/^# Usage:/,/^# Runs in/p' "$0" | sed 's/^# \{0,1\}//' | sed '$d' >&2; exit 2; }
+[[ $# -ge 2 ]] || usage
+
+out="$1"; shift
+mkdir -p "${out}"
+out="$(cd "${out}" && pwd)"
+
+version="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' Cargo.toml | head -n1)"
+[[ -n "${version}" ]] || { echo "ERROR: no version in Cargo.toml's [workspace.package]." >&2; exit 1; }
+msi="${out}/zimged-${version}-x86_64.msi"
+
+# WiX and cargo-wix want Windows paths; elsewhere (a dry run of `winget`) keep them as they are.
+winpath() { if command -v cygpath > /dev/null; then cygpath -w "$1"; else printf '%s' "$1"; fi; }
+
+build_msi() {
+  [[ -f "${root}/target/release/zimged.exe" ]] || {
+    echo "ERROR: target/release/zimged.exe is missing: run cargo build --release --locked -p zimged --features avif first." >&2
+    exit 1
+  }
+  cargo wix --package zimged --no-build --nocapture \
+    --include "$(winpath "${here}/zimged.wxs")" \
+    --compiler-arg "-dRepoDir=$(winpath "${root}")" \
+    --output "$(winpath "${msi}")"
+  echo "${msi}"
+}
+
+build_winget() {
+  [[ -f "${msi}" ]] || { echo "ERROR: ${msi} is missing: build \`msi\` first." >&2; exit 1; }
+  local sha f
+  sha="$(sha256sum "${msi}" | cut -d' ' -f1 | tr '[:lower:]' '[:upper:]')"
+  mkdir -p "${out}/winget"
+  for f in "${here}"/winget/*.yaml; do
+    # Drop the template's own comments; keep the schema line.
+    sed -e '/^# yaml-language-server:/!{/^#/d;}' \
+      -e "s/@VERSION@/${version}/g" -e "s/@SHA256@/${sha}/g" \
+      "${f}" > "${out}/winget/$(basename "${f}")"
+  done
+  if grep -l '@[A-Z0-9]*@' "${out}"/winget/*.yaml; then
+    echo "ERROR: unfilled placeholders in the winget manifest (above)." >&2
+    exit 1
+  fi
+  echo "${out}/winget"
+}
+
+for artifact in "$@"; do
+  case "${artifact}" in
+    msi) build_msi ;;
+    winget) build_winget ;;
+    *) echo "ERROR: unknown artifact '${artifact}'." >&2; usage ;;
+  esac
+done
