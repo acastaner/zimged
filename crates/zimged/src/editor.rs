@@ -546,12 +546,20 @@ impl Editor {
             .collect()
     }
 
-    /// The edited Image, when no pointer gesture is in progress.
+    /// Set a tool's default for its next Annotations, whatever is selected (settings seed them).
+    pub fn set_tool_default(&mut self, tool: ToolId, property: Property) {
+        self.styles
+            .entry(tool)
+            .or_insert_with(|| tool.default_style())
+            .set(property);
+    }
+
     /// Is a tool gesture (a drag) under way?
     pub fn in_gesture(&self) -> bool {
         self.edited.as_ref().is_some_and(|e| e.doc.in_gesture())
     }
 
+    /// The edited Image, when no pointer gesture is in progress.
     fn edited_idle(&mut self) -> Option<&mut Edited> {
         self.edited.as_mut().filter(|e| !e.doc.in_gesture())
     }

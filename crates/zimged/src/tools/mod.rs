@@ -14,14 +14,15 @@ mod drag_box;
 mod drag_segment;
 mod ellipse;
 mod freehand;
+mod highlight;
 mod rectangle;
 pub mod select;
 mod step_counter;
 pub mod text;
 
 use zimged_core::{
-    AnnotationShape, Arrow, Document, Ellipse, Freehand, Inset, Line, Point, PropertyKind, Rect,
-    Rectangle, StepCounter, Style, Text,
+    AnnotationShape, Arrow, Document, Ellipse, Freehand, Highlight, Inset, Line, Point,
+    PropertyKind, Rect, Rectangle, StepCounter, Style, Text,
 };
 
 /// Every tool, in tool-strip order (§4.1).
@@ -123,6 +124,7 @@ impl ToolId {
             AnnotationShape::Inset(_) => ToolId::Inset,
             AnnotationShape::Text(_) => ToolId::Text,
             AnnotationShape::StepCounter(_) => ToolId::StepCounter,
+            AnnotationShape::Highlight(_) => ToolId::Highlight,
         }
     }
 
@@ -156,6 +158,7 @@ impl ToolId {
             ToolId::Line => Some(Box::new(drag_segment::line())),
             ToolId::Arrow => Some(Box::new(drag_segment::arrow())),
             ToolId::Freehand => Some(Box::new(freehand::FreehandTool::default())),
+            ToolId::Highlight => Some(Box::new(highlight::new())),
             ToolId::Crop => Some(Box::new(crop::Crop::default())),
             _ => None,
         }
@@ -175,6 +178,7 @@ impl ToolId {
             ToolId::Line => Line::PROPERTIES,
             ToolId::Arrow => Arrow::PROPERTIES,
             ToolId::Freehand => Freehand::PROPERTIES,
+            ToolId::Highlight => Highlight::PROPERTIES,
             ToolId::Inset => Inset::PROPERTIES,
             _ => &[],
         }

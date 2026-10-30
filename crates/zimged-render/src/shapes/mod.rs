@@ -1,10 +1,12 @@
 //! Drawing each Annotation type, one module per type. The canvas is in Image pixels.
 //!
-//! Adding a type: a module with `draw(canvas, shape, style)` and one arm in [`draw`].
+//! Adding a type: a module with `draw(canvas, shape, style)` and one arm in [`draw`]. Effect types
+//! (highlight, obfuscate) that act on what's beneath them also take `below` (see `effects`).
 
 mod arrow;
 mod ellipse;
 mod freehand;
+mod highlight;
 mod inset;
 mod line;
 mod rectangle;
@@ -12,14 +14,18 @@ mod step_counter;
 mod text;
 
 use skia_safe as sk;
-use zimged_core::{Annotation, AnnotationShape, Document};
+use zimged_core::{Annotation, AnnotationShape};
 
-pub fn draw(canvas: &sk::Canvas, annotation: &Annotation, doc: &Document) {
+use crate::scene::Scene;
+
+/// Draw `annotation`; `below` is everything under it in z-order (the Image and lower Annotations),
+/// and `below.doc` the whole Document (Step counter numbers).
+pub fn draw(canvas: &sk::Canvas, annotation: &Annotation, below: &Scene<'_>) {
     let style = &annotation.style;
     match &annotation.shape {
         AnnotationShape::Rectangle(s) => rectangle::draw(canvas, s, style),
         AnnotationShape::StepCounter(s) => {
-            let number = doc.step_number(annotation.id).unwrap_or_default();
+            let number = below.doc.step_number(annotation.id).unwrap_or_default();
             step_counter::draw(canvas, s, style, number)
         }
         AnnotationShape::Text(s) => text::draw(canvas, s, style),
@@ -27,6 +33,7 @@ pub fn draw(canvas: &sk::Canvas, annotation: &Annotation, doc: &Document) {
         AnnotationShape::Line(s) => line::draw(canvas, s, style),
         AnnotationShape::Arrow(s) => arrow::draw(canvas, s, style),
         AnnotationShape::Freehand(s) => freehand::draw(canvas, s, style),
+        AnnotationShape::Highlight(s) => highlight::draw(canvas, s, style, below),
         AnnotationShape::Inset(s) => inset::draw(canvas, s, style),
     }
 }

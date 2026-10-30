@@ -10,6 +10,7 @@
 
 mod effects;
 mod resample;
+mod scene;
 mod shapes;
 pub mod text;
 
@@ -94,17 +95,7 @@ impl Renderer {
             ));
             canvas.translate((-view.region.min.x, -view.region.min.y));
 
-            let image_rect = sk::Rect::from_wh(doc.width() as f32, doc.height() as f32);
-            canvas.draw_image_rect_with_sampling_options(
-                image,
-                None,
-                image_rect,
-                sk::SamplingOptions::new(sk::FilterMode::Linear, sk::MipmapMode::Linear),
-                &sk::Paint::default(),
-            );
-            for annotation in doc.annotations() {
-                shapes::draw(canvas, annotation, doc);
-            }
+            scene::Scene::new(image, doc).draw(canvas);
         }
         Composite {
             width,
