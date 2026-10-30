@@ -186,20 +186,23 @@ impl Navigation {
         self.watcher.is_some()
     }
 
+    /// Would [`Self::go`] move to another Sibling (rather than stop at an end of the list, or wait
+    /// for the scan)? The unsaved-changes prompt (#35) only asks when it would.
+    pub fn would_move(&self, shown: &Path, direction: Direction) -> bool {
+        let (Scan::Done(Some(list)), Some(_)) = (&self.scan, &self.prefetch) else {
+            return false;
+        };
+        let from = self.target.as_deref().unwrap_or(shown);
+        neighbour(list, from, direction).is_some()
+    }
+
     /// Move one Sibling forward or back from the Image on screen (or from the pending target).
     pub fn go(&mut self, shown: &Path, direction: Direction, display_box: Size) -> Step {
         let (Scan::Done(Some(list)), Some(prefetch)) = (&self.scan, &self.prefetch) else {
             return Step::NotReady;
         };
         let from = self.target.as_deref().unwrap_or(shown);
-        let len = list.len();
-        let next = match (list.locate(from), direction) {
-            (Ok(i), Direction::Forward) => Some(i + 1).filter(|&i| i < len),
-            (Ok(i), Direction::Backward) => i.checked_sub(1),
-            (Err(i), Direction::Forward) => Some(i).filter(|&i| i < len),
-            (Err(i), Direction::Backward) => i.checked_sub(1),
-        };
-        let Some(index) = next else {
+        let Some(index) = neighbour(list, from, direction) else {
             return Step::End(match direction {
                 Direction::Forward => LAST_IMAGE,
                 Direction::Backward => FIRST_IMAGE,
@@ -284,6 +287,18 @@ impl Navigation {
         self.prefetch
             .as_ref()
             .map_or_else(Default::default, Prefetcher::cached)
+    }
+}
+
+/// The index of the Sibling after (or before) `from`, which may have left the list: `None` at an
+/// end of it.
+fn neighbour(list: &SiblingList, from: &Path, direction: Direction) -> Option<usize> {
+    let len = list.len();
+    match (list.locate(from), direction) {
+        (Ok(i), Direction::Forward) => Some(i + 1).filter(|&i| i < len),
+        (Ok(i), Direction::Backward) => i.checked_sub(1),
+        (Err(i), Direction::Forward) => Some(i).filter(|&i| i < len),
+        (Err(i), Direction::Backward) => i.checked_sub(1),
     }
 }
 
