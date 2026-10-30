@@ -146,9 +146,18 @@ impl TestApp {
     /// Like [`Self::launch`], on a HiDPI screen of `pixels_per_point` physical pixels per point. The
     /// window is still [`WINDOW`] points.
     pub fn launch_scaled(names: &[&str], pixels_per_point: f32) -> Self {
+        Self::launch_scaled_on(Platform::in_memory(), names, pixels_per_point)
+    }
+
+    /// Like [`Self::launch`], with these platform adapters.
+    pub fn launch_on(platform: Platform, names: &[&str]) -> Self {
+        Self::launch_scaled_on(platform, names, 1.0)
+    }
+
+    fn launch_scaled_on(platform: Platform, names: &[&str], pixels_per_point: f32) -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = copy_fixtures(dir.path(), names);
-        let mut launch = Launch::new(Platform::in_memory());
+        let mut launch = Launch::new(platform);
         let display_box = zimged::app::startup_display_box(&launch.config);
         launch.first_image = Some(PendingDecode::spawn(path, move || display_box));
         let harness = Harness::builder()
@@ -162,9 +171,17 @@ impl TestApp {
     /// sends (or is dropped), so a test can step frame by frame from the first image on. (Building
     /// the harness runs frames until the app is idle, which would otherwise race the decode.)
     pub fn launch_held(names: &[&str]) -> (Self, std::sync::mpsc::Sender<()>) {
+        Self::launch_held_on(Platform::in_memory(), names)
+    }
+
+    /// Like [`Self::launch_held`], with these platform adapters.
+    pub fn launch_held_on(
+        platform: Platform,
+        names: &[&str],
+    ) -> (Self, std::sync::mpsc::Sender<()>) {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = copy_fixtures(dir.path(), names);
-        let mut launch = Launch::new(Platform::in_memory());
+        let mut launch = Launch::new(platform);
         let display_box = zimged::app::startup_display_box(&launch.config);
         let (release, held) = std::sync::mpsc::channel::<()>();
         launch.first_image = Some(PendingDecode::spawn(path, move || {
@@ -193,7 +210,18 @@ impl TestApp {
     /// A headless App whose temporary directory holds a copy of `fixture` under each of `names`,
     /// with `open` opened and the Sibling scan finished.
     pub fn open_in_folder(fixture: &str, names: &[&str], open: &str) -> Self {
-        let mut app = Self::new();
+        Self::open_in_folder_on(Platform::in_memory(), fixture, names, open)
+    }
+
+    /// Like [`Self::open_in_folder`], with these platform adapters (fakes the test keeps a handle
+    /// on, such as a `MemoryTrash`).
+    pub fn open_in_folder_on(
+        platform: Platform,
+        fixture: &str,
+        names: &[&str],
+        open: &str,
+    ) -> Self {
+        let mut app = Self::with_platform(platform);
         for name in names {
             app.add_fixture_as(fixture, name);
         }

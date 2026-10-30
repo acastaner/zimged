@@ -221,6 +221,11 @@ impl Editor {
     }
 
     /// The edited Image, when no pointer gesture is in progress.
+    /// Is a tool gesture (a drag) under way?
+    pub fn in_gesture(&self) -> bool {
+        self.edited.as_ref().is_some_and(|e| e.doc.in_gesture())
+    }
+
     fn edited_idle(&mut self) -> Option<&mut Edited> {
         self.edited.as_mut().filter(|e| !e.doc.in_gesture())
     }

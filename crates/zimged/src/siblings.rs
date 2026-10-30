@@ -45,8 +45,8 @@ pub struct Navigation {
     watcher: Option<DirWatcher>,
     /// A full re-scan after the watcher lost events. The old list stays in use until it finishes.
     rescan: Option<PendingScan>,
-    /// Files trashed from the folder being scanned: left out of every scan of it, and their removal
-    /// isn't a deletion from outside (§3.2).
+    /// Files trashed from the folder being scanned: left out of every scan of it (which may
+    /// predate the trashing), and their removal isn't a deletion from outside (§3.2).
     trashed: Vec<PathBuf>,
 }
 
@@ -65,17 +65,15 @@ impl Navigation {
     }
 
     /// Scan and watch the directory of `shown`, the Image now on screen, and start the decode pool
-    /// if it isn't running yet. Only ever called after the first image is painted (§1.3).
+    /// if it isn't running yet. Only ever called after the first image is painted (§1.3), or by
+    /// [`Self::ensure_started`].
     pub fn start(&mut self, ctx: &egui::Context, shown: &Path) {
-        let dir = shown
-            .parent()
-            .filter(|dir| !dir.as_os_str().is_empty())
-            .unwrap_or(Path::new("."))
-            .to_owned();
+        let dir = folder_of(shown);
         let waker = ctx.clone();
         // The old directory's watcher stops here.
         self.watcher = None;
         self.rescan = None;
+        self.trashed.retain(|path| folder_of(path) == dir);
         self.scan = Scan::Running(PendingScan::spawn(
             dir,
             true,
@@ -106,7 +104,13 @@ impl Navigation {
             && let Some(scanned) = pending.take()
         {
             crate::bench::mark("siblings_scanned");
-            self.scan = Scan::Done(scanned.list.ok());
+            let mut list = scanned.list.ok();
+            if let Some(list) = &mut list {
+                for path in &self.trashed {
+                    list.remove(path);
+                }
+            }
+            self.scan = Scan::Done(list);
             self.watcher = scanned.watcher;
             if let Some(shown) = shown {
                 self.keep_window(shown, display_box);
@@ -177,17 +181,6 @@ impl Navigation {
         shown_deleted
     }
 
-    /// Take a trashed file out of the Siblings, now and from any scan landing later; the watcher's
-    /// report of its removal isn't a deletion from outside. #22 (trash) is the caller.
-    #[allow(dead_code)]
-    pub fn forget(&mut self, path: &Path) {
-        self.target = None;
-        if let Scan::Done(Some(list)) = &mut self.scan {
-            list.remove(path);
-        }
-        self.trashed.push(path.to_owned());
-    }
-
     /// Is the directory being watched (§3.2)?
     pub fn is_watching(&self) -> bool {
         self.watcher.is_some()
@@ -254,6 +247,25 @@ impl Navigation {
         }
     }
 
+    /// Take a trashed file out of the Siblings, now and from any scan landing later; the watcher's
+    /// report of its removal isn't a deletion from outside. A move from it afterwards goes to the
+    /// Sibling that followed it (or preceded it, backward).
+    pub fn forget(&mut self, path: &Path) {
+        self.target = None;
+        if let Scan::Done(Some(list)) = &mut self.scan {
+            list.remove(path);
+        }
+        self.trashed.push(path.to_owned());
+    }
+
+    /// Scan the folder of `path` unless a scan has been started already (an Image that failed to
+    /// open at launch is never painted, so nothing else starts one).
+    pub fn ensure_started(&mut self, ctx: &egui::Context, path: &Path) {
+        if matches!(self.scan, Scan::NotStarted) {
+            self.start(ctx, path);
+        }
+    }
+
     /// Has the scan finished, so that moves work?
     pub fn is_scanned(&self) -> bool {
         matches!(self.scan, Scan::Done(_))
@@ -273,6 +285,13 @@ impl Navigation {
             .as_ref()
             .map_or_else(Default::default, Prefetcher::cached)
     }
+}
+
+fn folder_of(path: &Path) -> PathBuf {
+    path.parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
+        .to_owned()
 }
 
 fn window_paths(list: &SiblingList, index: usize, direction: Direction) -> Vec<PathBuf> {
