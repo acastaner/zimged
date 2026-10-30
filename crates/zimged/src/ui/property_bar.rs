@@ -13,6 +13,9 @@ pub const LABEL_THICKNESS: &str = "Thickness";
 pub const LABEL_SHADOW: &str = "Shadow";
 pub const LABEL_ARROWHEADS: &str = "Arrowheads";
 pub const LABEL_DELETE: &str = "Delete";
+pub const LABEL_CROP_SIZE: &str = "Crop size";
+pub const LABEL_APPLY: &str = "Apply";
+pub const LABEL_CANCEL: &str = "Cancel";
 
 /// What the property bar shows this frame.
 pub struct PropertyBar<'a> {
@@ -20,6 +23,8 @@ pub struct PropertyBar<'a> {
     pub properties: &'a [PropertyKind],
     /// Annotations are selected: the controls restyle them, and Delete is offered.
     pub selection: bool,
+    /// The crop tool's region size, when it has one: shown with Apply and Cancel (§2).
+    pub crop: Option<zimged_codec::Size>,
     /// Shown when there are no controls.
     pub hint: &'a str,
 }
@@ -32,6 +37,8 @@ pub struct Output {
     /// being dragged): its changes form one History step.
     pub active: Option<PropertyKind>,
     pub delete: bool,
+    pub apply_crop: bool,
+    pub cancel_crop: bool,
 }
 
 pub fn show(ui: &mut egui::Ui, bar: &PropertyBar<'_>) -> Output {
@@ -46,7 +53,23 @@ pub fn show(ui: &mut egui::Ui, bar: &PropertyBar<'_>) -> Output {
                 out.delete = true;
             }
             // Bring to front and Send to back (#27) go here.
-            if bar.properties.is_empty() && !bar.selection {
+            if let Some(size) = bar.crop {
+                ui.label(size.to_string()).accessible_name(LABEL_CROP_SIZE);
+                if ui
+                    .button("Apply (Enter)")
+                    .accessible_name(LABEL_APPLY)
+                    .clicked()
+                {
+                    out.apply_crop = true;
+                }
+                if ui
+                    .button("Cancel (Esc)")
+                    .accessible_name(LABEL_CANCEL)
+                    .clicked()
+                {
+                    out.cancel_crop = true;
+                }
+            } else if bar.properties.is_empty() && !bar.selection {
                 ui.weak(bar.hint);
             }
         });

@@ -44,6 +44,8 @@ pub struct Launch {
     pub first_image: Option<PendingDecode>,
     /// The display-size cache cap in bytes (§3.3). Tests lower it to watch eviction.
     pub cache_cap: usize,
+    /// The cap on pixels the History holds, in bytes (§4.8). Tests lower it.
+    pub history_pixel_cap: usize,
 }
 
 impl Launch {
@@ -55,6 +57,7 @@ impl Launch {
             config,
             first_image: None,
             cache_cap: zimged_siblings::prefetch::CACHE_CAP_BYTES,
+            history_pixel_cap: zimged_core::HISTORY_PIXEL_CAP,
         }
     }
 }
@@ -193,6 +196,8 @@ impl ZimgedApp {
         }
         // Ctrl+plus / minus / 0 would scale the whole UI; the image zoom is on plain +, - and 0.
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        let mut editor = Editor::new();
+        editor.set_history_pixel_cap(launch.history_pixel_cap);
         Self {
             ctx: cc.egui_ctx.clone(),
             config_saver: ConfigSaver::new(launch.platform.config.clone()),
@@ -215,7 +220,7 @@ impl ZimgedApp {
             message: None,
             trashed: None,
             bench_nav: crate::bench::NavBench::from_env(),
-            editor: Editor::new(),
+            editor,
         }
     }
 
@@ -241,6 +246,8 @@ impl ZimgedApp {
             Command::Redo => self.editor.redo(),
             Command::Delete => self.delete(),
             Command::SetProperty { property, merge } => self.editor.set_property(property, merge),
+            Command::ApplyCrop => self.editor.apply_crop(),
+            Command::CancelCrop => self.editor.cancel_crop(),
         }
     }
 
@@ -263,6 +270,22 @@ impl ZimgedApp {
     /// The last Skia composite of the canvas, while there are Annotations (§7.2).
     pub fn composite(&self) -> Option<&Composite> {
         self.editor.composite()
+    }
+
+    /// The crop tool's region, in Image pixels (§4.1 C).
+    pub fn crop_region(&self) -> Option<zimged_core::Rect> {
+        self.editor.crop_region()
+    }
+
+    /// The Image's size in pixels: the Document's (it changes with Image operations, §4.7), else
+    /// the decoded file's.
+    fn image_size(&self) -> Option<Size> {
+        let shown = self.shown.as_ref()?;
+        Some(
+            self.document()
+                .map(|d| Size::new(d.width(), d.height()))
+                .unwrap_or(shown.original_size),
+        )
     }
 
     /// The selection box (dashed, with 8 handles) as painted last frame, in points.
@@ -327,28 +350,19 @@ impl ZimgedApp {
     }
 
     fn zoom(&mut self, factor: f32, around: Option<egui::Pos2>) {
-        let (Some(shown), Some(layout)) = (&self.shown, self.canvas) else {
+        let (Some(size), Some(layout)) = (self.image_size(), self.canvas) else {
             return;
         };
-        self.view.zoom_by(
-            factor,
-            around,
-            shown.original_size,
-            layout.area,
-            layout.pixels_per_point,
-        );
+        self.view
+            .zoom_by(factor, around, size, layout.area, layout.pixels_per_point);
     }
 
     fn pan_by(&mut self, delta: egui::Vec2) {
-        let (Some(shown), Some(layout)) = (&self.shown, self.canvas) else {
+        let (Some(size), Some(layout)) = (self.image_size(), self.canvas) else {
             return;
         };
-        self.view.pan_by(
-            delta,
-            shown.original_size,
-            layout.area,
-            layout.pixels_per_point,
-        );
+        self.view
+            .pan_by(delta, size, layout.area, layout.pixels_per_point);
     }
 
     /// Does the pointer belong to panning this frame? The active tool leaves it alone while it does
@@ -656,6 +670,10 @@ impl ZimgedApp {
         {
             return;
         }
+        // After an Image operation the canvas draws the Document's own pixels, not the file's.
+        if self.document().is_some_and(|d| !d.is_original_image()) {
+            return;
+        }
         let (Some(layout), Some(shown)) = (self.canvas, self.shown.as_mut()) else {
             return;
         };
@@ -833,7 +851,7 @@ impl ZimgedApp {
             file_name: self.shown.as_ref().map(|s| s.file_name.as_str()),
             modified: self.is_modified(),
             position: self.path.as_deref().map(|p| self.navigation.position(p)),
-            pixel_size: self.shown.as_ref().map(|s| s.original_size),
+            pixel_size: self.image_size(),
             zoom: self.shown.as_ref().map(|_| self.view.zoom),
             // #38 adds the frozen state.
             animation: self
@@ -853,6 +871,10 @@ impl ZimgedApp {
 
     fn property_bar(&mut self, ui: &mut egui::Ui) {
         let (style, properties, selection) = self.editor.property_target();
+        let crop = self
+            .editor
+            .crop_region()
+            .map(|r| Size::new(r.width().round() as u32, r.height().round() as u32));
         let out = property_bar::show(
             ui,
             &property_bar::PropertyBar {
@@ -863,9 +885,16 @@ impl ZimgedApp {
                     &[]
                 },
                 selection,
+                crop,
                 hint: self.editor.tool().hint(),
             },
         );
+        if out.apply_crop {
+            self.execute(Command::ApplyCrop);
+        }
+        if out.cancel_crop {
+            self.execute(Command::CancelCrop);
+        }
         for property in out.changes {
             let command = self.editor.property_change(property);
             self.execute(command);
@@ -926,6 +955,7 @@ impl eframe::App for ZimgedApp {
         let message = self.canvas_message().map(str::to_owned);
         // Space and the middle button pan; the tools leave the pointer alone meanwhile (#43).
         let tools_get_pointer = !self.pan_owns_pointer();
+        let image_size = self.image_size();
         let editor = &mut self.editor;
         let display = self.shown.as_ref().map(|s| DisplayPixels {
             key: s.display_key,
@@ -934,6 +964,7 @@ impl eframe::App for ZimgedApp {
         self.canvas = Some(canvas::show(
             ui,
             self.shown.as_ref(),
+            image_size,
             &mut view,
             message.as_deref(),
             |ui, layout, response| {

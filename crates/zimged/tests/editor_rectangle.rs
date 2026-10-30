@@ -64,7 +64,7 @@ fn tool_strip_lists_every_tool_in_order_with_the_built_ones_enabled() {
     for (label, enabled) in &buttons {
         let expected = !matches!(
             label.as_str(),
-            "Text" | "Step counter" | "Highlight" | "Obfuscate" | "Crop"
+            "Text" | "Step counter" | "Highlight" | "Obfuscate"
         );
         assert_eq!(*enabled, expected, "{label} enabled");
     }
