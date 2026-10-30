@@ -52,6 +52,9 @@ pub struct Launch {
     pub(crate) first_image: Option<PendingDecode>,
     /// The display-size cache cap in bytes (§3.3). Tests lower it to watch eviction.
     pub cache_cap: usize,
+    /// The Sibling ordering rule (§3.2): the platform's own. Tests pin one so the order doesn't
+    /// depend on the desktop and locale they run under.
+    pub sibling_order: fn() -> Box<dyn zimged_siblings::order::NameOrder>,
     /// The cap on pixels the History holds, in bytes (§4.8). Tests lower it.
     pub history_pixel_cap: usize,
     /// Started by Ctrl+Shift+V in another window: show the clipboard image (§6.1).
@@ -67,6 +70,7 @@ impl Launch {
             config,
             first_image: None,
             cache_cap: zimged_siblings::prefetch::CACHE_CAP_BYTES,
+            sibling_order: zimged_siblings::order::platform_order,
             history_pixel_cap: zimged_core::HISTORY_PIXEL_CAP,
             from_clipboard: false,
         }
@@ -344,7 +348,7 @@ impl ZimgedApp {
             canvas: None,
             first_paint: FirstPaint::Waiting,
             open_dialog: None,
-            navigation: Navigation::new(launch.cache_cap),
+            navigation: Navigation::new(launch.cache_cap, launch.sibling_order),
             message: None,
             trashed: None,
             bench_nav: crate::bench::NavBench::from_env(),

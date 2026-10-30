@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use zimged_codec::Size;
+use zimged_siblings::order::NameOrder;
 use zimged_siblings::{
     Change, Decoded, DirWatcher, Direction, PendingScan, Prefetcher, SiblingList, prefetch,
     prefetch_window,
@@ -34,6 +35,8 @@ pub struct Navigation {
     scan: Scan,
     prefetch: Option<Prefetcher>,
     cache_cap: usize,
+    /// The ordering rule every scan of the folder uses (§3.2).
+    order: fn() -> Box<dyn NameOrder>,
     /// Bytes held outside the cache under its cap (the shown animation, §3.4).
     held: usize,
     direction: Direction,
@@ -49,11 +52,12 @@ pub struct Navigation {
 }
 
 impl Navigation {
-    pub fn new(cache_cap: usize) -> Self {
+    pub fn new(cache_cap: usize, order: fn() -> Box<dyn NameOrder>) -> Self {
         Self {
             scan: Scan::NotStarted,
             prefetch: None,
             cache_cap,
+            order,
             held: 0,
             direction: Direction::Forward,
             target: None,
@@ -73,12 +77,9 @@ impl Navigation {
         self.watcher = None;
         self.rescan = None;
         self.trashed.retain(|path| folder_of(path) == dir);
-        self.scan = Scan::Running(PendingScan::spawn(
-            dir,
-            true,
-            zimged_siblings::order::platform_order,
-            move || waker.request_repaint(),
-        ));
+        self.scan = Scan::Running(PendingScan::spawn(dir, true, self.order, move || {
+            waker.request_repaint()
+        }));
         if self.prefetch.is_none() {
             let waker = ctx.clone();
             self.prefetch = Some(Prefetcher::new(
@@ -162,7 +163,7 @@ impl Navigation {
                     self.rescan = Some(PendingScan::spawn(
                         list.dir().to_owned(),
                         false,
-                        zimged_siblings::order::platform_order,
+                        self.order,
                         move || waker.request_repaint(),
                     ));
                     // The re-scan reads the directory after these changes: drop the rest.

@@ -119,6 +119,21 @@ fn assert_similar(actual: &image::RgbaImage, expected: &image::RgbaImage, name: 
     }
 }
 
+/// A [`Launch`] with the Sibling order pinned to GLib's in `en_US.UTF-8`, the order the ordering
+/// tables were measured in, so the tests don't depend on the desktop or locale they run under.
+fn launch_for_tests(platform: Platform) -> Launch {
+    let mut launch = Launch::new(platform);
+    launch.sibling_order = test_sibling_order;
+    launch
+}
+
+fn test_sibling_order() -> Box<dyn zimged_siblings::order::NameOrder> {
+    Box::new(
+        zimged_siblings::order::GlibOrder::with_locale("en_US.UTF-8")
+            .expect("the en_US.UTF-8 locale must be installed for the headless App tests"),
+    )
+}
+
 impl TestApp {
     /// A headless App with no Image open, in-memory platform fakes and an empty temporary directory.
     pub fn new() -> Self {
@@ -126,12 +141,12 @@ impl TestApp {
     }
 
     pub fn with_platform(platform: Platform) -> Self {
-        Self::from_launch(Launch::new(platform))
+        Self::from_launch(launch_for_tests(platform))
     }
 
     /// A headless App with no Image open, its [`Launch`] (in-memory platform) adjusted by `adjust`.
     pub fn with_launch(adjust: impl FnOnce(&mut Launch)) -> Self {
-        let mut launch = Launch::new(Platform::in_memory());
+        let mut launch = launch_for_tests(Platform::in_memory());
         adjust(&mut launch);
         Self::from_launch(launch)
     }
@@ -165,7 +180,7 @@ impl TestApp {
     fn launch_scaled_on(platform: Platform, names: &[&str], pixels_per_point: f32) -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = copy_fixtures(dir.path(), names);
-        let mut launch = Launch::new(platform);
+        let mut launch = launch_for_tests(platform);
         launch.decode_first_image(path);
         let harness = Harness::builder()
             .with_size(WINDOW)
@@ -188,7 +203,7 @@ impl TestApp {
     ) -> (Self, std::sync::mpsc::Sender<()>) {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = copy_fixtures(dir.path(), names);
-        let mut launch = Launch::new(platform);
+        let mut launch = launch_for_tests(platform);
         let (release, held) = std::sync::mpsc::channel::<()>();
         launch.decode_first_image_after(path, move || {
             let _ = held.recv();
