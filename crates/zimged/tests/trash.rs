@@ -50,7 +50,8 @@ fn delete_with_an_annotation_selected_removes_it_and_keeps_the_file() {
 
     assert!(app.doc().annotations().is_empty());
     assert!(trash.trashed().is_empty());
-    assert_eq!(app.status("File name"), "a.jpg");
+    // Still a.jpg, now with unsaved edits.
+    assert_eq!(app.status("File name"), "a.jpg •");
 }
 
 #[test]
