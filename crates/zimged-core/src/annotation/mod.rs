@@ -6,8 +6,14 @@
 //! 3. its drawing in `zimged-render` (`shapes/<type>.rs` plus one arm in `shapes::draw`),
 //! 4. a tool that creates it in the `zimged` crate (`tools/`).
 
+mod ellipse;
+mod freehand;
+mod line;
 mod rectangle;
 
+pub use ellipse::Ellipse;
+pub use freehand::Freehand;
+pub use line::{Arrow, Line};
 pub use rectangle::Rectangle;
 
 use crate::geometry::{Affine, Point, Rect};
@@ -75,6 +81,10 @@ macro_rules! shapes {
 
 shapes! {
     Rectangle(Rectangle),
+    Ellipse(Ellipse),
+    Line(Line),
+    Arrow(Arrow),
+    Freehand(Freehand),
 }
 
 /// Identifies an Annotation within its Document. Never reused, so it survives undo and redo.

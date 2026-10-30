@@ -416,6 +416,31 @@ impl TestApp {
         self.settle();
     }
 
+    /// Drag (left button) along a path of Image pixels, one pointer move per point, then settle.
+    pub fn drag_path_px(&mut self, path: &[(f32, f32)]) {
+        let points: Vec<egui::Pos2> = path.iter().map(|&(x, y)| self.screen(x, y)).collect();
+        let (first, last) = (points[0], points[points.len() - 1]);
+        let h = &self.harness;
+        h.hover_at(first);
+        h.event(egui::Event::PointerButton {
+            pos: first,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        for p in &points[1..] {
+            h.hover_at(*p);
+        }
+        h.event(egui::Event::PointerButton {
+            pos: last,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.remove_cursor();
+        self.settle();
+    }
+
     /// Click on the canvas at an Image pixel, then settle.
     pub fn click_px(&mut self, at: (f32, f32)) {
         let p = self.screen(at.0, at.1);
