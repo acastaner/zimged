@@ -24,11 +24,15 @@ use crate::editor::{
 };
 use crate::pan::PanGesture;
 use crate::paste::{Destination, Incoming, PendingIncoming};
-use crate::save::{CLIPBOARD_IMAGE, CopyJob, PendingCopy, PendingSave, SaveJob};
+use crate::save::{
+    AnnotationsCopyJob, CLIPBOARD_IMAGE, CopyJob, PendingCopy, PendingSave, SaveJob,
+};
 use crate::siblings::{Navigation, Step};
 use crate::tools::ToolId;
 use crate::ui::resize_dialog::{self, ResizeDialog};
-use crate::ui::{canvas, menu_bar, property_bar, status_bar, tool_strip, unsaved_dialog};
+use crate::ui::{
+    canvas, menu_bar, overwrite_dialog, property_bar, status_bar, tool_strip, unsaved_dialog,
+};
 use crate::view::{View, ZOOM_STEP, Zoom};
 
 /// The largest Image whose full-resolution pixels are decoded (§4.7). Larger ones are view-only and
@@ -41,11 +45,21 @@ pub const MOVED_TO_TRASH: &str = "Moved to trash";
 /// The status-bar message after Ctrl+C copied the Image (§2, §6.2).
 pub const IMAGE_COPIED: &str = "Image copied to the clipboard";
 
+/// The status-bar message after Ctrl+C copied the selected Annotations (§6.2).
+pub const ANNOTATIONS_COPIED: &str = "Annotations copied to the clipboard";
+
+/// How far pasted Annotations move when they would land exactly on Annotations already there
+/// (§6.3), in Image pixels.
+pub const PASTE_OFFSET: f32 = 10.0;
+
 /// The status-bar message when the clipboard holds nothing to paste (§6.3).
 pub const NOTHING_TO_PASTE: &str = "Nothing to paste";
 
 /// The status-bar message when Ctrl+V in the empty window finds no image (§3.5).
 pub const NO_CLIPBOARD_IMAGE: &str = "No image on the clipboard";
+
+/// The status-bar message when the first edit freezes an animation (§3.4).
+pub const ANIMATION_FROZEN: &str = "Animation frozen at frame 1 for editing";
 
 /// How long a transient status-bar message stays up.
 const MESSAGE_DURATION: Duration = Duration::from_secs(3);
@@ -114,6 +128,8 @@ pub(crate) struct ShownImage {
     may_animate: bool,
     /// Its frames, playing (or still decoding), until it turns out to be a still image.
     animation: Option<Animation>,
+    /// The first edit stopped the animation on frame 1 (§3.4): until a save writes it as a still.
+    frozen: bool,
     /// The file was deleted from outside zimged while on screen (§3.2): the Image stays open and is
     /// treated as unsaved, since its pixels now exist only here.
     deleted_from_disk: bool,
@@ -128,6 +144,25 @@ impl ShownImage {
                 full
             }
             _ => &self.display,
+        }
+    }
+
+    /// Is it an animation: playing, or frozen by an edit (§3.4)?
+    fn is_animation(&self) -> bool {
+        self.frozen || self.animation.as_ref().is_some_and(Animation::is_animated)
+    }
+
+    /// Stop the animation and put frame 1 back on screen.
+    fn stop_animation(&mut self) {
+        self.may_animate = false;
+        let Some(animation) = self.animation.take() else {
+            return;
+        };
+        if let Some(first) = animation.first_frame() {
+            self.display
+                .set(first.clone(), egui::TextureOptions::LINEAR);
+            self.display_pixels = first.clone();
+            self.display_key = next_display_key();
         }
     }
 
@@ -171,6 +206,13 @@ enum Proceed {
     Open(PathBuf),
     Go(Direction),
     Close,
+}
+
+/// "Overwrite animated image?" while it is up (#38, §6.4), and the save it holds.
+struct OverwritePrompt {
+    file_name: String,
+    target: PathBuf,
+    format: zimged_codec::SaveFormat,
 }
 
 /// The unsaved-changes prompt while it is up.
@@ -233,6 +275,8 @@ pub struct ZimgedApp {
     queued_save: Option<(PathBuf, zimged_codec::SaveFormat)>,
     /// "Save changes?" while it is up (#35).
     unsaved_prompt: Option<UnsavedPrompt>,
+    /// "Overwrite animated image?" while it is up (#38).
+    overwrite_prompt: Option<OverwritePrompt>,
     /// The action the prompt's Save is holding until the save (and any Save As dialog) is done.
     after_save: Option<Proceed>,
     /// The window is closing: a close request was let through, or sent after the prompt.
@@ -241,8 +285,8 @@ pub struct ZimgedApp {
     resize_dialog: Option<ResizeDialog>,
     /// A path another zimged process handed over (§8.4), waiting for a modal dialog to close.
     handed_over: Option<PathBuf>,
-    /// A copy of the Image running on the worker thread (§6.2), and the Document it copies.
-    copying: Option<(PendingCopy, SaveStamp)>,
+    /// A copy running on the worker thread (§6.2), the Document it copies, and its message.
+    copying: Option<(PendingCopy, SaveStamp, &'static str)>,
     /// A copy asked for while the Document waits for its pixels (a queued Image operation).
     queued_copy: bool,
     /// A pasted or Ctrl+dropped image being read and decoded (§4.6, §6.3).
@@ -296,6 +340,7 @@ impl ZimgedApp {
             saving: None,
             queued_save: None,
             unsaved_prompt: None,
+            overwrite_prompt: None,
             after_save: None,
             closing: false,
             resize_dialog: None,
@@ -512,7 +557,9 @@ impl ZimgedApp {
 
     /// Is a modal dialog up? Window input (shortcuts, wheel, drops, pan) waits meanwhile.
     fn dialog_up(&self) -> bool {
-        self.unsaved_prompt.is_some() || self.resize_dialog.is_some()
+        self.unsaved_prompt.is_some()
+            || self.resize_dialog.is_some()
+            || self.overwrite_prompt.is_some()
     }
 
     // ---- The unsaved-changes flow (#35, §6.4) ----
@@ -621,6 +668,7 @@ impl ZimgedApp {
             || self.saving.is_some()
             || self.save_dialog.is_some()
             || self.queued_save.is_some()
+            || self.overwrite_prompt.is_some()
         {
             return;
         }
@@ -863,8 +911,47 @@ impl ZimgedApp {
         }
     }
 
-    /// Flatten and write the Image to `target` on the worker thread (§7.3).
+    /// Save the Image to `target`. Over its own animated file, ask "Overwrite animated image?"
+    /// first (§3.4, §6.4): the file written is a still image.
     fn save_to(&mut self, target: PathBuf, format: zimged_codec::SaveFormat) {
+        if self.saving.is_some() || self.overwrite_prompt.is_some() {
+            return;
+        }
+        if let Some(shown) = &self.shown
+            && shown.is_animation()
+            && shown
+                .path
+                .as_deref()
+                .is_some_and(|own| same_file(own, &target))
+        {
+            self.overwrite_prompt = Some(OverwritePrompt {
+                file_name: shown.file_name.clone(),
+                target,
+                format,
+            });
+            return;
+        }
+        self.write_to(target, format);
+    }
+
+    /// The overwrite prompt, while it is up, and the user's answer.
+    fn overwrite_prompt(&mut self, ctx: &egui::Context) {
+        let Some(prompt) = &self.overwrite_prompt else {
+            return;
+        };
+        let Some(answer) = overwrite_dialog::show(ctx, &prompt.file_name) else {
+            return;
+        };
+        let prompt = self.overwrite_prompt.take().expect("checked above");
+        match answer {
+            overwrite_dialog::Answer::Cancel => {}
+            overwrite_dialog::Answer::SaveAs => self.show_save_dialog(),
+            overwrite_dialog::Answer::Overwrite => self.write_to(prompt.target, prompt.format),
+        }
+    }
+
+    /// Flatten and write the Image to `target` on the worker thread (§7.3).
+    fn write_to(&mut self, target: PathBuf, format: zimged_codec::SaveFormat) {
         if self.saving.is_some() {
             return;
         }
@@ -872,8 +959,6 @@ impl ZimgedApp {
             self.queued_save = Some((target, format));
             return;
         }
-        // #38: when the Image is an edited animation and `target` is its own file, ask "Overwrite
-        // animated image?" (Cancel, Save As..., Overwrite; §6.4) here, before anything is written.
         // A text box being edited is finished first, so it is saved (#28).
         self.editor.finish_text_editing();
         let Some(source) = self.editor.save_source() else {
@@ -898,7 +983,7 @@ impl ZimgedApp {
     fn poll_save(&mut self, ctx: &egui::Context) {
         if self.queued_save.is_some() && !self.editor.save_waits() {
             let (target, format) = self.queued_save.take().expect("checked above");
-            self.save_to(target, format);
+            self.write_to(target, format);
         }
         let Some(saving) = &self.saving else {
             return;
@@ -912,6 +997,11 @@ impl ZimgedApp {
         match result {
             Ok(saved) => {
                 self.editor.saved(saving.stamp, &target, saved.decoded);
+                // What was written is a still image (§3.4): the file on screen is one now.
+                if let Some(shown) = &mut self.shown {
+                    shown.stop_animation();
+                    shown.frozen = false;
+                }
                 self.saved_as(ctx, &target);
             }
             Err(reason) => {
@@ -934,14 +1024,11 @@ impl ZimgedApp {
 
     // ---- Clipboard (#36, §3.5, §4.6, §6.2, §6.3) ----
 
-    /// Ctrl+C. With Annotations selected, #37 copies them (JSON and PNG, §6.2). With nothing
-    /// selected, the Flattened Image goes to the clipboard as PNG, from the worker thread (§7.3).
+    /// Ctrl+C, from the worker thread (§7.3). With Annotations selected, they are copied as
+    /// clipboard JSON and a PNG of them, together (§6.2). With nothing selected, the Flattened Image
+    /// goes to the clipboard as PNG.
     fn copy(&mut self) {
         if self.shown.is_none() || self.copying.is_some() || self.editor.in_gesture() {
-            return;
-        }
-        if self.document().is_some_and(|d| !d.selection().is_empty()) {
-            // #37: copy the selected Annotations.
             return;
         }
         if self.editor.save_waits() {
@@ -951,15 +1038,28 @@ impl ZimgedApp {
         let Some(source) = self.editor.save_source() else {
             return;
         };
-        let job = CopyJob {
-            drawing: source.drawing,
-            source: source.path,
-            fallback: self.full_size_display_pixels(),
-            clipboard: self.platform.clipboard.clone(),
+        let selection = self
+            .document()
+            .map(|d| d.selection().to_vec())
+            .unwrap_or_default();
+        let (pending, message) = if selection.is_empty() {
+            let job = CopyJob {
+                drawing: source.drawing,
+                source: source.path,
+                fallback: self.full_size_display_pixels(),
+                clipboard: self.platform.clipboard.clone(),
+            };
+            (PendingCopy::spawn_copy(job), IMAGE_COPIED)
+        } else {
+            let job = AnnotationsCopyJob {
+                drawing: source.drawing,
+                ids: selection,
+                clipboard: self.platform.clipboard.clone(),
+            };
+            (PendingCopy::spawn_copy_annotations(job), ANNOTATIONS_COPIED)
         };
-        let pending = PendingCopy::spawn_copy(job);
         pending.wake(&self.ctx);
-        self.copying = Some((pending, source.stamp));
+        self.copying = Some((pending, source.stamp, message));
     }
 
     fn poll_copy(&mut self, ctx: &egui::Context) {
@@ -967,20 +1067,23 @@ impl ZimgedApp {
             self.queued_copy = false;
             self.copy();
         }
-        let Some((pending, _)) = &self.copying else {
+        let Some((pending, _, _)) = &self.copying else {
             return;
         };
         pending.wake(ctx);
         let Some(result) = pending.take() else {
             return;
         };
-        let (_, stamp) = self.copying.take().expect("checked above");
+        let (_, stamp, message) = self.copying.take().expect("checked above");
         match result {
             Ok(copied) => {
                 self.editor.keep_decoded(stamp, copied.decoded);
-                self.post_message(IMAGE_COPIED);
+                self.post_message(message);
             }
-            Err(reason) => self.post_message(format!("Can't copy the image: {reason}")),
+            Err(reason) if message == IMAGE_COPIED => {
+                self.post_message(format!("Can't copy the image: {reason}"))
+            }
+            Err(reason) => self.post_message(format!("Can't copy the Annotations: {reason}")),
         }
     }
 
@@ -1056,6 +1159,10 @@ impl ZimgedApp {
                 // The window changed meanwhile (an Image opened, or went): drop it.
                 _ => {}
             },
+            Ok(Incoming::Annotations(copied)) if self.shown.is_some() => {
+                self.editor.paste_annotations(copied);
+            }
+            Ok(Incoming::Annotations(_)) => {}
             Ok(Incoming::Nothing) if window => self.post_message(NO_CLIPBOARD_IMAGE),
             Ok(Incoming::Nothing) => self.post_message(NOTHING_TO_PASTE),
             Err(reason) => match &incoming.file {
@@ -1093,6 +1200,7 @@ impl ZimgedApp {
             requested: display.size,
             may_animate: false,
             animation: None,
+            frozen: false,
             deleted_from_disk: false,
         });
         self.upgrade = None;
@@ -1244,6 +1352,7 @@ impl ZimgedApp {
                     requested: image.size,
                     may_animate: image.may_animate,
                     animation: None,
+                    frozen: false,
                     deleted_from_disk: false,
                 });
                 self.upgrade = None;
@@ -1379,6 +1488,19 @@ impl ZimgedApp {
         let Some(animation) = shown.animation.as_mut() else {
             return;
         };
+        // The first Annotation or Image operation freezes it on frame 1 (§3.4). Until the frames
+        // tell whether it is an animation at all, it waits on frame 1 (the display decode).
+        if self.editor.has_edits() {
+            animation.receive();
+            if animation.is_animated() {
+                shown.stop_animation();
+                shown.frozen = true;
+                self.post_message(ANIMATION_FROZEN);
+            } else if animation.is_still() {
+                shown.animation = None;
+            }
+            return;
+        }
         let now = ctx.input(|i| i.time);
         if let Some(frame) = animation.tick(now, ctx) {
             shown
@@ -1490,13 +1612,16 @@ impl ZimgedApp {
             position: self.path.as_deref().map(|p| self.navigation.position(p)),
             pixel_size: self.image_size(),
             zoom: self.shown.as_ref().map(|_| self.view.zoom),
-            // #38 adds the frozen state.
-            animation: self
-                .shown
-                .as_ref()
-                .and_then(|s| s.animation.as_ref())
-                .filter(|a| a.is_animated())
-                .map(|_| status_bar::AnimationState::Playing),
+            animation: self.shown.as_ref().and_then(|s| {
+                if s.frozen {
+                    Some(status_bar::AnimationState::Frozen)
+                } else {
+                    s.animation
+                        .as_ref()
+                        .filter(|a| a.is_animated())
+                        .map(|_| status_bar::AnimationState::Playing)
+                }
+            }),
             // The view-only notice stays until another Image; transient messages win.
             message: self
                 .message
@@ -1570,6 +1695,7 @@ impl eframe::App for ZimgedApp {
             }
         }
         self.unsaved_prompt(&ctx);
+        self.overwrite_prompt(&ctx);
         self.poll_open_dialog();
         self.poll_save_dialog();
         self.poll_save(&ctx);
@@ -1660,6 +1786,14 @@ fn file_name(path: &Path) -> String {
         .unwrap_or(path.as_os_str())
         .to_string_lossy()
         .into_owned()
+}
+
+/// Do `a` and `b` name the same file? (Save As may spell it differently.)
+fn same_file(a: &Path, b: &Path) -> bool {
+    a == b
+        || std::fs::canonicalize(a)
+            .ok()
+            .is_some_and(|a| std::fs::canonicalize(b).ok() == Some(a))
 }
 
 fn upload(

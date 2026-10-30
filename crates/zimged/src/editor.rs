@@ -11,8 +11,8 @@ use std::sync::{Arc, mpsc};
 
 use zimged_codec::Size;
 use zimged_core::{
-    Document, HISTORY_PIXEL_CAP, Inset, PixelData, Pixels, Point, Property, PropertyKind, Rect,
-    Restack, Shape, Style, Vector,
+    CopiedAnnotation, Document, HISTORY_PIXEL_CAP, Inset, PixelData, Pixels, Point, Property,
+    PropertyKind, Rect, Restack, Shape, Style, Vector,
 };
 use zimged_render::{Composite, Renderer, Source, SourcePixels, View};
 
@@ -367,6 +367,14 @@ impl Editor {
         self.edited.as_ref().is_some_and(|e| !e.queued.is_empty())
     }
 
+    /// Has the Image been edited: an Annotation or Image operation done (even if undone since), or
+    /// an Image operation waiting for the full resolution? Freezes an animation (§3.4).
+    pub fn has_edits(&self) -> bool {
+        self.edited
+            .as_ref()
+            .is_some_and(|e| e.doc.can_undo() || e.doc.can_redo() || !e.queued.is_empty())
+    }
+
     // ---- Commands ----
 
     pub fn select_tool(&mut self, tool: ToolId) {
@@ -487,6 +495,20 @@ impl Editor {
             doc.select([id]);
         });
         true
+    }
+
+    /// Paste zimged Annotations (§6.3) as one step: added and selected, moved by
+    /// [`crate::app::PASTE_OFFSET`] while they would land exactly on Annotations already there.
+    /// Switches to the select tool, as pasting an Inset does. Returns false when the Image can't
+    /// be edited (view-only, mid-gesture).
+    pub fn paste_annotations(&mut self, copied: Vec<CopiedAnnotation>) -> bool {
+        if !self.can_edit() || self.edited_idle().is_none() {
+            return false;
+        }
+        self.set_tool(ToolId::Select);
+        let e = self.edited.as_mut().expect("checked above");
+        let offset = crate::app::PASTE_OFFSET;
+        e.doc.paste(copied, Vector::new(offset, offset))
     }
 
     /// Ctrl+D: duplicate the selection, offset by [`DUPLICATE_OFFSET`] Image pixels.

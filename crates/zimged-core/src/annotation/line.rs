@@ -5,7 +5,7 @@ use crate::geometry::{Affine, Point, Rect};
 use crate::image_op::ImageTransform;
 use crate::style::{PropertyKind, Style};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Line {
     pub from: Point,
     pub to: Point,
@@ -48,7 +48,7 @@ impl Shape for Line {
 }
 
 /// An arrow from `from` to `to`; which ends carry a head is the Style's `arrowheads`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Arrow {
     pub from: Point,
     pub to: Point,

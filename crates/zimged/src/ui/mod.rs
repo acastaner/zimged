@@ -3,6 +3,7 @@
 
 pub mod canvas;
 pub mod menu_bar;
+pub mod overwrite_dialog;
 pub mod property_bar;
 pub mod resize_dialog;
 pub mod status_bar;

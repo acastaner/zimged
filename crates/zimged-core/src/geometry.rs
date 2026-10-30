@@ -4,7 +4,7 @@
 
 use std::ops::{Add, Sub};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Point {
     pub x: f32,
     pub y: f32,
@@ -53,7 +53,7 @@ impl Add<Vector> for Point {
 
 /// An axis-aligned rectangle. Always normalised: `min` is the top-left corner, `max` the
 /// bottom-right one.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Rect {
     pub min: Point,
     pub max: Point,

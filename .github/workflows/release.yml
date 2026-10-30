@@ -5,8 +5,12 @@
 # git note on the commit's tree. The gate-record job refuses any tree without that note, and every
 # other job needs it. See packaging/README.md for the release checklist.
 #
-# Linux: tarball, .deb, .rpm, AUR PKGBUILD and a Flatpak bundle. Windows and macOS (#42) add their
-# jobs after gate-record and to the release job's `needs`.
+# Linux: tarball, .deb, .rpm, AUR PKGBUILD and a Flatpak bundle. Windows (#42): an MSI and a
+# winget manifest. macOS (#42): an ad-hoc-signed zimged.app in a DMG, for arm64 and x64.
+#
+# The one exception to "no tests": the gate runs in a Linux container, where the Explorer and Finder
+# Sibling ordering tables (#17) compile to nothing, so the windows and macos jobs run
+# `cargo test -p zimged-siblings` natively before they build. A failure there stops the release.
 name: release
 
 on:
@@ -62,6 +66,10 @@ jobs:
           python3 packaging/release_notes.py "${version}" > /dev/null
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "rust=${rust}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check the file associations
+        # Every package lists exactly the formats zimged reads, and none makes it the default.
+        run: python3 packaging/check_associations.py
 
   linux:
     name: linux (x86_64)
@@ -143,9 +151,106 @@ jobs:
           path: zimged-${{ needs.gate-record.outputs.version }}-x86_64.flatpak
           if-no-files-found: error
 
+  windows:
+    name: windows (x86_64)
+    needs: gate-record
+    # windows-2022 ships the WiX Toolset v3 (cargo-wix needs v3); the install step adds it if not.
+    runs-on: windows-2022
+    env:
+      CARGO_TERM_COLOR: never
+      RUST: ${{ needs.gate-record.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the pinned toolchain
+        run: |
+          rustup toolchain install "${RUST}" --profile minimal
+          bash tools/local-ci/check-toolchain-pin.sh . --rustc "$(rustc --version)"
+
+      # The `avif` feature builds dav1d with meson, which takes the first C compiler on PATH; the
+      # runner's PATH has MinGW gcc, whose objects MSVC can't link. This puts cl.exe first.
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install the build tools
+        # meson, ninja and nasm for libavif and dav1d (#19; cmake is on the image). The WiX
+        # Toolset v3 and cargo-wix for the MSI.
+        # Git Bash's coreutils `link` would shadow MSVC's link.exe, which rustc runs from PATH once
+        # the MSVC environment is set: remove it.
+        run: |
+          rm -f /usr/bin/link.exe
+          python -m pip install --disable-pip-version-check meson ninja
+          choco install nasm -y --no-progress
+          echo 'C:\Program Files\NASM' >> "${GITHUB_PATH}"
+          if [[ -z "${WIX:-}" ]]; then
+            choco install wixtoolset --version 3.14.1 -y --no-progress
+            echo 'WIX=C:\Program Files (x86)\WiX Toolset v3.14' >> "${GITHUB_ENV}"
+          fi
+          cargo install --locked cargo-wix@0.3.9
+
+      - name: Test the Explorer Sibling ordering
+        run: cargo test --locked -p zimged-siblings
+
+      - name: Build zimged
+        run: cargo build --release --locked -p zimged --features avif
+
+      - name: Package
+        run: packaging/windows/build.sh dist msi winget
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/
+          if-no-files-found: error
+
+  macos:
+    name: macos (${{ matrix.arch }})
+    needs: gate-record
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x64
+            runner: macos-15-intel
+    # Native builds: libavif and dav1d build with meson/cmake for the host only.
+    runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_TERM_COLOR: never
+      RUST: ${{ needs.gate-record.outputs.rust }}
+      # Info.plist's LSMinimumSystemVersion.
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the pinned toolchain
+        run: |
+          rustup toolchain install "${RUST}" --profile minimal
+          bash tools/local-ci/check-toolchain-pin.sh . --rustc "$(rustc --version)"
+
+      - name: Install the build tools
+        # meson, ninja and nasm for libavif and dav1d (#19); cmake is on the image.
+        run: brew install meson ninja nasm
+
+      - name: Test the Finder Sibling ordering
+        run: cargo test --locked -p zimged-siblings
+
+      - name: Build zimged
+        run: cargo build --release --locked -p zimged --features avif
+
+      - name: Package
+        run: packaging/macos/build.sh dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: dist/
+          if-no-files-found: error
+
   release:
     name: release
-    needs: [gate-record, linux, flatpak]
+    needs: [gate-record, linux, flatpak, windows, macos]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -166,6 +271,9 @@ jobs:
           cp artifacts/flatpak/*.flatpak assets/
           tar --owner=0 --group=0 --numeric-owner -C artifacts/linux/aur \
             -czf "assets/zimged-${VERSION}-aur.tar.gz" PKGBUILD .SRCINFO
+          cp artifacts/windows/*.msi assets/
+          zip -j -X "assets/zimged-${VERSION}-winget.zip" artifacts/windows/winget/*.yaml
+          cp artifacts/macos-arm64/*.dmg artifacts/macos-x64/*.dmg assets/
           (cd assets && sha256sum -- * > SHA256SUMS)
           ls -l assets
 
