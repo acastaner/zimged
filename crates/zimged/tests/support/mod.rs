@@ -237,7 +237,13 @@ impl TestApp {
             // than `max_steps` frames are fine here; the final `run` checks the app settles.
             let _ = self.harness.try_run();
             if !self.harness.state().is_busy() {
-                self.harness.run();
+                if self.harness.state().animation_frames() > 1 {
+                    // A playing animation (§3.4) repaints for ever: its frames are shorter than
+                    // kittest's 250 ms step, so egui never settles. One more frame will do.
+                    self.harness.step();
+                } else {
+                    self.harness.run();
+                }
                 return;
             }
             assert!(Instant::now() < deadline, "app still busy after 10 s");
