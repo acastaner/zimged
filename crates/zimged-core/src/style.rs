@@ -32,11 +32,78 @@ impl Rgba {
     pub const BLACK: Rgba = Rgba::rgb(0, 0, 0);
 }
 
+/// `#rrggbb`, or `#rrggbbaa` when not opaque: how colours are written in `config.toml` (§8.3).
+impl std::fmt::Display for Rgba {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#{:02x}{:02x}{:02x}", self.r, self.g, self.b)?;
+        if self.a != 255 {
+            write!(f, "{:02x}", self.a)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::str::FromStr for Rgba {
+    type Err = String;
+
+    /// `#rrggbb` or `#rrggbbaa`.
+    fn from_str(s: &str) -> Result<Self, String> {
+        let bad = || format!("not a colour (#rrggbb or #rrggbbaa): {s:?}");
+        let hex = s.strip_prefix('#').ok_or_else(bad)?;
+        if !(hex.len() == 6 || hex.len() == 8) || !hex.is_ascii() {
+            return Err(bad());
+        }
+        let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).map_err(|_| bad());
+        let a = if hex.len() == 8 { byte(6)? } else { 255 };
+        Ok(Self::new(byte(0)?, byte(2)?, byte(4)?, a))
+    }
+}
+
+impl serde::Serialize for Rgba {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Rgba {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+/// A fill colour in `config.toml`: a colour, or `"none"`.
+mod fill_serde {
+    use super::Rgba;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(fill: &Option<Rgba>, s: S) -> Result<S::Ok, S::Error> {
+        match fill {
+            Some(c) => s.collect_str(c),
+            None => s.serialize_str("none"),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Rgba>, D::Error> {
+        let s = String::deserialize(d)?;
+        if s == "none" {
+            return Ok(None);
+        }
+        s.parse().map(Some).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Every style property an Annotation can have. Types ignore the ones they don't list.
-#[derive(Clone, Debug, PartialEq)]
+///
+/// Each tool's style is saved as `tools.<tool>` in `config.toml` (§8.3) through serde: a new field
+/// is persisted automatically (its type needs `Serialize`/`Deserialize`), and a missing key takes
+/// its value from [`Style::default`].
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Style {
     pub line: Rgba,
     /// `None` is "no fill" (∅).
+    #[serde(with = "fill_serde")]
     pub fill: Option<Rgba>,
     /// Line thickness in Image pixels.
     pub thickness: f32,
@@ -45,6 +112,48 @@ pub struct Style {
     pub font: String,
     /// The text size in Image pixels.
     pub font_size: f32,
+    /// Which ends of an arrow carry a head.
+    pub arrowheads: Arrowheads,
+}
+
+/// Which ends of an arrow carry a head (§4.1 A).
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Arrowheads {
+    #[default]
+    End,
+    Start,
+    Both,
+    None,
+}
+
+impl Arrowheads {
+    /// In the order the property bar lists them.
+    pub const ALL: [Arrowheads; 4] = [
+        Arrowheads::End,
+        Arrowheads::Start,
+        Arrowheads::Both,
+        Arrowheads::None,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Arrowheads::End => "End",
+            Arrowheads::Start => "Start",
+            Arrowheads::Both => "Both",
+            Arrowheads::None => "None",
+        }
+    }
+
+    pub fn at_start(self) -> bool {
+        matches!(self, Arrowheads::Start | Arrowheads::Both)
+    }
+
+    pub fn at_end(self) -> bool {
+        matches!(self, Arrowheads::End | Arrowheads::Both)
+    }
 }
 
 impl Default for Style {
@@ -57,6 +166,7 @@ impl Default for Style {
             shadow: true,
             font: DEFAULT_FONT.to_owned(),
             font_size: 20.0,
+            arrowheads: Arrowheads::End,
         }
     }
 }
@@ -72,6 +182,7 @@ pub enum PropertyKind {
     TextColour,
     Font,
     FontSize,
+    Arrowheads,
 }
 
 /// A style property with its value: one change in the property bar.
@@ -84,6 +195,7 @@ pub enum Property {
     TextColour(Rgba),
     Font(String),
     FontSize(f32),
+    Arrowheads(Arrowheads),
 }
 
 impl Property {
@@ -96,6 +208,7 @@ impl Property {
             Property::TextColour(_) => PropertyKind::TextColour,
             Property::Font(_) => PropertyKind::Font,
             Property::FontSize(_) => PropertyKind::FontSize,
+            Property::Arrowheads(_) => PropertyKind::Arrowheads,
         }
     }
 }
@@ -120,7 +233,24 @@ impl Style {
             PropertyKind::TextColour => Property::TextColour(self.line),
             PropertyKind::Font => Property::Font(self.font.clone()),
             PropertyKind::FontSize => Property::FontSize(self.font_size),
+            PropertyKind::Arrowheads => Property::Arrowheads(self.arrowheads),
         }
+    }
+
+    /// Values read from `config.toml` brought back into range.
+    pub fn sanitised(mut self) -> Self {
+        if !self.thickness.is_finite() {
+            self.thickness = Self::default().thickness;
+        }
+        self.set(Property::Thickness(self.thickness));
+        if !self.font_size.is_finite() {
+            self.font_size = Self::default().font_size;
+        }
+        self.set(Property::FontSize(self.font_size));
+        if self.font.trim().is_empty() {
+            self.font = DEFAULT_FONT.to_owned();
+        }
+        self
     }
 
     pub fn set(&mut self, property: Property) {
@@ -136,6 +266,7 @@ impl Style {
             Property::FontSize(s) => {
                 self.font_size = s.clamp(*FONT_SIZE_RANGE.start(), *FONT_SIZE_RANGE.end())
             }
+            Property::Arrowheads(a) => self.arrowheads = a,
         }
     }
 }

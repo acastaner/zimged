@@ -10,7 +10,7 @@
 
 use egui::{Event, ImeEvent, Key};
 use zimged_core::annotation::text::TextSpec;
-use zimged_core::{AnnotationId, AnnotationShape, Document, Point, Rect, Shape, Style, Text};
+use zimged_core::{AnnotationId, AnnotationShape, Document, Point, Rect, Style, Text};
 
 use super::{Pointer, Tool, ToolContext};
 
@@ -94,8 +94,8 @@ impl TextSession {
         }
         if let Some((spec_text, origin, style, width)) = self.layout(doc) {
             let spec = spec(&spec_text, &style, width);
-            self.cursor =
-                zimged_render::text::index_at(&spec, p.x - origin.x, p.y - origin.y).min(self.text.len());
+            self.cursor = zimged_render::text::index_at(&spec, p.x - origin.x, p.y - origin.y)
+                .min(self.text.len());
         }
     }
 
@@ -193,7 +193,12 @@ impl TextSession {
         let AnnotationShape::Text(t) = &a.shape else {
             return None;
         };
-        Some((t.text().to_owned(), t.text_origin(), a.style.clone(), t.width()))
+        Some((
+            t.text().to_owned(),
+            t.text_origin(),
+            a.style.clone(),
+            t.width(),
+        ))
     }
 
     fn insert(&mut self, s: &str) {
@@ -224,7 +229,11 @@ impl TextSession {
                     .rev()
                     .nth(before_chars.saturating_sub(1))
                     .map_or(0, |(i, _)| i);
-                let start = if *before_chars == 0 { self.cursor } else { start };
+                let start = if *before_chars == 0 {
+                    self.cursor
+                } else {
+                    start
+                };
                 let end = self.text[self.cursor..]
                     .char_indices()
                     .nth(*after_chars)
@@ -285,7 +294,10 @@ impl TextSession {
     }
 
     fn prev_boundary(&self) -> Option<usize> {
-        self.text[..self.cursor].char_indices().next_back().map(|(i, _)| i)
+        self.text[..self.cursor]
+            .char_indices()
+            .next_back()
+            .map(|(i, _)| i)
     }
 
     fn next_boundary(&self) -> Option<usize> {

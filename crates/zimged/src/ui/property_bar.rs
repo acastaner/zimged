@@ -4,17 +4,23 @@
 //! accessibility label constant). Controls report changes as [`Property`] values; the app turns
 //! them into commands.
 
-use zimged_core::{Property, PropertyKind, Rgba, Style};
+use zimged_core::{Arrowheads, Property, PropertyKind, Restack, Rgba, Style};
 
 pub const LABEL_LINE_COLOUR: &str = "Line colour";
 pub const LABEL_FILL_COLOUR: &str = "Fill colour";
 pub const LABEL_NO_FILL: &str = "No fill";
 pub const LABEL_THICKNESS: &str = "Thickness";
 pub const LABEL_SHADOW: &str = "Shadow";
+pub const LABEL_ARROWHEADS: &str = "Arrowheads";
 pub const LABEL_DELETE: &str = "Delete";
 pub const LABEL_TEXT_COLOUR: &str = "Text colour";
 pub const LABEL_FONT: &str = "Font";
 pub const LABEL_FONT_SIZE: &str = "Size";
+pub const LABEL_CROP_SIZE: &str = "Crop size";
+pub const LABEL_APPLY: &str = "Apply";
+pub const LABEL_CANCEL: &str = "Cancel";
+pub const LABEL_BRING_TO_FRONT: &str = "Bring to front";
+pub const LABEL_SEND_TO_BACK: &str = "Send to back";
 
 /// What the property bar shows this frame.
 pub struct PropertyBar<'a> {
@@ -22,6 +28,8 @@ pub struct PropertyBar<'a> {
     pub properties: &'a [PropertyKind],
     /// Annotations are selected: the controls restyle them, and Delete is offered.
     pub selection: bool,
+    /// The crop tool's region size, when it has one: shown with Apply and Cancel (§2).
+    pub crop: Option<zimged_codec::Size>,
     /// Shown when there are no controls.
     pub hint: &'a str,
     /// The installed font families for the font control (listed on first use of the text tool).
@@ -36,6 +44,10 @@ pub struct Output {
     /// being dragged): its changes form one History step.
     pub active: Option<PropertyKind>,
     pub delete: bool,
+    pub apply_crop: bool,
+    pub cancel_crop: bool,
+    /// Bring to front or Send to back was clicked.
+    pub restack: Option<Restack>,
 }
 
 pub fn show(ui: &mut egui::Ui, bar: &PropertyBar<'_>) -> Output {
@@ -49,8 +61,33 @@ pub fn show(ui: &mut egui::Ui, bar: &PropertyBar<'_>) -> Output {
             if bar.selection && ui.button("Delete").accessible_name(LABEL_DELETE).clicked() {
                 out.delete = true;
             }
-            // Bring to front and Send to back (#27) go here.
-            if bar.properties.is_empty() && !bar.selection {
+            if bar.selection {
+                for (label, restack) in [
+                    (LABEL_BRING_TO_FRONT, Restack::Front),
+                    (LABEL_SEND_TO_BACK, Restack::Back),
+                ] {
+                    if ui.button(label).accessible_name(label).clicked() {
+                        out.restack = Some(restack);
+                    }
+                }
+            }
+            if let Some(size) = bar.crop {
+                ui.label(size.to_string()).accessible_name(LABEL_CROP_SIZE);
+                if ui
+                    .button("Apply (Enter)")
+                    .accessible_name(LABEL_APPLY)
+                    .clicked()
+                {
+                    out.apply_crop = true;
+                }
+                if ui
+                    .button("Cancel (Esc)")
+                    .accessible_name(LABEL_CANCEL)
+                    .clicked()
+                {
+                    out.cancel_crop = true;
+                }
+            } else if bar.properties.is_empty() && !bar.selection {
                 ui.weak(bar.hint);
             }
         });
@@ -148,6 +185,22 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &m
             }
             if response.changed() && value != style.font_size {
                 out.changes.push(Property::FontSize(value));
+            }
+        }
+        PropertyKind::Arrowheads => {
+            ui.label("Arrowheads");
+            let mut value = style.arrowheads;
+            let _ = egui::ComboBox::from_id_salt(LABEL_ARROWHEADS)
+                .selected_text(value.name())
+                .show_ui(ui, |ui| {
+                    for option in Arrowheads::ALL {
+                        ui.selectable_value(&mut value, option, option.name());
+                    }
+                })
+                .response
+                .accessible_name(LABEL_ARROWHEADS);
+            if value != style.arrowheads {
+                out.changes.push(Property::Arrowheads(value));
             }
         }
     }

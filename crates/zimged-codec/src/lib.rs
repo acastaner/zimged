@@ -1,8 +1,8 @@
 //! Decoding and encoding (spec §5, §7.1).
 //!
 //! Today: display-size decode (§5.2) of every v1 read format (§5.1), with the EXIF orientation and
-//! the conversion of non-sRGB ICC profiles to sRGB applied. Full-resolution decode, animation
-//! frames, encoding and the safe atomic save land here with their tickets.
+//! the conversion of non-sRGB ICC profiles to sRGB applied, and the frames of animated GIF and WebP
+//! (§3.4, [`frames`]). Encoding and the safe atomic save land here with their tickets.
 //!
 //! The display-size path reduces first, then orients and converts colour, so the extra work is
 //! done on the small buffer.
@@ -14,6 +14,9 @@ use fast_image_resize as fr;
 use image::metadata::Orientation;
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
 
+pub use animation::{Frame, Frames, frames};
+
+mod animation;
 #[cfg(feature = "avif")]
 mod avif;
 mod colour;
@@ -49,6 +52,9 @@ pub struct DisplayImage {
     /// The size of `pixels`.
     pub size: Size,
     pub pixels: Pixels,
+    /// The file is a GIF or WebP, so it may be an animation: [`frames`] tells. The pixels are its
+    /// first frame.
+    pub may_animate: bool,
 }
 
 /// Tightly packed 8-bit sRGB pixels, row-major.
@@ -101,6 +107,8 @@ pub struct Decoded {
     /// The embedded ICC profile, if any. Converted to sRGB by [`Decoded::into_display`] unless it
     /// already is sRGB (§5.2).
     icc: Option<Vec<u8>>,
+    /// See [`DisplayImage::may_animate`].
+    may_animate: bool,
 }
 
 impl Decoded {
@@ -134,6 +142,7 @@ impl Decoded {
             original_size,
             size: target,
             pixels,
+            may_animate: self.may_animate,
         }
     }
 }
@@ -164,6 +173,7 @@ pub fn decode(path: &Path) -> Result<Decoded, DecodeError> {
     if reader.format() == Some(ImageFormat::Avif) {
         return decode_avif(path);
     }
+    let may_animate = matches!(reader.format(), Some(ImageFormat::Gif | ImageFormat::WebP));
     let mut decoder = reader.into_decoder().map_err(DecodeError::new)?;
     // Both come from headers the decoder has already read: nothing extra on the JPEG path (§1.3).
     let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
@@ -180,6 +190,7 @@ pub fn decode(path: &Path) -> Result<Decoded, DecodeError> {
         stored,
         orientation,
         icc,
+        may_animate,
     })
 }
 

@@ -6,17 +6,33 @@
 //!   [`Document::cancel_gesture`]);
 //! - a one-shot edit (delete, paste, duplicate, …): [`Document::step`] wraps a closure in a
 //!   gesture;
-//! - a property change: [`Document::set_property`].
+//! - a property change: [`Document::set_property`];
+//! - an Image operation (§4.7): [`Document::crop`], or [`Document::image_operation`] with new
+//!   pixels and an [`ImageTransform`] (see `image_op`). Its step also stores the Image.
 //!
 //! Edit methods ([`Document::add`], [`Document::annotation_mut`], [`Document::remove`], …) may only
 //! be called inside a gesture; they panic otherwise, so no edit can bypass the History.
 
 use std::sync::Arc;
 
-use crate::annotation::{Annotation, AnnotationId, AnnotationShape};
-use crate::geometry::{Point, Rect};
-use crate::history::{History, Snapshot, Step, StepKind};
+use crate::annotation::{Annotation, AnnotationId, AnnotationShape, Shape};
+use crate::geometry::{Affine, Point, Rect, Vector};
+use crate::history::{HISTORY_PIXEL_CAP, History, ImageState, Snapshot, Step, StepKind};
+use crate::image_op::{ImageTransform, PixelRect};
 use crate::style::{Property, Style};
+
+/// A move in the z-order (§4.2), for the selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Restack {
+    /// Bring to front: above every other Annotation.
+    Front,
+    /// Send to back: below every other Annotation.
+    Back,
+    /// One level up (Ctrl+]).
+    Up,
+    /// One level down (Ctrl+[).
+    Down,
+}
 
 /// Full-resolution Image pixels: 8-bit sRGB, tightly packed, row-major.
 #[derive(Clone)]
@@ -47,6 +63,11 @@ pub struct Document {
     height: u32,
     /// The full-resolution pixels, once decoded (§4.7: decoded when editing starts).
     full_resolution: Option<Arc<Pixels>>,
+    /// Which pixels the Image has: 0 for the decoded file, a new number per Image operation.
+    image_generation: u64,
+    next_image_generation: u64,
+    /// The cap on pixels held by the History, in bytes (§4.8).
+    history_pixel_cap: usize,
     /// Bottom to top: the last one is drawn on top.
     annotations: Vec<Annotation>,
     selection: Vec<AnnotationId>,
@@ -65,6 +86,9 @@ impl Document {
             width,
             height,
             full_resolution: None,
+            image_generation: 0,
+            next_image_generation: 1,
+            history_pixel_cap: HISTORY_PIXEL_CAP,
             annotations: Vec::new(),
             selection: Vec::new(),
             history: History::new(),
@@ -93,8 +117,75 @@ impl Document {
         self.full_resolution.as_ref()
     }
 
+    /// The decoded file's full-resolution pixels have arrived.
     pub fn set_full_resolution(&mut self, pixels: Arc<Pixels>) {
-        self.full_resolution = Some(pixels);
+        if self.image_generation == 0 {
+            self.full_resolution = Some(pixels);
+        }
+    }
+
+    /// Are the Image's pixels still the decoded file's (no Image operation in effect)?
+    pub fn is_original_image(&self) -> bool {
+        self.image_generation == 0
+    }
+
+    /// Identifies the Image's current pixels: changes with every Image operation, undo and redo of
+    /// one (a renderer cache key). 0 is the decoded file.
+    pub fn image_generation(&self) -> u64 {
+        self.image_generation
+    }
+
+    /// Change the cap on pixels the History holds (default [`HISTORY_PIXEL_CAP`]).
+    pub fn set_history_pixel_cap(&mut self, bytes: usize) {
+        self.history_pixel_cap = bytes;
+    }
+
+    // ---- Image operations (§4.7, ADR 0001; see `image_op`) ----
+
+    /// Crop the Image to `region` (rounded to whole pixels, clamped to the Image) as one step.
+    /// Needs the full-resolution pixels; returns false without them or for an empty region.
+    pub fn crop(&mut self, region: Rect) -> bool {
+        let Some(full) = &self.full_resolution else {
+            return false;
+        };
+        let Some(r) = PixelRect::within(region, self.width, self.height) else {
+            return false;
+        };
+        let pixels = full.crop(r);
+        let origin = r.to_rect().min;
+        self.image_operation(pixels, ImageTransform::Crop { origin });
+        true
+    }
+
+    /// Replace the Image with `pixels` (the result of an Image operation), move every Annotation
+    /// through `transform`, and remove those left entirely outside the new Image. One History step
+    /// that stores the pixels and Annotations from before; the History's pixel cap is enforced.
+    pub fn image_operation(&mut self, pixels: Pixels, transform: ImageTransform) {
+        assert!(self.gesture.is_none(), "image operation inside a gesture");
+        let before = self.snapshot_with_image();
+        self.width = pixels.width;
+        self.height = pixels.height;
+        self.full_resolution = Some(Arc::new(pixels));
+        self.image_generation = self.next_image_generation;
+        self.next_image_generation += 1;
+        let bounds = self.bounds();
+        for a in &mut self.annotations {
+            a.image_transform(&transform);
+        }
+        self.annotations
+            .retain(|a| a.extent().intersect(&bounds).is_some());
+        let annotations = &self.annotations;
+        self.selection
+            .retain(|id| annotations.iter().any(|a| a.id == *id));
+        self.revision += 1;
+        let after = self.snapshot_with_image();
+        self.history.push(Step {
+            kind: StepKind::ImageOperation,
+            before,
+            after,
+        });
+        self.history
+            .enforce_pixel_cap(self.history_pixel_cap, self.full_resolution.as_ref());
     }
 
     // ---- Reading ----
@@ -241,6 +332,66 @@ impl Document {
         true
     }
 
+    /// Duplicate the selected Annotations as one step (Ctrl+D, §4.2): the copies go on top, in the
+    /// same order, moved by `offset`, and become the selection. Returns false when nothing was
+    /// selected.
+    pub fn duplicate_selection(&mut self, offset: Vector) -> bool {
+        if self.selection.is_empty() {
+            return false;
+        }
+        let t = Affine::translate(offset);
+        let copies: Vec<(AnnotationShape, Style)> = self
+            .selected()
+            .map(|a| (a.shape.transformed(&t), a.style.clone()))
+            .collect();
+        self.step(|doc| {
+            let ids: Vec<AnnotationId> = copies
+                .into_iter()
+                .map(|(shape, style)| doc.add(shape, style))
+                .collect();
+            doc.select(ids);
+        });
+        true
+    }
+
+    /// Change the selection's place in the z-order as one step (§4.2). Nothing changes, and no
+    /// step is recorded, when the selection is already there.
+    pub fn restack(&mut self, restack: Restack) {
+        if self.selection.is_empty() || self.gesture.is_some() {
+            return;
+        }
+        self.step(|doc| {
+            // Bottom to top: is each Annotation selected? Kept in step with the swaps below.
+            let mut order: Vec<(bool, Annotation)> = std::mem::take(&mut doc.annotations)
+                .into_iter()
+                .map(|a| (doc.selection.contains(&a.id), a))
+                .collect();
+            let n = order.len();
+            match restack {
+                // A stable sort keeps the relative order within each group.
+                Restack::Front => order.sort_by_key(|(selected, _)| *selected),
+                Restack::Back => order.sort_by_key(|(selected, _)| !*selected),
+                // Each selected Annotation swaps with the unselected one just above (below) it.
+                Restack::Up => {
+                    for i in (0..n.saturating_sub(1)).rev() {
+                        if order[i].0 && !order[i + 1].0 {
+                            order.swap(i, i + 1);
+                        }
+                    }
+                }
+                Restack::Down => {
+                    for i in 1..n {
+                        if order[i].0 && !order[i - 1].0 {
+                            order.swap(i, i - 1);
+                        }
+                    }
+                }
+            }
+            doc.annotations = order.into_iter().map(|(_, a)| a).collect();
+            doc.revision += 1;
+        });
+    }
+
     /// Restyle the selected Annotations as one step. With `merge`, the change is folded into the
     /// previous step when that was a change of the same property on the same Annotations (one
     /// widget interaction, e.g. dragging in a colour picker, is one step). Returns false when
@@ -335,12 +486,36 @@ impl Document {
         Snapshot {
             annotations: self.annotations.clone(),
             selection: self.selection.clone(),
+            image: None,
+        }
+    }
+
+    /// A snapshot that also holds the Image, for Image-operation steps.
+    fn snapshot_with_image(&self) -> Snapshot {
+        let pixels = self
+            .full_resolution
+            .clone()
+            .expect("Image operations need the full-resolution pixels");
+        Snapshot {
+            image: Some(ImageState {
+                width: self.width,
+                height: self.height,
+                pixels,
+                generation: self.image_generation,
+            }),
+            ..self.snapshot()
         }
     }
 
     fn restore(&mut self, s: &Snapshot) {
         self.annotations = s.annotations.clone();
         self.selection = s.selection.clone();
+        if let Some(image) = &s.image {
+            self.width = image.width;
+            self.height = image.height;
+            self.full_resolution = Some(image.pixels.clone());
+            self.image_generation = image.generation;
+        }
         self.revision += 1;
     }
 

@@ -4,6 +4,7 @@
 mod support;
 
 use egui::{Event, ImeEvent, Key};
+use egui_kittest::kittest::Queryable;
 use support::TestApp;
 use zimged::Command;
 use zimged::tools::ToolId;
@@ -25,22 +26,27 @@ fn ime(app: &mut TestApp, event: ImeEvent) {
     app.settle();
 }
 
-/// Two clicks in the same frame: a double-click.
+/// Two clicks on consecutive frames, 0.1 s apart and well after any earlier click: a
+/// double-click. Unset, egui's clock advances one predicted frame per frame, and how many frames
+/// `settle()` runs varies, so the clock is set explicitly, far past anything it reached alone
+/// (going back in time would turn this into a triple-click).
 fn double_click_px(app: &mut TestApp, at: (f32, f32)) {
     let p = app.screen(at.0, at.1);
-    let h = &app.harness;
-    h.hover_at(p);
-    for _ in 0..2 {
+    app.harness.hover_at(p);
+    let t0 = app.harness.input().time.unwrap_or(1.0e6) + 10.0;
+    for i in 0..2 {
+        app.harness.input_mut().time = Some(t0 + 0.1 * f64::from(i));
         for pressed in [true, false] {
-            h.event(Event::PointerButton {
+            app.harness.event(Event::PointerButton {
                 pos: p,
                 button: egui::PointerButton::Primary,
                 pressed,
                 modifiers: egui::Modifiers::NONE,
             });
         }
+        app.harness.step();
     }
-    h.remove_cursor();
+    app.harness.remove_cursor();
     app.settle();
 }
 
@@ -116,7 +122,10 @@ fn the_new_box_is_wide_enough_for_five_characters_and_grows_as_you_type() {
     assert_eq!(bounds_of(&app, 0), empty);
     type_text(&mut app, "0");
     let five = bounds_of(&app, 0);
-    assert!((five.width() - empty.width()).abs() < 1.0, "{five:?} vs {empty:?}");
+    assert!(
+        (five.width() - empty.width()).abs() < 1.0,
+        "{five:?} vs {empty:?}"
+    );
     type_text(&mut app, "0");
     let six = bounds_of(&app, 0);
     assert!(six.width() > empty.width() + 5.0, "{six:?} vs {empty:?}");
@@ -317,7 +326,14 @@ fn dragging_the_left_handle_sets_the_width_and_keeps_the_right_edge() {
 #[test]
 fn the_property_bar_shows_the_text_controls() {
     let app = app_with_new_box();
-    for label in ["Font", "Size", "Text colour", "Fill colour", "No fill", "Shadow"] {
+    for label in [
+        "Font",
+        "Size",
+        "Text colour",
+        "Fill colour",
+        "No fill",
+        "Shadow",
+    ] {
         app.control(label);
     }
     assert!(app.harness.query_by_label("Thickness").is_none());

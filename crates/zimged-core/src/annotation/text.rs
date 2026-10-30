@@ -12,6 +12,7 @@ use std::sync::OnceLock;
 
 use super::Shape;
 use crate::geometry::{Affine, Point, Rect, Vector};
+use crate::image_op::ImageTransform;
 use crate::style::{PropertyKind, Style};
 
 /// What to lay out: the text, its font and size (Image pixels), and the wrap width (`None`: no
@@ -205,6 +206,14 @@ impl Shape for Text {
             let c = t.apply(b.center());
             self.origin = Point::new(c.x - b.width() / 2.0, c.y - b.height() / 2.0);
         }
+    }
+
+    /// §4.7: the box moves to its new anchor (its centre follows the Image) but stays upright and
+    /// keeps its width. #33's resize scales the font size through the Style, then relayouts.
+    fn image_transform(&mut self, t: &ImageTransform) {
+        let b = self.bounds();
+        let c = t.affine().apply(b.center());
+        self.origin = Point::new(c.x - b.width() / 2.0, c.y - b.height() / 2.0);
     }
 
     fn properties(&self) -> &'static [PropertyKind] {
