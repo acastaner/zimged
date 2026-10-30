@@ -367,6 +367,14 @@ impl Editor {
         self.edited.as_ref().is_some_and(|e| !e.queued.is_empty())
     }
 
+    /// Has the Image been edited: an Annotation or Image operation done (even if undone since), or
+    /// an Image operation waiting for the full resolution? Freezes an animation (§3.4).
+    pub fn has_edits(&self) -> bool {
+        self.edited
+            .as_ref()
+            .is_some_and(|e| e.doc.can_undo() || e.doc.can_redo() || !e.queued.is_empty())
+    }
+
     // ---- Commands ----
 
     pub fn select_tool(&mut self, tool: ToolId) {
