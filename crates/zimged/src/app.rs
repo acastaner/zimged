@@ -196,7 +196,7 @@ impl ZimgedApp {
         }
         // Ctrl+plus / minus / 0 would scale the whole UI; the image zoom is on plain +, - and 0.
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
-        let mut editor = Editor::new();
+        let mut editor = Editor::with_tool_styles(&launch.config.tools);
         editor.set_history_pixel_cap(launch.history_pixel_cap);
         Self {
             ctx: cc.egui_ctx.clone(),
@@ -245,9 +245,16 @@ impl ZimgedApp {
             Command::Undo => self.editor.undo(),
             Command::Redo => self.editor.redo(),
             Command::Delete => self.delete(),
-            Command::SetProperty { property, merge } => self.editor.set_property(property, merge),
+            Command::SetProperty { property, merge } => {
+                self.editor.set_property(property, merge);
+                // §4.3, §8.3: the tools' defaults persist between runs.
+                let styles = self.editor.tool_styles_config();
+                self.update_config(|config| config.tools.extend(styles));
+            }
             Command::ApplyCrop => self.editor.apply_crop(),
             Command::CancelCrop => self.editor.cancel_crop(),
+            Command::Duplicate => self.editor.duplicate_selection(),
+            Command::Restack(restack) => self.editor.restack(restack),
         }
     }
 
@@ -291,6 +298,11 @@ impl ZimgedApp {
     /// The selection box (dashed, with 8 handles) as painted last frame, in points.
     pub fn selection_box(&self) -> Option<egui::Rect> {
         self.editor.selection_box()
+    }
+
+    /// The select tool's rubber band (dashed) as painted last frame, in points.
+    pub fn rubber_band(&self) -> Option<egui::Rect> {
+        self.editor.rubber_band()
     }
 
     /// Over 100 MP: the tools are disabled (§4.7).
@@ -902,6 +914,9 @@ impl ZimgedApp {
         self.editor.property_interaction(out.active);
         if out.delete {
             self.execute(Command::Delete);
+        }
+        if let Some(restack) = out.restack {
+            self.execute(Command::Restack(restack));
         }
     }
 }

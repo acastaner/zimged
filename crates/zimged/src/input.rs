@@ -5,6 +5,7 @@
 //! [`crate::ZimgedApp::execute`]. Widgets don't act on keys or drops themselves.
 
 use egui::{Event, Key, KeyboardShortcut, Modifiers, MouseWheelUnit};
+use zimged_core::Restack;
 
 use crate::Command;
 use crate::tools::ToolId;
@@ -79,6 +80,15 @@ fn editor_keys(input: &mut egui::InputState, commands: &mut Vec<Command>) {
     }
     if input.consume_key(Modifiers::COMMAND, Key::Z) {
         commands.push(Command::Undo);
+    }
+    if input.consume_key(Modifiers::COMMAND, Key::D) {
+        commands.push(Command::Duplicate);
+    }
+    if input.consume_key(Modifiers::COMMAND, Key::CloseBracket) {
+        commands.push(Command::Restack(Restack::Up));
+    }
+    if input.consume_key(Modifiers::COMMAND, Key::OpenBracket) {
+        commands.push(Command::Restack(Restack::Down));
     }
     if input.consume_key(Modifiers::NONE, Key::Delete) {
         commands.push(Command::Delete);

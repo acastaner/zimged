@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use zimged_core::Property;
+use zimged_core::{Property, Restack};
 
 use crate::tools::ToolId;
 
@@ -31,6 +31,11 @@ pub enum Command {
     /// Cancel with the crop tool: drop the region and go back to the select tool (Esc does the
     /// same through `SelectTool`).
     CancelCrop,
+    /// Ctrl+D (§4.2): duplicate the selected Annotations, offset by 10 px, without touching the
+    /// clipboard.
+    Duplicate,
+    /// Bring to front / Send to back (property bar), Ctrl+] / Ctrl+[ (§4.2).
+    Restack(Restack),
     /// Show the next Sibling (§3.1: wheel down, →).
     NextSibling,
     /// Show the previous Sibling (§3.1: wheel up, ←).

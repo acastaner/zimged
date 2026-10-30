@@ -14,7 +14,7 @@ pub mod style;
 pub use annotation::{
     Annotation, AnnotationId, AnnotationShape, Arrow, Ellipse, Freehand, Line, Rectangle, Shape,
 };
-pub use document::{Document, PixelData, Pixels};
+pub use document::{Document, PixelData, Pixels, Restack};
 pub use geometry::{Affine, Handle, Point, Rect, Vector};
 pub use history::HISTORY_PIXEL_CAP;
 pub use image_op::{ImageTransform, PixelRect};

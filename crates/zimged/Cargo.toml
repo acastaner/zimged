@@ -19,6 +19,7 @@ zimged-codec.workspace = true
 zimged-platform.workspace = true
 zimged-siblings.workspace = true
 zimged-render.workspace = true
+toml.workspace = true
 eframe.workspace = true
 egui.workspace = true
 
