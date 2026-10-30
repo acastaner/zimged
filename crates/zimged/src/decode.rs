@@ -1,4 +1,5 @@
-//! A display-size decode running on its own thread, polled by the UI.
+//! Decodes running on their own thread, polled by the UI: the display-size decode of an Image
+//! ([`PendingDecode`]) and the full-resolution decode when editing starts ([`PendingFullDecode`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -6,42 +7,53 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use zimged_codec::{DecodeError, DisplayImage, Size};
+use zimged_core::{PixelData, Pixels};
 
 pub type DecodeResult = Result<DisplayImage, DecodeError>;
+pub type FullDecodeResult = Result<Pixels, DecodeError>;
 
-#[derive(Default)]
-struct Slot {
-    result: Option<DecodeResult>,
+/// A display-size decode (§5.2).
+pub type PendingDecode = Pending<DecodeResult>;
+/// A full-resolution decode (§4.7).
+pub type PendingFullDecode = Pending<FullDecodeResult>;
+
+struct Slot<T> {
+    result: Option<T>,
     /// Woken when the result arrives, once the UI has handed over its context.
     waker: Option<egui::Context>,
 }
 
-#[derive(Default)]
-struct Shared {
-    slot: Mutex<Slot>,
+struct Shared<T> {
+    slot: Mutex<Slot<T>>,
     done: Condvar,
 }
 
-/// A decode in flight. The UI polls it with [`PendingDecode::take`] each frame.
-pub struct PendingDecode {
+/// Work on a file in flight. The UI polls it with [`Pending::take`] each frame.
+pub struct Pending<T> {
     path: PathBuf,
-    shared: Arc<Shared>,
+    shared: Arc<Shared<T>>,
 }
 
-impl PendingDecode {
-    /// Start decoding `path` on a new thread. `display_box` is called only after the full decode, so
-    /// the startup path can start decoding before it knows the window size (§1.3).
-    pub fn spawn(path: PathBuf, display_box: impl FnOnce() -> Size + Send + 'static) -> Self {
-        let shared = Arc::new(Shared::default());
+impl<T: Send + 'static> Pending<T> {
+    /// Run `job` on `path` on a new thread.
+    fn spawn_job(
+        path: PathBuf,
+        thread_name: &str,
+        job: impl FnOnce(&Path) -> T + Send + 'static,
+    ) -> Self {
+        let shared = Arc::new(Shared {
+            slot: Mutex::new(Slot {
+                result: None,
+                waker: None,
+            }),
+            done: Condvar::new(),
+        });
         let thread_shared = Arc::clone(&shared);
         let thread_path = path.clone();
         std::thread::Builder::new()
-            .name("decode".into())
+            .name(thread_name.into())
             .spawn(move || {
-                let result =
-                    zimged_codec::decode(&thread_path).map(|d| d.into_display(display_box()));
-                static FIRST: AtomicBool = AtomicBool::new(false);
-                crate::bench::mark_once("decoded", &FIRST);
+                let result = job(&thread_path);
                 let mut slot = thread_shared.slot.lock().unwrap();
                 slot.result = Some(result);
                 if let Some(ctx) = &slot.waker {
@@ -67,7 +79,7 @@ impl PendingDecode {
         }
     }
 
-    /// Block until the decode has finished or `timeout` has passed. Returns whether it finished.
+    /// Block until the work has finished or `timeout` has passed. Returns whether it finished.
     pub fn wait(&self, timeout: Duration) -> bool {
         let slot = self.shared.slot.lock().unwrap();
         let (slot, _) = self
@@ -78,8 +90,42 @@ impl PendingDecode {
         slot.result.is_some()
     }
 
-    /// The result, once the decode has finished.
-    pub fn take(&self) -> Option<DecodeResult> {
+    /// The result, once the work has finished.
+    pub fn take(&self) -> Option<T> {
         self.shared.slot.lock().unwrap().result.take()
+    }
+}
+
+impl PendingDecode {
+    /// Start decoding `path` for display. `display_box` is called only after the full decode, so
+    /// the startup path can start decoding before it knows the window size (§1.3).
+    pub fn spawn(path: PathBuf, display_box: impl FnOnce() -> Size + Send + 'static) -> Self {
+        Self::spawn_job(path, "decode", move |path| {
+            let result = zimged_codec::decode(path).map(|d| d.into_display(display_box()));
+            static FIRST: AtomicBool = AtomicBool::new(false);
+            crate::bench::mark_once("decoded", &FIRST);
+            result
+        })
+    }
+}
+
+impl PendingFullDecode {
+    /// Start decoding `path` at full resolution.
+    pub fn spawn_full(path: PathBuf) -> Self {
+        Self::spawn_job(path, "full-decode", |path| {
+            zimged_codec::decode(path).map(|d| {
+                // Oriented and colour-converted like the display decode, but not reduced.
+                let size = d.size();
+                let image = d.into_display(size);
+                Pixels {
+                    width: image.size.width,
+                    height: image.size.height,
+                    data: match image.pixels {
+                        zimged_codec::Pixels::Rgb(rgb) => PixelData::Rgb(rgb),
+                        zimged_codec::Pixels::Rgba(rgba) => PixelData::Rgba(rgba),
+                    },
+                }
+            })
+        })
     }
 }
