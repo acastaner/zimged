@@ -325,6 +325,41 @@ fn lines_arrows_and_freehand_strokes_keep_their_image_position_through_a_crop_an
     assert_eq!(geometry_points(&app), before);
 }
 
+#[test]
+fn duplicate_and_restack_work_on_a_cropped_image_and_undo_keeps_the_crop() {
+    let mut app = app_with_three_rectangles();
+    crop_to_region(&mut app);
+    let [first, second] = app
+        .doc()
+        .annotations()
+        .iter()
+        .map(|a| a.id)
+        .collect::<Vec<_>>()[..]
+    else {
+        panic!()
+    };
+
+    // Select the first rectangle ([20, 20, 60, 50]) by its right edge, and duplicate it.
+    app.click_px((60.0, 35.0));
+    assert_eq!(app.doc().selection(), &[first]);
+    app.key_with(Modifiers::COMMAND, Key::D);
+    let copy = *app.doc().selection().first().expect("the copy is selected");
+    assert_ne!(copy, first);
+    assert_eq!(annotation_rects(&app)[2], [30, 30, 70, 60]);
+
+    app.control("Send to back").click();
+    app.settle();
+    let order: Vec<_> = app.doc().annotations().iter().map(|a| a.id).collect();
+    assert_eq!(order, vec![copy, first, second]);
+
+    // Undoing the restack and the duplicate leaves the cropped Image alone.
+    app.key_with(Modifiers::COMMAND, Key::Z);
+    app.key_with(Modifiers::COMMAND, Key::Z);
+    assert_eq!((app.doc().width(), app.doc().height()), (200, 150));
+    let order: Vec<_> = app.doc().annotations().iter().map(|a| a.id).collect();
+    assert_eq!(order, vec![first, second]);
+}
+
 // ---- The History's pixel cap (§4.8) ----
 
 #[test]

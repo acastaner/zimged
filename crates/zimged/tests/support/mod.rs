@@ -513,17 +513,24 @@ impl TestApp {
 
     /// Click on the canvas at an Image pixel, then settle.
     pub fn click_px(&mut self, at: (f32, f32)) {
+        self.click_px_with(egui::Modifiers::NONE, at);
+    }
+
+    /// Click with modifiers held (Shift+click adds to the selection), then settle.
+    pub fn click_px_with(&mut self, modifiers: egui::Modifiers, at: (f32, f32)) {
         let p = self.screen(at.0, at.1);
         let h = &self.harness;
+        h.event(egui::Event::ModifiersChanged(modifiers));
         h.hover_at(p);
         for pressed in [true, false] {
             h.event(egui::Event::PointerButton {
                 pos: p,
                 button: egui::PointerButton::Primary,
                 pressed,
-                modifiers: egui::Modifiers::NONE,
+                modifiers,
             });
         }
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
         h.remove_cursor();
         self.settle();
     }
