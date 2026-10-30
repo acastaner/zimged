@@ -4788,6 +4788,7 @@ dependencies = [
  "egui",
  "egui_kittest",
  "image",
+ "serde_json",
  "tempfile",
  "toml",
  "zimged-codec",
@@ -4814,6 +4815,7 @@ name = "zimged-core"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]

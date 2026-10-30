@@ -26,6 +26,7 @@ egui.workspace = true
 [dev-dependencies]
 egui_kittest.workspace = true
 tempfile.workspace = true
+serde_json.workspace = true
 # Golden PNGs (tests/golden) and generated fixtures.
 image = { workspace = true, features = ["png"] }
 

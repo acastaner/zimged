@@ -11,8 +11,8 @@ use zimged_core::{Annotation, Document};
 pub struct Scene<'a> {
     /// The whole Document (for what's derived from it, such as Step counter numbers).
     pub doc: &'a Document,
-    /// The Image's pixels, drawn over `image_rect`.
-    image: &'a sk::Image,
+    /// The Image's pixels, drawn over `image_rect`; `None` for a scene without the Image.
+    image: Option<&'a sk::Image>,
     /// The Image's bounds in Image pixels.
     pub image_rect: sk::Rect,
     /// The Annotations in this scene, bottom to top: a prefix of the Document's.
@@ -23,9 +23,20 @@ impl<'a> Scene<'a> {
     pub fn new(image: &'a sk::Image, doc: &'a Document) -> Self {
         Self {
             doc,
-            image,
+            image: Some(image),
             image_rect: sk::Rect::from_wh(doc.width() as f32, doc.height() as f32),
             annotations: doc.annotations(),
+        }
+    }
+
+    /// Nothing at all: no Image and no Annotations, only `doc` for what's derived from it. What
+    /// a copied Annotation is drawn over in the clipboard PNG (§6.2).
+    pub fn empty(doc: &'a Document) -> Self {
+        Self {
+            doc,
+            image: None,
+            image_rect: sk::Rect::from_wh(doc.width() as f32, doc.height() as f32),
+            annotations: &[],
         }
     }
 
@@ -37,15 +48,17 @@ impl<'a> Scene<'a> {
         }
     }
 
-    /// Draw the Image, then each Annotation over what's below it. The canvas is in Image pixels.
+    /// Draw the Image (if any), then each Annotation over what's below it. The canvas is in Image pixels.
     pub fn draw(&self, canvas: &sk::Canvas) {
-        canvas.draw_image_rect_with_sampling_options(
-            self.image,
-            None,
-            self.image_rect,
-            sk::SamplingOptions::new(sk::FilterMode::Linear, sk::MipmapMode::Linear),
-            &sk::Paint::default(),
-        );
+        if let Some(image) = self.image {
+            canvas.draw_image_rect_with_sampling_options(
+                image,
+                None,
+                self.image_rect,
+                sk::SamplingOptions::new(sk::FilterMode::Linear, sk::MipmapMode::Linear),
+                &sk::Paint::default(),
+            );
+        }
         for (i, annotation) in self.annotations.iter().enumerate() {
             crate::shapes::draw(canvas, annotation, &self.below(i));
         }

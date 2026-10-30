@@ -1,14 +1,14 @@
 //! Images coming in to be pasted (§6.3) or Ctrl+dropped (§4.6): read and decoded off the UI thread
 //! (another application serves the clipboard's data, and a large image takes a while to decode).
 //!
-//! #37 adds zimged Annotations: their MIME type goes before [`IMAGE_FORMATS`] in the formats
-//! [`PendingIncoming::paste`] asks the clipboard for, and they get a variant in [`Incoming`].
+//! A paste prefers zimged Annotations (§6.3): their MIME type comes before [`IMAGE_FORMATS`] in
+//! the formats [`PendingIncoming::paste`] asks the clipboard for.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use zimged_codec::{DisplayImage, Size};
-use zimged_core::{PixelData, Pixels};
+use zimged_core::{CopiedAnnotation, PixelData, Pixels};
 use zimged_platform::Clipboard;
 use zimged_platform::clipboard::IMAGE_FORMATS;
 
@@ -22,6 +22,8 @@ pub(crate) enum Incoming {
         full: Pixels,
         display: Option<DisplayImage>,
     },
+    /// zimged Annotations (§6.3), bottom to top.
+    Annotations(Vec<CopiedAnnotation>),
     /// The clipboard holds nothing zimged can paste.
     Nothing,
 }
@@ -52,9 +54,21 @@ impl PendingIncoming {
         display_box: Size,
     ) -> Self {
         let pending = Pending::spawn_job(PathBuf::new(), "paste", move |_| {
-            let Some(item) = clipboard.read(IMAGE_FORMATS)? else {
+            // Annotations only go onto an Image; the empty window takes an image.
+            let mut accept = Vec::with_capacity(IMAGE_FORMATS.len() + 1);
+            if destination == Destination::Inset {
+                accept.push(zimged_core::clipboard::MIME);
+            }
+            accept.extend_from_slice(IMAGE_FORMATS);
+            let Some(item) = clipboard.read(&accept)? else {
                 return Ok(Incoming::Nothing);
             };
+            if item.mime == zimged_core::clipboard::MIME {
+                return Ok(match zimged_core::clipboard::from_json(&item.data) {
+                    Ok(copied) if !copied.is_empty() => Incoming::Annotations(copied),
+                    _ => Incoming::Nothing,
+                });
+            }
             match zimged_codec::decode_bytes(&item.data) {
                 Ok(decoded) => Ok(image(decoded, destination, display_box)),
                 // An image format zimged can't decode is still nothing to paste.

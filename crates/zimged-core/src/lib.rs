@@ -5,6 +5,7 @@
 //! Tests drive this crate through the headless App (spec §9), not directly.
 
 pub mod annotation;
+pub mod clipboard;
 pub mod document;
 pub mod geometry;
 mod history;
@@ -15,6 +16,7 @@ pub use annotation::{
     Annotation, AnnotationId, AnnotationShape, Arrow, Ellipse, Freehand, Highlight, Inset, Line,
     Rectangle, Shape, StepCounter, Text,
 };
+pub use clipboard::CopiedAnnotation;
 pub use document::{Document, PixelData, Pixels, Restack};
 pub use geometry::{Affine, Handle, Point, Rect, Vector};
 pub use history::HISTORY_PIXEL_CAP;

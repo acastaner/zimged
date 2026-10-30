@@ -17,7 +17,7 @@ pub mod text;
 pub use resample::resample;
 
 use skia_safe as sk;
-use zimged_core::{Document, Rect};
+use zimged_core::{AnnotationId, Document, Rect};
 
 /// Pixels to draw the Image from: the display-size decode, or the full-resolution pixels.
 pub struct Source<'a> {
@@ -73,35 +73,25 @@ impl Renderer {
 
     /// The Image plus every Annotation of `doc`, for `view`.
     pub fn composite(&mut self, doc: &Document, source: &Source<'_>, view: View) -> Composite {
-        let width = view.width.max(1);
-        let height = view.height.max(1);
-        let mut pixels = vec![0u8; width as usize * height as usize * 4];
-        let info = sk::ImageInfo::new(
-            (width as i32, height as i32),
-            sk::ColorType::RGBA8888,
-            sk::AlphaType::Premul,
-            None,
-        );
         let image = self.source_image(source);
-        {
-            let mut surface = sk::surfaces::wrap_pixels(&info, &mut pixels, None, None)
-                .expect("a raster surface for the composite");
-            let canvas = surface.canvas();
-            canvas.clear(sk::Color::TRANSPARENT);
-            // From here on, draw in Image pixels.
-            canvas.scale((
-                width as f32 / view.region.width().max(f32::EPSILON),
-                height as f32 / view.region.height().max(f32::EPSILON),
-            ));
-            canvas.translate((-view.region.min.x, -view.region.min.y));
+        render(view, |canvas| scene::Scene::new(image, doc).draw(canvas))
+    }
 
-            scene::Scene::new(image, doc).draw(canvas);
-        }
-        Composite {
-            width,
-            height,
-            rgba_premultiplied: pixels,
-        }
+    /// Only the Annotations `ids` of `doc`, on transparency, for `view` (the PNG of copied
+    /// Annotations, §6.2). They are drawn as in `doc` (a Step counter keeps its number there),
+    /// each over an empty Scene: no Image and no other Annotation.
+    pub fn annotations_only(
+        &mut self,
+        doc: &Document,
+        ids: &[AnnotationId],
+        view: View,
+    ) -> Composite {
+        let below = scene::Scene::empty(doc);
+        render(view, |canvas| {
+            for annotation in doc.annotations().iter().filter(|a| ids.contains(&a.id)) {
+                shapes::draw(canvas, annotation, &below);
+            }
+        })
     }
 
     /// Flatten (§7.2): the whole Image plus every Annotation at full resolution, with the same
@@ -124,6 +114,37 @@ impl Renderer {
             self.source = Some((source.key, to_skia_image(source)));
         }
         &self.source.as_ref().expect("just set").1
+    }
+}
+
+/// Run `draw` on a transparent `view`-sized canvas set up in Image pixels.
+fn render(view: View, draw: impl FnOnce(&sk::Canvas)) -> Composite {
+    let width = view.width.max(1);
+    let height = view.height.max(1);
+    let mut pixels = vec![0u8; width as usize * height as usize * 4];
+    let info = sk::ImageInfo::new(
+        (width as i32, height as i32),
+        sk::ColorType::RGBA8888,
+        sk::AlphaType::Premul,
+        None,
+    );
+    {
+        let mut surface = sk::surfaces::wrap_pixels(&info, &mut pixels, None, None)
+            .expect("a raster surface for the composite");
+        let canvas = surface.canvas();
+        canvas.clear(sk::Color::TRANSPARENT);
+        // From here on, draw in Image pixels.
+        canvas.scale((
+            width as f32 / view.region.width().max(f32::EPSILON),
+            height as f32 / view.region.height().max(f32::EPSILON),
+        ));
+        canvas.translate((-view.region.min.x, -view.region.min.y));
+        draw(canvas);
+    }
+    Composite {
+        width,
+        height,
+        rgba_premultiplied: pixels,
     }
 }
 

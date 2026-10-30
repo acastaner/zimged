@@ -58,6 +58,13 @@ pub trait Shape {
     /// The style properties the property bar shows for this type (§4.3), in display order.
     fn properties(&self) -> &'static [PropertyKind];
 
+    /// Does it draw from the pixels under it (highlight, obfuscate)? Such a type means nothing
+    /// without the Image, so it is left out of the PNG that copying Annotations publishes (§6.2);
+    /// it is still in the clipboard JSON. Effect types return true.
+    fn needs_pixels_below(&self) -> bool {
+        false
+    }
+
     /// A transformed copy.
     fn transformed(&self, t: &Affine) -> Self
     where
@@ -73,7 +80,10 @@ pub trait Shape {
 macro_rules! shapes {
     ($($variant:ident($ty:ty)),+ $(,)?) => {
         /// The geometry of an Annotation, one variant per Annotation type.
-        #[derive(Clone, Debug, PartialEq)]
+        ///
+        /// Serialised (clipboard JSON, §6.2) with a `type` tag in snake_case: `{"type": "rectangle", ..}`.
+        #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[serde(tag = "type", rename_all = "snake_case")]
         pub enum AnnotationShape {
             $($variant($ty),)+
         }
@@ -96,6 +106,9 @@ macro_rules! shapes {
             }
             fn properties(&self) -> &'static [PropertyKind] {
                 match self { $(Self::$variant(s) => s.properties(),)+ }
+            }
+            fn needs_pixels_below(&self) -> bool {
+                match self { $(Self::$variant(s) => s.needs_pixels_below(),)+ }
             }
         }
 
