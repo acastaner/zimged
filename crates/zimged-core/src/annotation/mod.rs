@@ -9,11 +9,13 @@
 
 mod ellipse;
 mod freehand;
+mod inset;
 mod line;
 mod rectangle;
 
 pub use ellipse::Ellipse;
 pub use freehand::Freehand;
+pub use inset::Inset;
 pub use line::{Arrow, Line};
 pub use rectangle::Rectangle;
 
@@ -97,6 +99,7 @@ shapes! {
     Line(Line),
     Arrow(Arrow),
     Freehand(Freehand),
+    Inset(Inset),
 }
 
 /// Identifies an Annotation within its Document. Never reused, so it survives undo and redo.

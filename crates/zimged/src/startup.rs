@@ -25,7 +25,13 @@ const FIRST_FRAME_WAIT: Duration = Duration::from_millis(400);
 
 pub fn run() -> eframe::Result {
     crate::bench::mark("main");
-    let path = std::env::args_os().nth(1).map(PathBuf::from);
+    let arg = std::env::args_os().nth(1);
+    // A window opened by Ctrl+Shift+V shows the clipboard image (§3.5, §6.1).
+    let from_clipboard = arg.as_deref()
+        == Some(std::ffi::OsStr::new(
+            zimged_platform::launcher::NEW_FROM_CLIPBOARD_ARG,
+        ));
+    let path = arg.filter(|_| !from_clipboard).map(PathBuf::from);
 
     // 1. Both threads start at once. The decode only needs the display box after the JPEG is
     //    decoded, by which time the config has long been read.
@@ -58,6 +64,7 @@ pub fn run() -> eframe::Result {
                 .unwrap_or(path.as_os_str())
                 .to_string_lossy()
         ),
+        None if from_clipboard => "Clipboard image - zimged".to_owned(),
         None => "zimged".to_owned(),
     };
     let options = eframe::NativeOptions {
@@ -67,6 +74,8 @@ pub fn run() -> eframe::Result {
             .with_inner_size([config.window.width, config.window.height])
             .with_maximized(config.window.maximised),
         renderer: eframe::Renderer::Glow,
+        // Ctrl+C / Ctrl+V reach the app as keys: zimged talks to the clipboard itself (§8.1).
+        clipboard_shortcuts: false,
         ..Default::default()
     };
     let launch = Launch {
@@ -75,6 +84,7 @@ pub fn run() -> eframe::Result {
         first_image,
         cache_cap: zimged_siblings::prefetch::CACHE_CAP_BYTES,
         history_pixel_cap: zimged_core::HISTORY_PIXEL_CAP,
+        from_clipboard,
     };
     eframe::run_native(
         "zimged",

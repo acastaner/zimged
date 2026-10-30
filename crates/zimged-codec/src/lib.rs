@@ -23,7 +23,9 @@ mod avif;
 mod colour;
 mod save;
 
-pub use save::{SaveError, SaveFormat, SourceInfo, WEBP_QUALITY, save, source_info};
+pub use save::{
+    SaveError, SaveFormat, SourceInfo, WEBP_QUALITY, encode_png_plain, save, source_info,
+};
 
 /// Pixel dimensions, width × height.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +70,20 @@ pub enum Pixels {
     Rgb(Vec<u8>),
     /// Images with an alpha channel, not premultiplied.
     Rgba(Vec<u8>),
+}
+
+impl DisplayImage {
+    /// The same image reduced to fit inside `max`, never enlarged (a pasted image's display-size
+    /// pixels, §3.5).
+    pub fn reduced(&self, max: Size) -> DisplayImage {
+        let target = fit_within(self.size, max);
+        DisplayImage {
+            original_size: self.original_size,
+            size: target,
+            pixels: resize(self.pixels.clone(), self.size, target),
+            may_animate: self.may_animate,
+        }
+    }
 }
 
 impl fmt::Debug for DisplayImage {
@@ -175,8 +191,27 @@ pub fn decode(path: &Path) -> Result<Decoded, DecodeError> {
         .with_guessed_format()
         .map_err(DecodeError::new)?;
     if reader.format() == Some(ImageFormat::Avif) {
-        return decode_avif(path);
+        return decode_avif(&std::fs::read(path).map_err(DecodeError::new)?);
     }
+    decode_reader(reader)
+}
+
+/// Decode an image held in memory (a clipboard image, §6.3) at its full resolution. The format is
+/// read from the data.
+pub fn decode_bytes(data: &[u8]) -> Result<Decoded, DecodeError> {
+    let reader = ImageReader::new(std::io::Cursor::new(data))
+        .with_guessed_format()
+        .map_err(DecodeError::new)?;
+    match reader.format() {
+        Some(ImageFormat::Avif) => decode_avif(data),
+        None => Err(DecodeError::new("not an image zimged can read")),
+        Some(_) => decode_reader(reader),
+    }
+}
+
+fn decode_reader<R: std::io::BufRead + std::io::Seek>(
+    reader: ImageReader<R>,
+) -> Result<Decoded, DecodeError> {
     let may_animate = matches!(reader.format(), Some(ImageFormat::Gif | ImageFormat::WebP));
     let mut decoder = reader.into_decoder().map_err(DecodeError::new)?;
     // Both come from headers the decoder has already read: nothing extra on the JPEG path (§1.3).
@@ -199,13 +234,12 @@ pub fn decode(path: &Path) -> Result<Decoded, DecodeError> {
 }
 
 #[cfg(feature = "avif")]
-fn decode_avif(path: &Path) -> Result<Decoded, DecodeError> {
-    let data = std::fs::read(path).map_err(DecodeError::new)?;
-    avif::decode(&data)
+fn decode_avif(data: &[u8]) -> Result<Decoded, DecodeError> {
+    avif::decode(data)
 }
 
 #[cfg(not(feature = "avif"))]
-fn decode_avif(_path: &Path) -> Result<Decoded, DecodeError> {
+fn decode_avif(_data: &[u8]) -> Result<Decoded, DecodeError> {
     Err(DecodeError::new("this build of zimged can't read AVIF"))
 }
 

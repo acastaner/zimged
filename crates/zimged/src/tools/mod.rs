@@ -18,7 +18,7 @@ mod rectangle;
 pub mod select;
 
 use zimged_core::{
-    AnnotationShape, Arrow, Document, Ellipse, Freehand, Line, Point, PropertyKind, Rect,
+    AnnotationShape, Arrow, Document, Ellipse, Freehand, Inset, Line, Point, PropertyKind, Rect,
     Rectangle, Style,
 };
 
@@ -36,6 +36,9 @@ pub enum ToolId {
     Highlight,
     Obfuscate,
     Crop,
+    /// Not in the tool strip: Insets are pasted or dropped, not drawn (§4.6). It owns their default
+    /// style (§4.3), saved as `tools.inset`.
+    Inset,
 }
 
 impl ToolId {
@@ -54,6 +57,22 @@ impl ToolId {
         ToolId::Crop,
     ];
 
+    /// Every tool with a style of its own (§4.3, §8.3): the tool strip's, and the Inset's.
+    pub const STYLED: [ToolId; 12] = [
+        ToolId::Select,
+        ToolId::Rectangle,
+        ToolId::Ellipse,
+        ToolId::Line,
+        ToolId::Arrow,
+        ToolId::Freehand,
+        ToolId::Text,
+        ToolId::StepCounter,
+        ToolId::Highlight,
+        ToolId::Obfuscate,
+        ToolId::Crop,
+        ToolId::Inset,
+    ];
+
     /// The tool's name: its button's accessibility label.
     pub fn name(self) -> &'static str {
         match self {
@@ -68,6 +87,7 @@ impl ToolId {
             ToolId::Highlight => "Highlight",
             ToolId::Obfuscate => "Obfuscate",
             ToolId::Crop => "Crop",
+            ToolId::Inset => "Inset",
         }
     }
 
@@ -85,6 +105,7 @@ impl ToolId {
             ToolId::Highlight => "highlight",
             ToolId::Obfuscate => "obfuscate",
             ToolId::Crop => "crop",
+            ToolId::Inset => "inset",
         }
     }
 
@@ -97,13 +118,14 @@ impl ToolId {
             AnnotationShape::Line(_) => ToolId::Line,
             AnnotationShape::Arrow(_) => ToolId::Arrow,
             AnnotationShape::Freehand(_) => ToolId::Freehand,
+            AnnotationShape::Inset(_) => ToolId::Inset,
         }
     }
 
-    /// The single-key shortcut (Greenshot's).
-    pub fn key(self) -> egui::Key {
+    /// The single-key shortcut (Greenshot's). `None` for the Inset, which isn't in the tool strip.
+    pub fn key(self) -> Option<egui::Key> {
         use egui::Key;
-        match self {
+        Some(match self {
             ToolId::Select => Key::Escape,
             ToolId::Rectangle => Key::R,
             ToolId::Ellipse => Key::E,
@@ -115,7 +137,8 @@ impl ToolId {
             ToolId::Highlight => Key::H,
             ToolId::Obfuscate => Key::O,
             ToolId::Crop => Key::C,
-        }
+            ToolId::Inset => return None,
+        })
     }
 
     /// The tool's behaviour, or `None` while it isn't built yet (its button is disabled).
@@ -144,6 +167,7 @@ impl ToolId {
             ToolId::Line => Line::PROPERTIES,
             ToolId::Arrow => Arrow::PROPERTIES,
             ToolId::Freehand => Freehand::PROPERTIES,
+            ToolId::Inset => Inset::PROPERTIES,
             _ => &[],
         }
     }

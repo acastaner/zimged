@@ -5,6 +5,7 @@
 mod arrow;
 mod ellipse;
 mod freehand;
+mod inset;
 mod line;
 mod rectangle;
 
@@ -19,6 +20,7 @@ pub fn draw(canvas: &sk::Canvas, annotation: &Annotation) {
         AnnotationShape::Line(s) => line::draw(canvas, s, style),
         AnnotationShape::Arrow(s) => arrow::draw(canvas, s, style),
         AnnotationShape::Freehand(s) => freehand::draw(canvas, s, style),
+        AnnotationShape::Inset(s) => inset::draw(canvas, s, style),
     }
 }
 

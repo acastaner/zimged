@@ -72,7 +72,7 @@ impl<'de> serde::Deserialize<'de> for Rgba {
     }
 }
 
-/// A fill colour in `config.toml`: a colour, or `"none"`.
+/// A fill or border colour in `config.toml`: a colour, or `"none"`.
 mod fill_serde {
     use super::Rgba;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -110,6 +110,9 @@ pub struct Style {
     pub shadow: bool,
     /// Which ends of an arrow carry a head.
     pub arrowheads: Arrowheads,
+    /// An Inset's border (§4.6): `None` is no border; its width is `thickness`.
+    #[serde(with = "fill_serde")]
+    pub border: Option<Rgba>,
 }
 
 /// Which ends of an arrow carry a head (§4.1 A).
@@ -161,6 +164,7 @@ impl Default for Style {
             thickness: 3.0,
             shadow: true,
             arrowheads: Arrowheads::End,
+            border: None,
         }
     }
 }
@@ -173,6 +177,7 @@ pub enum PropertyKind {
     Thickness,
     Shadow,
     Arrowheads,
+    BorderColour,
 }
 
 /// A style property with its value: one change in the property bar.
@@ -183,6 +188,8 @@ pub enum Property {
     Thickness(f32),
     Shadow(bool),
     Arrowheads(Arrowheads),
+    /// `None` is no border.
+    BorderColour(Option<Rgba>),
 }
 
 impl Property {
@@ -193,6 +200,7 @@ impl Property {
             Property::Thickness(_) => PropertyKind::Thickness,
             Property::Shadow(_) => PropertyKind::Shadow,
             Property::Arrowheads(_) => PropertyKind::Arrowheads,
+            Property::BorderColour(_) => PropertyKind::BorderColour,
         }
     }
 }
@@ -208,6 +216,7 @@ impl Style {
             PropertyKind::Thickness => Property::Thickness(self.thickness),
             PropertyKind::Shadow => Property::Shadow(self.shadow),
             PropertyKind::Arrowheads => Property::Arrowheads(self.arrowheads),
+            PropertyKind::BorderColour => Property::BorderColour(self.border),
         }
     }
 
@@ -229,6 +238,7 @@ impl Style {
             }
             Property::Shadow(s) => self.shadow = s,
             Property::Arrowheads(a) => self.arrowheads = a,
+            Property::BorderColour(c) => self.border = c,
         }
     }
 }
