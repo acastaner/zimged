@@ -7,8 +7,9 @@
 //! Dropping an [`Animation`] (a new Image replaces the shown one) stops its decode thread and frees
 //! its frames.
 //!
-//! Freezing on the first edit (#38): drop the shown Image's `Animation`, put
-//! [`Animation::first_frame`]'s pixels back on screen, and show the frozen state in the status bar.
+//! Freezing on the first edit (#38, `ShownImage::stop_animation`): drop the shown Image's
+//! `Animation`, put [`Animation::first_frame`]'s pixels back on screen, and show the frozen state in
+//! the status bar.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -88,24 +89,25 @@ impl Animation {
     }
 
     /// Frame 1's pixels, once decoded.
-    #[expect(
-        dead_code,
-        reason = "#38 puts frame 1 back on screen when an edit freezes"
-    )]
     pub fn first_frame(&self) -> Option<&Arc<egui::ColorImage>> {
         self.frames.first().map(|(pixels, _)| pixels)
     }
 
-    /// Take in the frames decoded since the last call and move on to the frame due at `now` (egui
-    /// time, seconds). Returns the frame to put on screen when it changed, and asks `ctx` for a
-    /// repaint when the next one is due.
-    pub fn tick(&mut self, now: f64, ctx: &egui::Context) -> Option<Arc<egui::ColorImage>> {
+    /// Take in the frames decoded since the last call, without moving on.
+    pub fn receive(&mut self) {
         while let Ok(message) = self.rx.try_recv() {
             match message {
                 Message::Frame(pixels, delay) => self.frames.push((pixels, delay)),
                 Message::Done => self.decoding = false,
             }
         }
+    }
+
+    /// Take in the frames decoded since the last call and move on to the frame due at `now` (egui
+    /// time, seconds). Returns the frame to put on screen when it changed, and asks `ctx` for a
+    /// repaint when the next one is due.
+    pub fn tick(&mut self, now: f64, ctx: &egui::Context) -> Option<Arc<egui::ColorImage>> {
+        self.receive();
         if self.frames.is_empty() {
             return None;
         }

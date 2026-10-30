@@ -16,7 +16,8 @@ pub const LABEL_ANIMATION: &str = "Animation";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnimationState {
     Playing,
-    // #38: `Frozen` ("⏸ frozen at frame 1"), once an edit freezes it.
+    /// The first edit stopped it on frame 1 (§3.4).
+    Frozen,
 }
 
 impl AnimationState {
@@ -24,6 +25,7 @@ impl AnimationState {
     fn text(self) -> &'static str {
         match self {
             Self::Playing => "▶ animated",
+            Self::Frozen => "⏸ frozen at frame 1",
         }
     }
 
@@ -32,6 +34,7 @@ impl AnimationState {
     fn drawn_text(self) -> &'static str {
         match self {
             Self::Playing => "animated",
+            Self::Frozen => "frozen at frame 1",
         }
     }
 }
@@ -101,6 +104,17 @@ fn animation_field(ui: &mut egui::Ui, state: AnimationState) {
                     colour,
                     egui::Stroke::NONE,
                 ));
+            }
+            AnimationState::Frozen => {
+                // Two bars: pause.
+                let bar = rect.width() / 3.0;
+                for left in [rect.left(), rect.right() - bar] {
+                    let bar = egui::Rect::from_min_size(
+                        egui::pos2(left, rect.top()),
+                        egui::vec2(bar, rect.height()),
+                    );
+                    ui.painter().rect_filled(bar, 0.0, colour);
+                }
             }
         }
         let response = ui
