@@ -11,6 +11,6 @@ mod history;
 pub mod style;
 
 pub use annotation::{Annotation, AnnotationId, AnnotationShape, Rectangle, Shape};
-pub use document::{Document, PixelData, Pixels};
+pub use document::{Document, PixelData, Pixels, Restack};
 pub use geometry::{Affine, Handle, Point, Rect, Vector};
 pub use style::{Property, PropertyKind, Rgba, Style};

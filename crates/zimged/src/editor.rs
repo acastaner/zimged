@@ -5,12 +5,12 @@
 //! what clears the History when moving to another Image (§4.8). The active tool and each tool's
 //! style outlive it.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use zimged_codec::Size;
-use zimged_core::{Document, PixelData, Property, PropertyKind, Shape, Style};
+use zimged_core::{Document, PixelData, Property, PropertyKind, Restack, Shape, Style, Vector};
 use zimged_render::{Composite, Renderer, Source, SourcePixels, View};
 
 use crate::decode::PendingFullDecode;
@@ -21,6 +21,9 @@ use crate::ui::canvas::{EditorPaint, Layout};
 pub const MAX_EDIT_PIXELS: u64 = 100_000_000;
 
 pub const VIEW_ONLY_MESSAGE: &str = "View only: image too large to edit";
+
+/// How far Ctrl+D moves the copies, right and down, in Image pixels (§4.2).
+pub const DUPLICATE_OFFSET: f32 = 10.0;
 
 /// The display-size pixels of the shown Image (shared with its texture), which the composite draws
 /// from unless zoomed past them.
@@ -59,7 +62,7 @@ struct PropertySession {
 pub struct Editor {
     tool: ToolId,
     behaviour: Box<dyn Tool>,
-    /// Each tool's current style (its defaults, §4.3). Persisting them is #27/#24.
+    /// Each tool's current style (its defaults, §4.3), saved as `tools.<tool>` in the config.
     styles: HashMap<ToolId, Style>,
     edited: Option<Edited>,
     /// Created on the first Annotation (§1.3, §7.2): creating it initialises Skia.
@@ -69,6 +72,8 @@ pub struct Editor {
     property_session: Option<PropertySession>,
     /// The selection box as painted last frame, in points.
     selection_box: Option<egui::Rect>,
+    /// The rubber band as painted last frame, in points.
+    rubber_band: Option<egui::Rect>,
 }
 
 impl Default for Editor {
@@ -88,7 +93,29 @@ impl Editor {
             pointer_down: false,
             property_session: None,
             selection_box: None,
+            rubber_band: None,
         }
+    }
+
+    /// An editor whose tools start with the styles saved in `config.toml` (`tools.<tool>`, §8.3).
+    /// A table that isn't a valid style leaves that tool on its defaults.
+    pub fn with_tool_styles(saved: &BTreeMap<String, toml::Table>) -> Self {
+        let mut editor = Self::new();
+        for tool in ToolId::ALL {
+            let Some(table) = saved.get(tool.config_key()) else {
+                continue;
+            };
+            match toml::Value::Table(table.clone()).try_into::<Style>() {
+                Ok(style) => {
+                    editor.styles.insert(tool, style.sanitised());
+                }
+                Err(e) => eprintln!(
+                    "zimged: tools.{} in config.toml is not a valid style, using the defaults: {e}",
+                    tool.config_key()
+                ),
+            }
+        }
+        editor
     }
 
     /// A new Image is on screen: start a fresh Document (and History).
@@ -137,6 +164,11 @@ impl Editor {
     /// The selection box (dashed, with 8 handles) as painted last frame, in points.
     pub fn selection_box(&self) -> Option<egui::Rect> {
         self.selection_box
+    }
+
+    /// The select tool's rubber band as painted last frame, in points.
+    pub fn rubber_band(&self) -> Option<egui::Rect> {
+        self.rubber_band
     }
 
     pub fn skia_initialised(&self) -> bool {
@@ -209,15 +241,51 @@ impl Editor {
         self.edited_idle().is_some_and(|e| e.doc.delete_selection())
     }
 
+    /// Ctrl+D: duplicate the selection, offset by [`DUPLICATE_OFFSET`] Image pixels.
+    pub fn duplicate_selection(&mut self) {
+        if let Some(e) = self.edited_idle() {
+            e.doc
+                .duplicate_selection(Vector::new(DUPLICATE_OFFSET, DUPLICATE_OFFSET));
+        }
+    }
+
+    pub fn restack(&mut self, restack: Restack) {
+        if let Some(e) = self.edited_idle() {
+            e.doc.restack(restack);
+        }
+    }
+
+    /// Restyle the selection, and make the change the default of the tools that create the
+    /// selected Annotations (§4.3). With nothing selected, it is the active tool's default.
     pub fn set_property(&mut self, property: Property, merge: bool) {
-        let tool = self.tool;
+        let mut tools = vec![self.tool];
         if let Some(e) = self.edited.as_mut().filter(|e| !e.doc.in_gesture())
             && e.doc.set_property(property.clone(), merge)
         {
-            return;
+            tools = e
+                .doc
+                .selected()
+                .map(|a| ToolId::for_shape(&a.shape))
+                .collect();
         }
-        // Nothing selected: the active tool's default for its next Annotation.
-        self.styles.entry(tool).or_default().set(property);
+        let kind = property.kind();
+        for tool in tools {
+            if tool.properties().contains(&kind) {
+                self.styles.entry(tool).or_default().set(property.clone());
+            }
+        }
+    }
+
+    /// The tools' styles as `tools.<tool>` tables for `config.toml` (§8.3): the ones changed (or
+    /// read from the config) this run.
+    pub fn tool_styles_config(&self) -> BTreeMap<String, toml::Table> {
+        self.styles
+            .iter()
+            .filter_map(|(tool, style)| {
+                let table = toml::Table::try_from(style).ok()?;
+                Some((tool.config_key().to_owned(), table))
+            })
+            .collect()
     }
 
     /// The edited Image, when no pointer gesture is in progress.
@@ -328,9 +396,15 @@ impl Editor {
             .and_then(|d| d.selection_bounds())
             .map(|r| layout.rect_to_screen(r));
         self.selection_box = selection;
+        let rubber_band = self
+            .behaviour
+            .rubber_band()
+            .map(|r| layout.rect_to_screen(r));
+        self.rubber_band = rubber_band;
         EditorPaint {
             composite,
             selection,
+            rubber_band,
         }
     }
 

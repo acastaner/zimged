@@ -172,6 +172,7 @@ impl ZimgedApp {
         }
         // Ctrl+plus / minus / 0 would scale the whole UI; the image zoom is on plain +, - and 0.
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        let editor = Editor::with_tool_styles(&launch.config.tools);
         Self {
             ctx: cc.egui_ctx.clone(),
             config_saver: ConfigSaver::new(launch.platform.config.clone()),
@@ -193,7 +194,7 @@ impl ZimgedApp {
             navigation: Navigation::new(launch.cache_cap),
             message: None,
             bench_nav: crate::bench::NavBench::from_env(),
-            editor: Editor::new(),
+            editor,
         }
     }
 
@@ -221,7 +222,14 @@ impl ZimgedApp {
                 // With nothing selected, Delete trashes the file (#22).
                 self.editor.delete_selection();
             }
-            Command::SetProperty { property, merge } => self.editor.set_property(property, merge),
+            Command::SetProperty { property, merge } => {
+                self.editor.set_property(property, merge);
+                // §4.3, §8.3: the tools' defaults persist between runs.
+                let styles = self.editor.tool_styles_config();
+                self.update_config(|config| config.tools.extend(styles));
+            }
+            Command::Duplicate => self.editor.duplicate_selection(),
+            Command::Restack(restack) => self.editor.restack(restack),
         }
     }
 
@@ -249,6 +257,11 @@ impl ZimgedApp {
     /// The selection box (dashed, with 8 handles) as painted last frame, in points.
     pub fn selection_box(&self) -> Option<egui::Rect> {
         self.editor.selection_box()
+    }
+
+    /// The select tool's rubber band (dashed) as painted last frame, in points.
+    pub fn rubber_band(&self) -> Option<egui::Rect> {
+        self.editor.rubber_band()
     }
 
     /// Over 100 MP: the tools are disabled (§4.7).
@@ -663,6 +676,9 @@ impl ZimgedApp {
         self.editor.property_interaction(out.active);
         if out.delete {
             self.execute(Command::Delete);
+        }
+        if let Some(restack) = out.restack {
+            self.execute(Command::Restack(restack));
         }
     }
 }

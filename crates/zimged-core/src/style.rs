@@ -32,11 +32,78 @@ impl Rgba {
     pub const BLACK: Rgba = Rgba::rgb(0, 0, 0);
 }
 
+/// `#rrggbb`, or `#rrggbbaa` when not opaque: how colours are written in `config.toml` (§8.3).
+impl std::fmt::Display for Rgba {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#{:02x}{:02x}{:02x}", self.r, self.g, self.b)?;
+        if self.a != 255 {
+            write!(f, "{:02x}", self.a)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::str::FromStr for Rgba {
+    type Err = String;
+
+    /// `#rrggbb` or `#rrggbbaa`.
+    fn from_str(s: &str) -> Result<Self, String> {
+        let bad = || format!("not a colour (#rrggbb or #rrggbbaa): {s:?}");
+        let hex = s.strip_prefix('#').ok_or_else(bad)?;
+        if !(hex.len() == 6 || hex.len() == 8) || !hex.is_ascii() {
+            return Err(bad());
+        }
+        let byte = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).map_err(|_| bad());
+        let a = if hex.len() == 8 { byte(6)? } else { 255 };
+        Ok(Self::new(byte(0)?, byte(2)?, byte(4)?, a))
+    }
+}
+
+impl serde::Serialize for Rgba {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Rgba {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+/// A fill colour in `config.toml`: a colour, or `"none"`.
+mod fill_serde {
+    use super::Rgba;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(fill: &Option<Rgba>, s: S) -> Result<S::Ok, S::Error> {
+        match fill {
+            Some(c) => s.collect_str(c),
+            None => s.serialize_str("none"),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Rgba>, D::Error> {
+        let s = String::deserialize(d)?;
+        if s == "none" {
+            return Ok(None);
+        }
+        s.parse().map(Some).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Every style property an Annotation can have. Types ignore the ones they don't list.
-#[derive(Clone, Debug, PartialEq)]
+///
+/// Each tool's style is saved as `tools.<tool>` in `config.toml` (§8.3) through serde: a new field
+/// is persisted automatically (its type needs `Serialize`/`Deserialize`), and a missing key takes
+/// its value from [`Style::default`].
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Style {
     pub line: Rgba,
     /// `None` is "no fill" (∅).
+    #[serde(with = "fill_serde")]
     pub fill: Option<Rgba>,
     /// Line thickness in Image pixels.
     pub thickness: f32,
@@ -95,6 +162,15 @@ impl Style {
             PropertyKind::Thickness => Property::Thickness(self.thickness),
             PropertyKind::Shadow => Property::Shadow(self.shadow),
         }
+    }
+
+    /// Values read from `config.toml` brought back into range.
+    pub fn sanitised(mut self) -> Self {
+        if !self.thickness.is_finite() {
+            self.thickness = Self::default().thickness;
+        }
+        self.set(Property::Thickness(self.thickness));
+        self
     }
 
     pub fn set(&mut self, property: Property) {

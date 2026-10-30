@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use zimged_core::Property;
+use zimged_core::{Property, Restack};
 
 use crate::tools::ToolId;
 
@@ -26,6 +26,11 @@ pub enum Command {
     /// when nothing is selected. `merge` folds it into the previous step when that changed the same
     /// property on the same Annotations (one widget interaction is one step).
     SetProperty { property: Property, merge: bool },
+    /// Ctrl+D (§4.2): duplicate the selected Annotations, offset by 10 px, without touching the
+    /// clipboard.
+    Duplicate,
+    /// Bring to front / Send to back (property bar), Ctrl+] / Ctrl+[ (§4.2).
+    Restack(Restack),
     /// Show the next Sibling (§3.1: wheel down, →).
     NextSibling,
     /// Show the previous Sibling (§3.1: wheel up, ←).

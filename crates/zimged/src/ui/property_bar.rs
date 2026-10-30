@@ -4,7 +4,7 @@
 //! accessibility label constant). Controls report changes as [`Property`] values; the app turns
 //! them into commands.
 
-use zimged_core::{Property, PropertyKind, Rgba, Style};
+use zimged_core::{Property, PropertyKind, Restack, Rgba, Style};
 
 pub const LABEL_LINE_COLOUR: &str = "Line colour";
 pub const LABEL_FILL_COLOUR: &str = "Fill colour";
@@ -12,6 +12,8 @@ pub const LABEL_NO_FILL: &str = "No fill";
 pub const LABEL_THICKNESS: &str = "Thickness";
 pub const LABEL_SHADOW: &str = "Shadow";
 pub const LABEL_DELETE: &str = "Delete";
+pub const LABEL_BRING_TO_FRONT: &str = "Bring to front";
+pub const LABEL_SEND_TO_BACK: &str = "Send to back";
 
 /// What the property bar shows this frame.
 pub struct PropertyBar<'a> {
@@ -31,6 +33,8 @@ pub struct Output {
     /// being dragged): its changes form one History step.
     pub active: Option<PropertyKind>,
     pub delete: bool,
+    /// Bring to front or Send to back was clicked.
+    pub restack: Option<Restack>,
 }
 
 pub fn show(ui: &mut egui::Ui, bar: &PropertyBar<'_>) -> Output {
@@ -44,7 +48,16 @@ pub fn show(ui: &mut egui::Ui, bar: &PropertyBar<'_>) -> Output {
             if bar.selection && ui.button("Delete").accessible_name(LABEL_DELETE).clicked() {
                 out.delete = true;
             }
-            // Bring to front and Send to back (#27) go here.
+            if bar.selection {
+                for (label, restack) in [
+                    (LABEL_BRING_TO_FRONT, Restack::Front),
+                    (LABEL_SEND_TO_BACK, Restack::Back),
+                ] {
+                    if ui.button(label).accessible_name(label).clicked() {
+                        out.restack = Some(restack);
+                    }
+                }
+            }
             if bar.properties.is_empty() && !bar.selection {
                 ui.weak(bar.hint);
             }
