@@ -26,6 +26,11 @@ pub enum Command {
     /// when nothing is selected. `merge` folds it into the previous step when that changed the same
     /// property on the same Annotations (one widget interaction is one step).
     SetProperty { property: Property, merge: bool },
+    /// Enter or Apply with the crop tool: crop the Image to the region (§4.7).
+    ApplyCrop,
+    /// Cancel with the crop tool: drop the region and go back to the select tool (Esc does the
+    /// same through `SelectTool`).
+    CancelCrop,
     /// Show the next Sibling (§3.1: wheel down, →).
     NextSibling,
     /// Show the previous Sibling (§3.1: wheel up, ←).

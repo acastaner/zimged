@@ -74,6 +74,7 @@ pub fn run() -> eframe::Result {
         config,
         first_image,
         cache_cap: zimged_siblings::prefetch::CACHE_CAP_BYTES,
+        history_pixel_cap: zimged_core::HISTORY_PIXEL_CAP,
     };
     eframe::run_native(
         "zimged",

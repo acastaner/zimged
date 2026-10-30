@@ -8,9 +8,12 @@ pub mod annotation;
 pub mod document;
 pub mod geometry;
 mod history;
+pub mod image_op;
 pub mod style;
 
 pub use annotation::{Annotation, AnnotationId, AnnotationShape, Rectangle, Shape};
 pub use document::{Document, PixelData, Pixels};
 pub use geometry::{Affine, Handle, Point, Rect, Vector};
+pub use history::HISTORY_PIXEL_CAP;
+pub use image_op::{ImageTransform, PixelRect};
 pub use style::{Property, PropertyKind, Rgba, Style};
