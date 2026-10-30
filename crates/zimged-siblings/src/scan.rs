@@ -67,7 +67,7 @@ impl SiblingList {
         match change {
             Change::Added(path) => {
                 let name = display_name(path);
-                if path.parent() != Some(self.dir.as_path()) || !is_candidate(&name, path) {
+                if path.parent() != Some(self.dir.as_path()) || !is_candidate_at(&name, path) {
                     return false;
                 }
                 let Err(index) = self.locate(path) else {
@@ -98,6 +98,24 @@ fn display_name(path: &Path) -> String {
 /// Is this file a Sibling candidate: with a supported extension, and not hidden (§3.2)?
 fn is_candidate(entry: &DirEntry, name: &str, path: &Path) -> bool {
     zimged_codec::has_read_extension(path) && !is_hidden(entry, name)
+}
+
+/// [`is_candidate`] for a file known only by its path (one the directory watcher reports).
+fn is_candidate_at(name: &str, path: &Path) -> bool {
+    zimged_codec::has_read_extension(path) && !is_hidden_at(path, name)
+}
+
+/// [`is_hidden`] for a file known only by its path: on Windows this costs a stat.
+#[cfg(windows)]
+fn is_hidden_at(path: &Path, _name: &str) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+    std::fs::metadata(path).is_ok_and(|m| m.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0)
+}
+
+#[cfg(not(windows))]
+fn is_hidden_at(_path: &Path, name: &str) -> bool {
+    name.starts_with('.')
 }
 
 /// Hidden as Explorer sees it: the hidden attribute (read from the directory listing, no extra
