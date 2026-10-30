@@ -1,16 +1,16 @@
 //! The status bar (§2): file name, Sibling position, pixel size, zoom, animation state, message.
 //!
-//! Each field is a label with a fixed accessibility label (the `LABEL_*` constants), so screen
+//! Each field is a label with a fixed accessibility label (from [`crate::strings`]), so screen
 //! readers and the headless tests find it by that name and read its text as the value.
 
 use zimged_codec::Size;
 
 use crate::view::Zoom;
 
-pub const LABEL_FILE_NAME: &str = "File name";
-pub const LABEL_PIXEL_SIZE: &str = "Pixel size";
-pub const LABEL_ZOOM: &str = "Zoom";
-pub const LABEL_ANIMATION: &str = "Animation";
+use crate::strings::{
+    self, ANIMATION as LABEL_ANIMATION, FILE_NAME as LABEL_FILE_NAME, MESSAGE as LABEL_MESSAGE,
+    PIXEL_SIZE as LABEL_PIXEL_SIZE, SIBLING_POSITION as LABEL_POSITION, ZOOM as LABEL_ZOOM,
+};
 
 /// The animation state of an animated Image (§3.4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,8 +24,8 @@ impl AnimationState {
     /// The spec's text (§2), which screen readers get.
     fn text(self) -> &'static str {
         match self {
-            Self::Playing => "▶ animated",
-            Self::Frozen => "⏸ frozen at frame 1",
+            Self::Playing => strings::ANIMATED,
+            Self::Frozen => strings::FROZEN,
         }
     }
 
@@ -33,13 +33,11 @@ impl AnimationState {
     /// panics on a missing glyph.
     fn drawn_text(self) -> &'static str {
         match self {
-            Self::Playing => "animated",
-            Self::Frozen => "frozen at frame 1",
+            Self::Playing => strings::ANIMATED_DRAWN,
+            Self::Frozen => strings::FROZEN_DRAWN,
         }
     }
 }
-pub const LABEL_POSITION: &str = "Sibling position";
-pub const LABEL_MESSAGE: &str = "Message";
 
 /// What the status bar shows this frame. `None` fields are left out.
 pub struct StatusBar<'a> {
@@ -63,7 +61,11 @@ pub fn show(ui: &mut egui::Ui, bar: &StatusBar<'_>) {
             ui.set_min_height(ui.spacing().interact_size.y);
             ui.spacing_mut().item_spacing.x = 16.0;
             if let Some(name) = bar.file_name {
-                let marker = if bar.modified { " •" } else { "" };
+                let marker = if bar.modified {
+                    strings::MODIFIED_MARKER
+                } else {
+                    ""
+                };
                 field(ui, LABEL_FILE_NAME, &format!("{name}{marker}"));
             }
             if let Some(position) = &bar.position {

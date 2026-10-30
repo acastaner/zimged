@@ -2,7 +2,7 @@
 //! replace the animated file <name> with a still image. All frames except the first will be lost.",
 //! with Cancel · Save As… · **Overwrite**. Modal; Esc is Cancel.
 
-pub const TITLE: &str = "Overwrite animated image?";
+use crate::strings;
 
 /// The button the user picked, if any this frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -16,24 +16,30 @@ pub fn show(ctx: &egui::Context, file_name: &str) -> Option<Answer> {
     let mut answer = None;
     egui::Modal::new(egui::Id::unique("zimged_overwrite_animation")).show(ctx, |ui| {
         ui.set_max_width(360.0);
-        ui.heading(TITLE);
-        ui.label(format!(
-            "Saving will replace the animated file {file_name} with a still image. \
-             All frames except the first will be lost."
-        ));
+        ui.heading(strings::OVERWRITE_TITLE);
+        ui.label(strings::overwrite_animation(file_name));
         ui.add_space(8.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Right to left: the primary button (bold) ends up last, on the right.
             if ui
-                .button(egui::RichText::new("Overwrite").strong())
+                .button(egui::RichText::new(strings::OVERWRITE).strong())
+                .accessible_name(strings::OVERWRITE)
                 .clicked()
             {
                 answer = Some(Answer::Overwrite);
             }
-            if ui.button("Save As…").clicked() {
+            if ui
+                .button(strings::SAVE_AS_BUTTON)
+                .accessible_name(strings::SAVE_AS_BUTTON)
+                .clicked()
+            {
                 answer = Some(Answer::SaveAs);
             }
-            if ui.button("Cancel").clicked() {
+            if ui
+                .button(strings::CANCEL)
+                .accessible_name(strings::CANCEL)
+                .clicked()
+            {
                 answer = Some(Answer::Cancel);
             }
         });

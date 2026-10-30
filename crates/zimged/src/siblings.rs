@@ -10,10 +10,6 @@ use zimged_siblings::{
     prefetch_window,
 };
 
-/// The transient messages at the ends of the list (§3.1).
-pub const FIRST_IMAGE: &str = "First image in folder";
-pub const LAST_IMAGE: &str = "Last image in folder";
-
 enum Scan {
     NotStarted,
     Running(PendingScan),
@@ -204,8 +200,8 @@ impl Navigation {
         let from = self.target.as_deref().unwrap_or(shown);
         let Some(index) = neighbour(list, from, direction) else {
             return Step::End(match direction {
-                Direction::Forward => LAST_IMAGE,
-                Direction::Backward => FIRST_IMAGE,
+                Direction::Forward => crate::strings::LAST_IMAGE,
+                Direction::Backward => crate::strings::FIRST_IMAGE,
             });
         };
         self.direction = direction;

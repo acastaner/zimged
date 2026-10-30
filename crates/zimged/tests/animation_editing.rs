@@ -259,7 +259,7 @@ fn the_prompts_save_from_save_changes_waits_for_the_overwrite_answer() {
 
     app.harness.key_press(Key::ArrowRight);
     app.harness.run();
-    app.control("Save").click();
+    app.dialog_control("Save").click();
     app.harness.run();
     assert!(prompt_shown(&app));
     app.control("Overwrite").click();

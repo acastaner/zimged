@@ -24,8 +24,6 @@ use crate::ui::canvas::{EditorPaint, Layout};
 /// Editing needs the full-resolution decode, allowed up to 100 MP (§4.7).
 pub const MAX_EDIT_PIXELS: u64 = 100_000_000;
 
-pub const VIEW_ONLY_MESSAGE: &str = "View only: image too large to edit";
-
 /// How far Ctrl+D moves the copies, right and down, in Image pixels (§4.2).
 pub const DUPLICATE_OFFSET: f32 = 10.0;
 

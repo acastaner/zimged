@@ -10,7 +10,6 @@ use std::time::Duration;
 use egui::Key;
 use egui_kittest::kittest::Queryable;
 use support::TestApp;
-use zimged::app::EMPTY_WINDOW_HINT;
 use zimged_platform::{MemoryTrash, Platform};
 
 const SMALL: &str = "small-320x240.jpg";
@@ -88,7 +87,8 @@ fn trashing_the_only_image_leaves_the_empty_window() {
 
     assert_eq!(trash.trashed(), vec![app.dir.path().join("only.jpg")]);
     assert!(app.harness.state().canvas().is_none());
-    app.harness.get_by_label(EMPTY_WINDOW_HINT);
+    app.harness
+        .get_by_label("Open (Ctrl+O), drop or paste (Ctrl+V) an image");
     assert_eq!(app.status_field("File name"), None);
     assert_eq!(app.status("Message"), "Moved to trash");
 

@@ -13,9 +13,7 @@ use zimged_core::{Annotation, AnnotationId, Document, PixelData, Pixels, Point, 
 use zimged_render::{Composite, Renderer, Source, SourcePixels, View};
 
 use crate::decode::{Pending, decode_full};
-
-/// The name of an Image pasted into the empty window, until it is saved (§3.5).
-pub const CLIPBOARD_IMAGE: &str = "Clipboard image";
+use crate::strings;
 
 /// What to save, and where.
 pub(crate) struct SaveJob {
@@ -131,7 +129,7 @@ fn copy_annotations(job: AnnotationsCopyJob) -> SaveResult {
         .filter(|a| job.ids.contains(&a.id))
         .collect();
     if copied.is_empty() {
-        return Err("nothing selected".into());
+        return Err(strings::NOTHING_SELECTED.into());
     }
     let json = zimged_core::clipboard::to_json(copied.iter().copied());
     let in_png: Vec<&Annotation> = copied
@@ -222,20 +220,20 @@ fn flatten_drawing(
         Some(full) => (full.clone(), None),
         None => {
             let decoded = source
-                .ok_or_else(|| "no pixels to save".to_owned())
+                .ok_or_else(|| strings::NO_PIXELS_TO_SAVE.to_owned())
                 .and_then(|source| decode_full(source).map_err(|e| e.to_string()))
                 .ok()
                 .filter(|p| (p.width, p.height) == (drawing.width(), drawing.height()));
             let full = match (decoded, fallback) {
                 (Some(pixels), _) => Arc::new(pixels),
                 (None, Some(fallback)) => Arc::new(from_color_image(fallback)),
-                (None, None) => return Err("the file changed or went away on disk".into()),
+                (None, None) => return Err(strings::FILE_CHANGED_OR_GONE.into()),
             };
             (full.clone(), Some(full))
         }
     };
     if (full.width, full.height) != (drawing.width(), drawing.height()) {
-        return Err("the file changed on disk".into());
+        return Err(strings::FILE_CHANGED.into());
     }
     drawing.set_full_resolution(full.clone());
     Ok((flatten(&drawing, &full), decoded))
@@ -316,7 +314,7 @@ pub(crate) fn in_place_format(path: &Path) -> Option<SaveFormat> {
 /// clipboard Image (no file) suggests "Clipboard image.png".
 pub(crate) fn suggestion(path: Option<&Path>) -> PathBuf {
     let Some(path) = path else {
-        return PathBuf::from(format!("{CLIPBOARD_IMAGE}.png"));
+        return PathBuf::from(format!("{}.png", strings::CLIPBOARD_IMAGE));
     };
     if in_place_format(path).is_some() {
         path.to_owned()

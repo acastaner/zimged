@@ -85,14 +85,16 @@ pub fn run() -> eframe::Result {
 
     // 3. The window and GL context, in parallel with the decode.
     let title = match &path {
-        Some(path) => format!(
-            "{} - zimged",
-            path.file_name()
+        Some(path) => crate::strings::window_title(Some(
+            &path
+                .file_name()
                 .unwrap_or(path.as_os_str())
-                .to_string_lossy()
-        ),
-        None if from_clipboard => "Clipboard image - zimged".to_owned(),
-        None => "zimged".to_owned(),
+                .to_string_lossy(),
+        )),
+        None if from_clipboard => {
+            crate::strings::window_title(Some(crate::strings::CLIPBOARD_IMAGE))
+        }
+        None => crate::strings::window_title(None),
     };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

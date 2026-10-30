@@ -98,13 +98,16 @@ fn to_px(size: egui::Vec2, ppp: f32) -> Size {
 /// Draw the canvas in the remaining space. Without an Image, `message` (an error or the
 /// empty-window hint) is centred on it. `image_size` is the Image's current size (Image
 /// operations change it, §4.7). `edit` handles the pointer (the canvas response) and says
-/// what to paint on top of the Image.
+/// what to paint on top of the Image. The canvas takes the keyboard focus only while text is
+/// typed on it (§4.4); otherwise Tab passes it by and the keys stay the viewer's (§8.6).
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
     shown: Option<&ShownImage>,
     image_size: Option<Size>,
     view: &mut View,
     message: Option<&str>,
+    focusable: bool,
     edit: impl FnOnce(&mut egui::Ui, &Layout, &egui::Response) -> EditorPaint,
 ) -> Layout {
     let frame = egui::Frame::NONE.fill(ui.visuals().extreme_bg_color);
@@ -125,11 +128,14 @@ pub fn show(
                 layout.image = Some(dest);
                 image.texture_for(to_px(dest.size(), ppp))
             });
-            let response = ui.interact(
-                rect,
-                ui.scope_id().with("canvas"),
-                egui::Sense::click_and_drag(),
-            );
+            let sense = if focusable {
+                egui::Sense::click_and_drag()
+            } else {
+                egui::Sense::CLICK | egui::Sense::DRAG
+            };
+            let response = ui
+                .interact(rect, ui.scope_id().with("canvas"), sense)
+                .accessible_name(crate::strings::CANVAS);
             let paint = edit(ui, &layout, &response);
 
             let painter = ui.painter().with_clip_rect(rect);

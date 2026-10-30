@@ -78,6 +78,13 @@ pub enum Command {
     NewFromClipboard,
     /// Ctrl+drop (§3.5, §4.6): insert this image file as an Inset.
     InsertFile(PathBuf),
+    /// File › Move to trash and its quick action (§2): trash the file on screen even with
+    /// Annotations selected (Delete would remove those instead).
+    Trash,
+    /// Help › Keyboard shortcuts.
+    ShowShortcuts,
+    /// Help › About zimged.
+    ShowAbout,
     /// View → *Allow multiple instances* (§8.3, §8.4). Persisted; takes effect at the next start.
     SetAllowMultipleInstances(bool),
 }

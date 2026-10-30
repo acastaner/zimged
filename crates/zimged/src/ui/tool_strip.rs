@@ -9,6 +9,7 @@
 use egui::{Color32, Pos2, Rect, Stroke, pos2, vec2};
 
 use crate::Command;
+use crate::strings;
 use crate::tools::ToolId;
 
 const BUTTON: f32 = 30.0;
@@ -23,10 +24,13 @@ pub fn show(ui: &mut egui::Ui, active: ToolId, can_edit: bool) -> Option<Command
                     let enabled = tool.is_available() && (can_edit || tool == ToolId::Select);
                     let button =
                         egui::Button::selectable(tool == active, "").min_size(vec2(BUTTON, BUTTON));
+                    let name = strings::tool_name(tool);
+                    let tooltip = strings::with_shortcut(name, key_label(tool).unwrap_or(""));
                     let response = ui
                         .add_enabled(enabled, button)
-                        .on_hover_text(format!("{} ({})", tool.name(), key_label(tool)))
-                        .accessible_name(tool.name());
+                        .on_hover_text(&tooltip)
+                        .on_disabled_hover_text(&tooltip)
+                        .accessible_name(name);
                     let colour = if enabled {
                         ui.visuals().widgets.inactive.fg_stroke.color
                     } else {
@@ -42,11 +46,11 @@ pub fn show(ui: &mut egui::Ui, active: ToolId, can_edit: bool) -> Option<Command
     command
 }
 
-fn key_label(tool: ToolId) -> &'static str {
-    match tool.key() {
-        Some(egui::Key::Escape) => "Esc",
-        Some(key) => key.name(),
-        None => "",
+/// The tool's key as shown in tooltips and the shortcuts list (§4.1).
+pub fn key_label(tool: ToolId) -> Option<&'static str> {
+    match tool.key()? {
+        egui::Key::Escape => Some(strings::KEY_ESC),
+        key => Some(key.name()),
     }
 }
 
