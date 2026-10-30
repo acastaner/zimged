@@ -557,6 +557,15 @@ impl TestApp {
         })
     }
 
+    /// Like [`Self::control`], but only inside the modal dialog that is up (a quick action or a
+    /// menu entry may carry the same label: "Save", "Cancel").
+    pub fn dialog_control(&self, label: &str) -> egui_kittest::Node<'_> {
+        let wanted = label.to_owned();
+        self.harness.get_by_role(Role::Dialog).get_by(move |node| {
+            node.role() != Role::Label && node.label().as_deref() == Some(wanted.as_str())
+        })
+    }
+
     /// Compare the canvas composite (§7.2) with `tests/golden/<name>.png`, within a tolerance.
     /// Set `ZIMGED_UPDATE_GOLDEN=1` to (re)write the golden file instead.
     pub fn assert_golden(&self, name: &str) {

@@ -148,13 +148,6 @@ pub enum ObfuscateMode {
 impl ObfuscateMode {
     /// In the order the property bar lists them.
     pub const ALL: [ObfuscateMode; 2] = [ObfuscateMode::Pixelate, ObfuscateMode::Blur];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            ObfuscateMode::Pixelate => "Pixelate",
-            ObfuscateMode::Blur => "Blur",
-        }
-    }
 }
 
 /// The highlight's modes (§4.2).
@@ -182,15 +175,6 @@ impl HighlightMode {
         HighlightMode::Grayscale,
         HighlightMode::Magnify,
     ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            HighlightMode::Text => "Text",
-            HighlightMode::Area => "Area",
-            HighlightMode::Grayscale => "Grayscale",
-            HighlightMode::Magnify => "Magnify",
-        }
-    }
 }
 
 /// Which ends of an arrow carry a head (§4.1 A).
@@ -214,15 +198,6 @@ impl Arrowheads {
         Arrowheads::Both,
         Arrowheads::None,
     ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Arrowheads::End => "End",
-            Arrowheads::Start => "Start",
-            Arrowheads::Both => "Both",
-            Arrowheads::None => "None",
-        }
-    }
 
     pub fn at_start(self) -> bool {
         matches!(self, Arrowheads::Start | Arrowheads::Both)

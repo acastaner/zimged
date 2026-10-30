@@ -23,8 +23,8 @@ impl Zoom {
     /// What the status bar shows: `Fit` or a percentage (§2).
     pub fn label(self) -> String {
         match self {
-            Zoom::Fit => "Fit".to_owned(),
-            Zoom::Scale(scale) => format!("{:.0}%", scale * 100.0),
+            Zoom::Fit => crate::strings::ZOOM_FIT.to_owned(),
+            Zoom::Scale(scale) => crate::strings::zoom_percent(scale),
         }
     }
 }

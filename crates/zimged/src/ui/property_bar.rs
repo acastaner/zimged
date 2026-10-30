@@ -8,32 +8,7 @@ use zimged_core::{
     Arrowheads, HighlightMode, ObfuscateMode, Property, PropertyKind, Restack, Rgba, Style,
 };
 
-pub const LABEL_LINE_COLOUR: &str = "Line colour";
-pub const LABEL_FILL_COLOUR: &str = "Fill colour";
-pub const LABEL_NO_FILL: &str = "No fill";
-pub const LABEL_THICKNESS: &str = "Thickness";
-pub const LABEL_SHADOW: &str = "Shadow";
-pub const LABEL_COUNTER_SIZE: &str = "Size";
-pub const LABEL_ARROWHEADS: &str = "Arrowheads";
-pub const LABEL_BORDER_COLOUR: &str = "Border colour";
-pub const LABEL_NO_BORDER: &str = "No border";
-pub const LABEL_DELETE: &str = "Delete";
-pub const LABEL_TEXT_COLOUR: &str = "Text colour";
-pub const LABEL_FONT: &str = "Font";
-pub const LABEL_FONT_SIZE: &str = "Size";
-pub const LABEL_CROP_SIZE: &str = "Crop size";
-pub const LABEL_APPLY: &str = "Apply";
-pub const LABEL_CANCEL: &str = "Cancel";
-pub const LABEL_BRING_TO_FRONT: &str = "Bring to front";
-pub const LABEL_SEND_TO_BACK: &str = "Send to back";
-pub const LABEL_HIGHLIGHT_COLOUR: &str = "Highlight colour";
-pub const LABEL_MAGNIFICATION: &str = "Magnification";
-pub const LABEL_STRENGTH: &str = "Strength";
-
-/// The accessibility label of a highlight mode's button: "Text highlight", "Magnify highlight", …
-pub fn highlight_mode_label(mode: HighlightMode) -> String {
-    format!("{} highlight", mode.name())
-}
+use crate::strings;
 
 /// What the property bar shows this frame.
 pub struct PropertyBar<'a> {
@@ -71,13 +46,18 @@ pub fn show(ui: &mut egui::Ui, bar: &PropertyBar<'_>) -> Output {
             for kind in bar.properties {
                 control(ui, *kind, bar, &mut out);
             }
-            if bar.selection && ui.button("Delete").accessible_name(LABEL_DELETE).clicked() {
+            if bar.selection
+                && ui
+                    .button(strings::DELETE)
+                    .accessible_name(strings::DELETE)
+                    .clicked()
+            {
                 out.delete = true;
             }
             if bar.selection {
                 for (label, restack) in [
-                    (LABEL_BRING_TO_FRONT, Restack::Front),
-                    (LABEL_SEND_TO_BACK, Restack::Back),
+                    (strings::BRING_TO_FRONT, Restack::Front),
+                    (strings::SEND_TO_BACK, Restack::Back),
                 ] {
                     if ui.button(label).accessible_name(label).clicked() {
                         out.restack = Some(restack);
@@ -85,17 +65,18 @@ pub fn show(ui: &mut egui::Ui, bar: &PropertyBar<'_>) -> Output {
                 }
             }
             if let Some(size) = bar.crop {
-                ui.label(size.to_string()).accessible_name(LABEL_CROP_SIZE);
+                ui.label(size.to_string())
+                    .accessible_name(strings::CROP_SIZE);
                 if ui
-                    .button("Apply (Enter)")
-                    .accessible_name(LABEL_APPLY)
+                    .button(strings::APPLY_BUTTON)
+                    .accessible_name(strings::APPLY)
                     .clicked()
                 {
                     out.apply_crop = true;
                 }
                 if ui
-                    .button("Cancel (Esc)")
-                    .accessible_name(LABEL_CANCEL)
+                    .button(strings::CANCEL_BUTTON)
+                    .accessible_name(strings::CANCEL)
                     .clicked()
                 {
                     out.cancel_crop = true;
@@ -112,22 +93,22 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &m
     let style = bar.style;
     match kind {
         PropertyKind::LineColour => {
-            ui.label("Line");
-            if let Some(c) = colour(ui, style.line, LABEL_LINE_COLOUR, kind, out) {
+            ui.label(strings::CAPTION_LINE);
+            if let Some(c) = colour(ui, style.line, strings::LINE_COLOUR, kind, out) {
                 out.changes.push(Property::LineColour(c));
             }
         }
         PropertyKind::FillColour => {
-            ui.label("Fill");
+            ui.label(strings::CAPTION_FILL);
             let shown = style.fill.unwrap_or(Rgba::WHITE);
-            if let Some(c) = colour(ui, shown, LABEL_FILL_COLOUR, kind, out) {
+            if let Some(c) = colour(ui, shown, strings::FILL_COLOUR, kind, out) {
                 out.changes.push(Property::FillColour(Some(c)));
             }
             let none = style.fill.is_none();
             if ui
-                .add(egui::Button::selectable(none, "None"))
-                .on_hover_text("No fill")
-                .accessible_name(LABEL_NO_FILL)
+                .add(egui::Button::selectable(none, strings::NONE))
+                .on_hover_text(strings::NO_FILL)
+                .accessible_name(strings::NO_FILL)
                 .clicked()
             {
                 out.changes
@@ -135,16 +116,16 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &m
             }
         }
         PropertyKind::BorderColour => {
-            ui.label("Border");
+            ui.label(strings::CAPTION_BORDER);
             let shown = style.border.unwrap_or(Rgba::BLACK);
-            if let Some(c) = colour(ui, shown, LABEL_BORDER_COLOUR, kind, out) {
+            if let Some(c) = colour(ui, shown, strings::BORDER_COLOUR, kind, out) {
                 out.changes.push(Property::BorderColour(Some(c)));
             }
             let none = style.border.is_none();
             if ui
-                .add(egui::Button::selectable(none, "None"))
-                .on_hover_text("No border")
-                .accessible_name(LABEL_NO_BORDER)
+                .add(egui::Button::selectable(none, strings::NONE))
+                .on_hover_text(strings::NO_BORDER)
+                .accessible_name(strings::NO_BORDER)
                 .clicked()
             {
                 out.changes.push(Property::BorderColour(if none {
@@ -155,12 +136,12 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &m
             }
         }
         PropertyKind::Thickness => {
-            ui.label("Thickness");
+            ui.label(strings::THICKNESS);
             let mut value = style.thickness;
             let range = zimged_core::style::THICKNESS_RANGE;
             let response = ui
                 .add(egui::DragValue::new(&mut value).range(range).speed(0.1))
-                .accessible_name(LABEL_THICKNESS);
+                .accessible_name(strings::THICKNESS);
             if response.dragged() || response.has_focus() {
                 out.active = Some(kind);
             }
@@ -169,12 +150,12 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &m
             }
         }
         PropertyKind::CounterSize => {
-            ui.label("Size");
+            ui.label(strings::CAPTION_SIZE);
             let mut value = style.counter_size;
             let range = zimged_core::style::COUNTER_SIZE_RANGE;
             let response = ui
                 .add(egui::DragValue::new(&mut value).range(range).speed(0.5))
-                .accessible_name(LABEL_COUNTER_SIZE);
+                .accessible_name(strings::COUNTER_SIZE);
             if response.dragged() || response.has_focus() {
                 out.active = Some(kind);
             }
@@ -185,16 +166,16 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &m
         PropertyKind::Shadow => {
             let mut on = style.shadow;
             if ui
-                .checkbox(&mut on, "Shadow")
-                .accessible_name(LABEL_SHADOW)
+                .checkbox(&mut on, strings::SHADOW)
+                .accessible_name(strings::SHADOW)
                 .changed()
             {
                 out.changes.push(Property::Shadow(on));
             }
         }
         PropertyKind::TextColour => {
-            ui.label("Text");
-            if let Some(c) = colour(ui, style.line, LABEL_TEXT_COLOUR, kind, out) {
+            ui.label(strings::CAPTION_TEXT);
+            if let Some(c) = colour(ui, style.line, strings::TEXT_COLOUR, kind, out) {
                 out.changes.push(Property::TextColour(c));
             }
         }
@@ -215,18 +196,18 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &m
                     }
                 })
                 .response;
-            response.accessible_name(LABEL_FONT);
+            response.accessible_name(strings::FONT);
             if let Some(family) = chosen.filter(|f| *f != style.font) {
                 out.changes.push(Property::Font(family));
             }
         }
         PropertyKind::FontSize => {
-            ui.label("Size");
+            ui.label(strings::CAPTION_SIZE);
             let mut value = style.font_size;
             let range = zimged_core::style::FONT_SIZE_RANGE;
             let response = ui
                 .add(egui::DragValue::new(&mut value).range(range).speed(0.25))
-                .accessible_name(LABEL_FONT_SIZE);
+                .accessible_name(strings::FONT_SIZE);
             if response.dragged() || response.has_focus() {
                 out.active = Some(kind);
             }
@@ -235,28 +216,28 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &m
             }
         }
         PropertyKind::Arrowheads => {
-            ui.label("Arrowheads");
+            ui.label(strings::ARROWHEADS);
             let mut value = style.arrowheads;
-            let _ = egui::ComboBox::from_id_salt(LABEL_ARROWHEADS)
-                .selected_text(value.name())
+            let _ = egui::ComboBox::from_id_salt(strings::ARROWHEADS)
+                .selected_text(strings::arrowheads(value))
                 .show_ui(ui, |ui| {
                     for option in Arrowheads::ALL {
-                        ui.selectable_value(&mut value, option, option.name());
+                        ui.selectable_value(&mut value, option, strings::arrowheads(option));
                     }
                 })
                 .response
-                .accessible_name(LABEL_ARROWHEADS);
+                .accessible_name(strings::ARROWHEADS);
             if value != style.arrowheads {
                 out.changes.push(Property::Arrowheads(value));
             }
         }
         PropertyKind::HighlightMode => {
-            ui.label("Mode");
+            ui.label(strings::CAPTION_MODE);
             for mode in HighlightMode::ALL {
                 let on = style.highlight_mode == mode;
                 if ui
-                    .add(egui::Button::selectable(on, mode.name()))
-                    .accessible_name(highlight_mode_label(mode))
+                    .add(egui::Button::selectable(on, strings::highlight_mode(mode)))
+                    .accessible_name(strings::highlight_mode_label(mode))
                     .clicked()
                     && !on
                 {
@@ -267,20 +248,20 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &m
         // §4.3: the colour applies to text mode only, the magnification to magnify mode only.
         PropertyKind::HighlightColour => {
             if style.highlight_mode == HighlightMode::Text {
-                ui.label("Colour");
-                if let Some(c) = colour(ui, style.highlight, LABEL_HIGHLIGHT_COLOUR, kind, out) {
+                ui.label(strings::CAPTION_COLOUR);
+                if let Some(c) = colour(ui, style.highlight, strings::HIGHLIGHT_COLOUR, kind, out) {
                     out.changes.push(Property::HighlightColour(c));
                 }
             }
         }
         PropertyKind::Magnification => {
             if style.highlight_mode == HighlightMode::Magnify {
-                ui.label("Magnification");
+                ui.label(strings::MAGNIFICATION);
                 let mut value = style.magnification;
                 let range = zimged_core::style::MAGNIFICATION_RANGE;
                 let response = ui
                     .add(egui::DragValue::new(&mut value).range(range).speed(0.05))
-                    .accessible_name(LABEL_MAGNIFICATION);
+                    .accessible_name(strings::MAGNIFICATION);
                 if response.dragged() || response.has_focus() {
                     out.active = Some(kind);
                 }
@@ -291,12 +272,12 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &m
         }
         // The mode buttons are labelled by the mode alone: "Pixelate", "Blur".
         PropertyKind::ObfuscateMode => {
-            ui.label("Mode");
+            ui.label(strings::CAPTION_MODE);
             for mode in ObfuscateMode::ALL {
                 let on = style.obfuscate_mode == mode;
                 if ui
-                    .add(egui::Button::selectable(on, mode.name()))
-                    .accessible_name(mode.name())
+                    .add(egui::Button::selectable(on, strings::obfuscate_mode(mode)))
+                    .accessible_name(strings::obfuscate_mode(mode))
                     .clicked()
                     && !on
                 {
@@ -306,7 +287,7 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &m
         }
         // §4.2: the pixelate block size or the blur radius, in Image pixels.
         PropertyKind::Strength => {
-            ui.label("Strength");
+            ui.label(strings::STRENGTH);
             let mut value = style.strength;
             let range = zimged_core::style::STRENGTH_RANGE;
             let response = ui
@@ -314,9 +295,9 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &m
                     egui::DragValue::new(&mut value)
                         .range(range)
                         .speed(0.2)
-                        .suffix(" px"),
+                        .suffix(strings::PIXELS_SUFFIX),
                 )
-                .accessible_name(LABEL_STRENGTH);
+                .accessible_name(strings::STRENGTH);
             if response.dragged() || response.has_focus() {
                 out.active = Some(kind);
             }

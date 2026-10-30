@@ -79,20 +79,7 @@ impl ToolId {
 
     /// The tool's name: its button's accessibility label.
     pub fn name(self) -> &'static str {
-        match self {
-            ToolId::Select => "Select",
-            ToolId::Rectangle => "Rectangle",
-            ToolId::Ellipse => "Ellipse",
-            ToolId::Line => "Line",
-            ToolId::Arrow => "Arrow",
-            ToolId::Freehand => "Freehand",
-            ToolId::Text => "Text",
-            ToolId::StepCounter => "Step counter",
-            ToolId::Highlight => "Highlight",
-            ToolId::Obfuscate => "Obfuscate",
-            ToolId::Crop => "Crop",
-            ToolId::Inset => "Inset",
-        }
+        crate::strings::tool_name(self)
     }
 
     /// The tool's key under `tools` in `config.toml` (§8.3): `tools.rectangle`, ….
@@ -198,11 +185,7 @@ impl ToolId {
 
     /// The property bar's hint when the tool has no controls to show.
     pub fn hint(self) -> &'static str {
-        match self {
-            ToolId::Select => "Click an Annotation to select it",
-            ToolId::Crop => "Drag the region to keep",
-            _ => "",
-        }
+        crate::strings::tool_hint(self)
     }
 }
 

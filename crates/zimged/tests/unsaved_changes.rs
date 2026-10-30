@@ -37,7 +37,7 @@ fn prompt_shown(app: &TestApp) -> bool {
 
 /// Click one of the prompt's buttons and settle.
 fn answer(app: &mut TestApp, button: &str) {
-    app.control(button).click();
+    app.dialog_control(button).click();
     app.settle();
 }
 
@@ -58,7 +58,7 @@ fn moving_to_a_sibling_with_unsaved_changes_asks_first() {
     app.harness.get_by_label("a.jpg has unsaved changes.");
     app.control("Cancel");
     app.control("Discard");
-    app.control("Save");
+    app.dialog_control("Save");
     assert_eq!(app.status("File name"), "a.jpg •");
 }
 

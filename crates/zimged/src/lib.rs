@@ -16,6 +16,7 @@ mod paste;
 mod save;
 mod siblings;
 pub mod startup;
+pub mod strings;
 pub mod tools;
 mod ui;
 pub mod view;

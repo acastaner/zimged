@@ -10,25 +10,65 @@ use zimged_core::Restack;
 use crate::Command;
 use crate::tools::ToolId;
 
-const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
-const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
-const SAVE_AS: KeyboardShortcut =
+// The §6.1 shortcuts. `Modifiers::COMMAND` is Ctrl, and Cmd on macOS. The menus show the same
+// shortcuts beside their entries.
+pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
+pub const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
+pub const SAVE_AS: KeyboardShortcut =
     KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::S);
 // The window is started with eframe's clipboard shortcuts off (`startup.rs`), so these arrive as
 // plain key events rather than egui's Copy and Paste events.
-const COPY: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::C);
-const PASTE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::V);
-const NEW_FROM_CLIPBOARD: KeyboardShortcut =
+pub const COPY: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::C);
+pub const PASTE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::V);
+pub const NEW_FROM_CLIPBOARD: KeyboardShortcut =
     KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::V);
+pub const UNDO: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Z);
+pub const REDO: KeyboardShortcut =
+    KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::Z);
+pub const REDO_Y: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::Y);
+pub const DUPLICATE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::D);
+pub const RAISE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::CloseBracket);
+pub const LOWER: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::OpenBracket);
+
+/// The arrow keys move the keyboard focus (§8.6): → and ↓ to the next control, ← and ↑ to the
+/// previous one, in Tab order. egui's own arrow navigation goes by geometry, which jumps from the
+/// property bar up into the menu bar; zimged's chrome is rows (menu bar, property bar) and a column
+/// (tool strip), so Tab order is what the arrows mean. Only while a control has the focus and no
+/// text is being typed (text fields keep their arrows for the caret).
+pub fn arrows_move_focus(ctx: &egui::Context, typing: bool) {
+    if typing || ctx.memory(|m| m.focused()).is_none() {
+        return;
+    }
+    let direction = ctx.input(|input| {
+        input.events.iter().rev().find_map(|event| match event {
+            Event::Key {
+                key,
+                pressed: true,
+                modifiers,
+                ..
+            } if !modifiers.any() => match key {
+                Key::ArrowRight | Key::ArrowDown => Some(egui::FocusDirection::Next),
+                Key::ArrowLeft | Key::ArrowUp => Some(egui::FocusDirection::Previous),
+                _ => None,
+            },
+            _ => None,
+        })
+    });
+    if let Some(direction) = direction {
+        ctx.memory_mut(|m| m.move_focus(direction));
+    }
+}
 
 /// Points of smooth (touchpad) scrolling that count as one wheel notch.
 const POINTS_PER_STEP: f32 = 50.0;
 
 /// The commands this frame's input asks for, in order. `canvas` is the canvas as of the last frame:
-/// Ctrl+wheel only zooms while the pointer is over it.
-pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>) -> Vec<Command> {
+/// Ctrl+wheel only zooms while the pointer is over it. `typing` is true while text is being typed
+/// (the text tool, a dialog's text field): it has the keyboard to itself, Ctrl+C/V/Z included.
+pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>, typing: bool) -> Vec<Command> {
     let mut commands = Vec::new();
-    // Plain keys belong to a focused text field (the text tool, a dialog) when there is one.
+    // A focused control (reached with Tab, §8.6) keeps the plain keys: the arrows move the focus,
+    // Enter and Space press it, Esc lets go of it. Shortcuts with Ctrl (Cmd) still work.
     let plain_keys = !ctx.egui_wants_keyboard_input();
     ctx.input_mut(|input| {
         if input.consume_shortcut(&OPEN) {
@@ -41,18 +81,12 @@ pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>) -> Vec<Command>
         if input.consume_shortcut(&SAVE) {
             commands.push(Command::Save);
         }
-        // A focused text field (the text tool, a dialog) has the clipboard keys to itself.
-        if plain_keys {
-            // Ctrl+Shift+V first: egui ignores an extra Shift when matching Ctrl+V.
-            if input.consume_shortcut(&NEW_FROM_CLIPBOARD) {
-                commands.push(Command::NewFromClipboard);
-            }
-            if input.consume_shortcut(&PASTE) {
-                commands.push(Command::Paste);
-            }
-            if input.consume_shortcut(&COPY) {
-                commands.push(Command::Copy);
-            }
+        if !typing {
+            command_keys(input, &mut commands);
+        }
+        // F11 means nothing to a focused control.
+        if !typing && input.consume_key(Modifiers::NONE, Key::F11) {
+            commands.push(Command::ToggleFullscreen);
         }
         if plain_keys {
             // `+` is Shift+= on many layouts; `=` alone also zooms in, as in most viewers.
@@ -66,9 +100,6 @@ pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>) -> Vec<Command>
             }
             if input.consume_key(Modifiers::NONE, Key::Num0) {
                 commands.push(Command::ZoomFit);
-            }
-            if input.consume_key(Modifiers::NONE, Key::F11) {
-                commands.push(Command::ToggleFullscreen);
             }
             // → / ← move through the Siblings.
             if input.consume_key(Modifiers::NONE, Key::ArrowRight) {
@@ -102,26 +133,38 @@ pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>) -> Vec<Command>
     commands
 }
 
-/// The editor's keys: History (§4.8), Delete (§4.2) and the tool keys (§4.1). Match the most
-/// specific modifiers first: egui ignores extra Shift and Alt when matching.
-fn editor_keys(input: &mut egui::InputState, commands: &mut Vec<Command>) {
-    if input.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
-        || input.consume_key(Modifiers::COMMAND, Key::Y)
-    {
+/// The Ctrl (Cmd) shortcuts of §6.1 other than open and save: the clipboard, History (§4.8),
+/// duplicate and stacking (§4.2). Match the most specific modifiers first: egui ignores an extra
+/// Shift when matching.
+fn command_keys(input: &mut egui::InputState, commands: &mut Vec<Command>) {
+    if input.consume_shortcut(&NEW_FROM_CLIPBOARD) {
+        commands.push(Command::NewFromClipboard);
+    }
+    if input.consume_shortcut(&PASTE) {
+        commands.push(Command::Paste);
+    }
+    if input.consume_shortcut(&COPY) {
+        commands.push(Command::Copy);
+    }
+    if input.consume_shortcut(&REDO) || input.consume_shortcut(&REDO_Y) {
         commands.push(Command::Redo);
     }
-    if input.consume_key(Modifiers::COMMAND, Key::Z) {
+    if input.consume_shortcut(&UNDO) {
         commands.push(Command::Undo);
     }
-    if input.consume_key(Modifiers::COMMAND, Key::D) {
+    if input.consume_shortcut(&DUPLICATE) {
         commands.push(Command::Duplicate);
     }
-    if input.consume_key(Modifiers::COMMAND, Key::CloseBracket) {
+    if input.consume_shortcut(&RAISE) {
         commands.push(Command::Restack(Restack::Up));
     }
-    if input.consume_key(Modifiers::COMMAND, Key::OpenBracket) {
+    if input.consume_shortcut(&LOWER) {
         commands.push(Command::Restack(Restack::Down));
     }
+}
+
+/// The editor's plain keys: Delete (§4.2), Enter for crop and the tool keys (§4.1).
+fn editor_keys(input: &mut egui::InputState, commands: &mut Vec<Command>) {
     if input.consume_key(Modifiers::NONE, Key::Delete) {
         commands.push(Command::Delete);
     }

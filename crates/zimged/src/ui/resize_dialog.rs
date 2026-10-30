@@ -5,15 +5,7 @@
 use egui::{Key, Modifiers};
 use zimged_codec::Size;
 
-pub const LABEL_WIDTH: &str = "Width";
-pub const LABEL_HEIGHT: &str = "Height";
-pub const LABEL_PIXELS: &str = "Pixels";
-pub const LABEL_PERCENT: &str = "Percent";
-pub const LABEL_LOCK: &str = "Lock aspect ratio";
-/// The read-out of the size the Image will have, in pixels (`160×120`).
-pub const LABEL_NEW_SIZE: &str = "New size";
-pub const LABEL_CANCEL: &str = "Cancel";
-pub const LABEL_RESIZE: &str = "Resize";
+use crate::strings;
 
 /// What the dialog's fields are in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,21 +116,21 @@ impl ResizeDialog {
         let mut outcome = None;
         egui::Modal::new(egui::Id::unique("resize_dialog")).show(ctx, |ui| {
             ui.set_min_width(260.0);
-            ui.heading("Resize");
+            ui.heading(strings::RESIZE_TITLE);
             ui.add_space(6.0);
             egui::Grid::new("resize_fields")
                 .num_columns(2)
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label("Width");
+                    ui.label(strings::WIDTH);
                     let w = ui
                         .add(egui::TextEdit::singleline(&mut self.width).desired_width(80.0))
-                        .accessible_name(LABEL_WIDTH);
+                        .accessible_name(strings::WIDTH);
                     ui.end_row();
-                    ui.label("Height");
+                    ui.label(strings::HEIGHT);
                     let h = ui
                         .add(egui::TextEdit::singleline(&mut self.height).desired_width(80.0))
-                        .accessible_name(LABEL_HEIGHT);
+                        .accessible_name(strings::HEIGHT);
                     ui.end_row();
                     if self.lock && w.changed() {
                         self.follow(true);
@@ -148,33 +140,42 @@ impl ResizeDialog {
                 });
             ui.horizontal(|ui| {
                 let mut unit = self.unit;
-                ui.selectable_value(&mut unit, Unit::Pixels, "px")
-                    .accessible_name(LABEL_PIXELS);
-                ui.selectable_value(&mut unit, Unit::Percent, "%")
-                    .accessible_name(LABEL_PERCENT);
+                ui.selectable_value(&mut unit, Unit::Pixels, strings::UNIT_PIXELS_SHORT)
+                    .accessible_name(strings::UNIT_PIXELS);
+                ui.selectable_value(&mut unit, Unit::Percent, strings::UNIT_PERCENT_SHORT)
+                    .accessible_name(strings::UNIT_PERCENT);
                 self.set_unit(unit);
             });
-            if ui.checkbox(&mut self.lock, LABEL_LOCK).changed() && self.lock {
+            if ui
+                .checkbox(&mut self.lock, strings::LOCK_ASPECT_RATIO)
+                .accessible_name(strings::LOCK_ASPECT_RATIO)
+                .changed()
+                && self.lock
+            {
                 self.follow(true);
             }
             let new_size = self.new_size();
             ui.horizontal(|ui| {
-                ui.label("New size:");
-                let text = new_size.map_or_else(|| "–".to_owned(), |s| s.to_string());
-                ui.label(text).accessible_name(LABEL_NEW_SIZE);
+                ui.label(strings::NEW_SIZE_CAPTION);
+                let text = new_size.map_or_else(|| strings::NO_SIZE.to_owned(), |s| s.to_string());
+                ui.label(text).accessible_name(strings::NEW_SIZE);
             });
             ui.add_space(6.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let resize = egui::Button::new(egui::RichText::new("Resize").strong());
+                let resize = egui::Button::new(egui::RichText::new(strings::RESIZE).strong());
                 if ui
                     .add_enabled(new_size.is_some(), resize)
-                    .accessible_name(LABEL_RESIZE)
+                    .accessible_name(strings::RESIZE)
                     .clicked()
                     && let Some(size) = new_size
                 {
                     outcome = Some(Outcome::Resize(size));
                 }
-                if ui.button("Cancel").accessible_name(LABEL_CANCEL).clicked() {
+                if ui
+                    .button(strings::CANCEL)
+                    .accessible_name(strings::CANCEL)
+                    .clicked()
+                {
                     outcome = Some(Outcome::Cancel);
                 }
             });

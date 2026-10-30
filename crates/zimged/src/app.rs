@@ -19,16 +19,14 @@ use crate::Command;
 use crate::animation::Animation;
 use crate::config_save::ConfigSaver;
 use crate::decode::PendingDecode;
-use crate::editor::{
-    DisplayPixels, Editor, ImageOp, MAX_EDIT_PIXELS, SaveStamp, VIEW_ONLY_MESSAGE,
-};
+use crate::editor::{DisplayPixels, Editor, ImageOp, MAX_EDIT_PIXELS, SaveStamp};
 use crate::pan::PanGesture;
 use crate::paste::{Destination, Incoming, PendingIncoming};
-use crate::save::{
-    AnnotationsCopyJob, CLIPBOARD_IMAGE, CopyJob, PendingCopy, PendingSave, SaveJob,
-};
+use crate::save::{AnnotationsCopyJob, CopyJob, PendingCopy, PendingSave, SaveJob};
 use crate::siblings::{Navigation, Step};
+use crate::strings;
 use crate::tools::ToolId;
+use crate::ui::help_dialog::{self, HelpDialog};
 use crate::ui::resize_dialog::{self, ResizeDialog};
 use crate::ui::{
     canvas, menu_bar, overwrite_dialog, property_bar, status_bar, tool_strip, unsaved_dialog,
@@ -39,27 +37,9 @@ use crate::view::{View, ZOOM_STEP, Zoom};
 /// zoom in on their display-size pixels.
 const FULL_RESOLUTION_LIMIT: u64 = MAX_EDIT_PIXELS;
 
-/// The status-bar message after Delete trashed the file (§2, §3.1).
-pub const MOVED_TO_TRASH: &str = "Moved to trash";
-
-/// The status-bar message after Ctrl+C copied the Image (§2, §6.2).
-pub const IMAGE_COPIED: &str = "Image copied to the clipboard";
-
-/// The status-bar message after Ctrl+C copied the selected Annotations (§6.2).
-pub const ANNOTATIONS_COPIED: &str = "Annotations copied to the clipboard";
-
 /// How far pasted Annotations move when they would land exactly on Annotations already there
 /// (§6.3), in Image pixels.
 pub const PASTE_OFFSET: f32 = 10.0;
-
-/// The status-bar message when the clipboard holds nothing to paste (§6.3).
-pub const NOTHING_TO_PASTE: &str = "Nothing to paste";
-
-/// The status-bar message when Ctrl+V in the empty window finds no image (§3.5).
-pub const NO_CLIPBOARD_IMAGE: &str = "No image on the clipboard";
-
-/// The status-bar message when the first edit freezes an animation (§3.4).
-pub const ANIMATION_FROZEN: &str = "Animation frozen at frame 1 for editing";
 
 /// How long a transient status-bar message stays up.
 const MESSAGE_DURATION: Duration = Duration::from_secs(3);
@@ -231,9 +211,6 @@ enum FirstPaint {
     Done,
 }
 
-/// The canvas text when there is no Image (§2).
-pub const EMPTY_WINDOW_HINT: &str = "Open (Ctrl+O), drop or paste (Ctrl+V) an image";
-
 pub struct ZimgedApp {
     /// To wake the UI from background work.
     ctx: egui::Context,
@@ -283,6 +260,8 @@ pub struct ZimgedApp {
     closing: bool,
     /// The Resize dialog while it is up (modal, §6.4).
     resize_dialog: Option<ResizeDialog>,
+    /// Help › Keyboard shortcuts or About, while it is up.
+    help_dialog: Option<HelpDialog>,
     /// A path another zimged process handed over (§8.4), waiting for a modal dialog to close.
     handed_over: Option<PathBuf>,
     /// A copy running on the worker thread (§6.2), the Document it copies, and its message.
@@ -344,6 +323,7 @@ impl ZimgedApp {
             after_save: None,
             closing: false,
             resize_dialog: None,
+            help_dialog: None,
             handed_over: None,
             copying: None,
             queued_copy: false,
@@ -398,6 +378,13 @@ impl ZimgedApp {
                 self.editor.image_operation(ImageOp::Flip { horizontal })
             }
             Command::ShowResizeDialog => self.show_resize_dialog(),
+            Command::Trash => {
+                if !self.editor.in_gesture() {
+                    self.trash_file();
+                }
+            }
+            Command::ShowShortcuts => self.help_dialog = Some(HelpDialog::Shortcuts),
+            Command::ShowAbout => self.help_dialog = Some(HelpDialog::About),
             Command::Resize { width, height } => {
                 self.editor
                     .image_operation(ImageOp::Resize { width, height });
@@ -496,6 +483,15 @@ impl ZimgedApp {
         }
     }
 
+    /// Show the Help menu's dialog, if one is up.
+    fn help_dialog(&mut self, ctx: &egui::Context) {
+        if let Some(dialog) = self.help_dialog
+            && help_dialog::show(ctx, dialog)
+        {
+            self.help_dialog = None;
+        }
+    }
+
     /// The selection box (dashed, with 8 handles) as painted last frame, in points.
     pub fn selection_box(&self) -> Option<egui::Rect> {
         self.editor.selection_box()
@@ -560,6 +556,7 @@ impl ZimgedApp {
         self.unsaved_prompt.is_some()
             || self.resize_dialog.is_some()
             || self.overwrite_prompt.is_some()
+            || self.help_dialog.is_some()
     }
 
     // ---- The unsaved-changes flow (#35, §6.4) ----
@@ -1005,7 +1002,7 @@ impl ZimgedApp {
                 self.saved_as(ctx, &target);
             }
             Err(reason) => {
-                self.post_message(format!("Can't save {}: {reason}", file_name(&target)));
+                self.post_message(strings::cant_save(&file_name(&target), &reason));
             }
         }
     }
@@ -1049,14 +1046,17 @@ impl ZimgedApp {
                 fallback: self.full_size_display_pixels(),
                 clipboard: self.platform.clipboard.clone(),
             };
-            (PendingCopy::spawn_copy(job), IMAGE_COPIED)
+            (PendingCopy::spawn_copy(job), strings::IMAGE_COPIED)
         } else {
             let job = AnnotationsCopyJob {
                 drawing: source.drawing,
                 ids: selection,
                 clipboard: self.platform.clipboard.clone(),
             };
-            (PendingCopy::spawn_copy_annotations(job), ANNOTATIONS_COPIED)
+            (
+                PendingCopy::spawn_copy_annotations(job),
+                strings::ANNOTATIONS_COPIED,
+            )
         };
         pending.wake(&self.ctx);
         self.copying = Some((pending, source.stamp, message));
@@ -1080,10 +1080,10 @@ impl ZimgedApp {
                 self.editor.keep_decoded(stamp, copied.decoded);
                 self.post_message(message);
             }
-            Err(reason) if message == IMAGE_COPIED => {
-                self.post_message(format!("Can't copy the image: {reason}"))
+            Err(reason) if message == strings::IMAGE_COPIED => {
+                self.post_message(strings::cant_copy_image(&reason))
             }
-            Err(reason) => self.post_message(format!("Can't copy the Annotations: {reason}")),
+            Err(reason) => self.post_message(strings::cant_copy_annotations(&reason)),
         }
     }
 
@@ -1116,7 +1116,7 @@ impl ZimgedApp {
     /// Ctrl+Shift+V, File › New from clipboard (§6.1): another window shows the clipboard image.
     fn new_from_clipboard(&mut self) {
         if let Err(reason) = self.platform.launcher.new_window_from_clipboard() {
-            self.post_message(format!("Can't open a new window: {reason}"));
+            self.post_message(strings::cant_open_window(&reason.to_string()));
         }
     }
 
@@ -1163,14 +1163,14 @@ impl ZimgedApp {
                 self.editor.paste_annotations(copied);
             }
             Ok(Incoming::Annotations(_)) => {}
-            Ok(Incoming::Nothing) if window => self.post_message(NO_CLIPBOARD_IMAGE),
-            Ok(Incoming::Nothing) => self.post_message(NOTHING_TO_PASTE),
+            Ok(Incoming::Nothing) if window => self.post_message(strings::NO_CLIPBOARD_IMAGE),
+            Ok(Incoming::Nothing) => self.post_message(strings::NOTHING_TO_PASTE),
             Err(reason) => match &incoming.file {
                 Some(file) => {
                     let name = file_name(file);
-                    self.post_message(format!("Can't open {name}: {reason}"));
+                    self.post_message(strings::cant_open(&name, &reason));
                 }
-                None => self.post_message(format!("Can't paste: {reason}")),
+                None => self.post_message(strings::cant_paste(&reason)),
             },
         }
     }
@@ -1191,7 +1191,7 @@ impl ZimgedApp {
         let (texture, display_pixels) = upload(ctx, &display, Pixels::Display);
         self.shown = Some(ShownImage {
             path: None,
-            file_name: CLIPBOARD_IMAGE.to_owned(),
+            file_name: strings::CLIPBOARD_IMAGE.to_owned(),
             original_size: display.original_size,
             display: texture,
             display_pixels,
@@ -1231,7 +1231,7 @@ impl ZimgedApp {
         }
         if let Err(reason) = self.platform.trash.trash(&path) {
             let name = file_name(&path);
-            self.post_message(format!("Can't move {name} to trash: {reason}"));
+            self.post_message(strings::cant_trash(&name, &reason.to_string()));
             return;
         }
         self.navigation.forget(&path);
@@ -1240,7 +1240,7 @@ impl ZimgedApp {
             waits_for_scan: false,
         });
         self.leave_trashed();
-        self.post_message(MOVED_TO_TRASH);
+        self.post_message(strings::MOVED_TO_TRASH);
     }
 
     /// Move off the trashed file: to the Sibling after it, else the one before it, else to the
@@ -1362,7 +1362,7 @@ impl ZimgedApp {
             Err(reason) => {
                 self.shown = None;
                 self.editor.close();
-                self.error = Some(format!("Can't open {file_name}: {reason}"));
+                self.error = Some(strings::cant_open(&file_name, &reason.to_string()));
             }
         }
     }
@@ -1495,7 +1495,7 @@ impl ZimgedApp {
             if animation.is_animated() {
                 shown.stop_animation();
                 shown.frozen = true;
-                self.post_message(ANIMATION_FROZEN);
+                self.post_message(strings::ANIMATION_FROZEN);
             } else if animation.is_still() {
                 shown.animation = None;
             }
@@ -1585,15 +1585,20 @@ impl ZimgedApp {
     }
 
     /// The text the canvas shows instead of an Image: the decode error, or the empty-window hint.
-    fn canvas_message(&self) -> Option<&str> {
+    fn canvas_message(&self) -> Option<String> {
         if self.shown.is_some() {
             return None;
         }
         if let Some(error) = &self.error {
-            return Some(error);
+            return Some(error.clone());
         }
         // While the first Image decodes, the canvas stays blank rather than flash the hint.
-        self.pending.is_none().then_some(EMPTY_WINDOW_HINT)
+        self.pending.is_none().then(|| {
+            strings::empty_window_hint(
+                &crate::ui::shortcut_text(&self.ctx, &crate::input::OPEN),
+                &crate::ui::shortcut_text(&self.ctx, &crate::input::PASTE),
+            )
+        })
     }
 
     /// A pixel of the display-size decode on screen (after orientation and colour conversion):
@@ -1627,7 +1632,7 @@ impl ZimgedApp {
                 .message
                 .as_ref()
                 .map(|(text, _)| text.as_str())
-                .or(self.is_view_only().then_some(VIEW_ONLY_MESSAGE)),
+                .or(self.is_view_only().then_some(strings::VIEW_ONLY)),
         }
     }
 
@@ -1687,8 +1692,10 @@ impl eframe::App for ZimgedApp {
         self.poll_instance(&ctx);
         let canvas_area = self.canvas.map(|c| c.area);
         // A modal dialog has the keyboard and the pointer to itself (§6.4); Esc is its Cancel.
+        let typing = self.editor.editing_text() || ctx.text_edit_focused();
+        crate::input::arrows_move_focus(&ctx, typing);
         if !self.dialog_up() {
-            let mut commands = crate::input::commands(&ctx, canvas_area);
+            let mut commands = crate::input::commands(&ctx, canvas_area, typing);
             commands.extend(self.pan.commands(&ctx, canvas_area));
             for command in commands {
                 self.execute(command);
@@ -1715,9 +1722,15 @@ impl eframe::App for ZimgedApp {
 
         // Fullscreen hides all chrome (§2): the menu bar, property bar, tool strip and status bar.
         if !self.fullscreen {
+            let doc = self.document();
             let menu = menu_bar::MenuBar {
                 allow_multiple_instances: self.config.allow_multiple_instances,
                 can_edit: self.editor.can_edit(),
+                has_image: self.shown.is_some(),
+                has_file: self.path.is_some(),
+                can_undo: doc.is_some_and(|d| d.can_undo()),
+                can_redo: doc.is_some_and(|d| d.can_redo()),
+                selection: doc.is_some_and(|d| !d.selection().is_empty()),
             };
             if let Some(command) = menu_bar::show(ui, &menu) {
                 self.execute(command);
@@ -1731,10 +1744,11 @@ impl eframe::App for ZimgedApp {
         }
         // Laying out keeps the zoomed Image in bounds, so the view comes back updated.
         let mut view = self.view;
-        let message = self.canvas_message().map(str::to_owned);
+        let message = self.canvas_message();
         // Space and the middle button pan; the tools leave the pointer alone meanwhile (#43).
         let tools_get_pointer = !self.pan_owns_pointer();
         let image_size = self.image_size();
+        let editing_text = self.editor.editing_text();
         let editor = &mut self.editor;
         let display = self.shown.as_ref().map(|s| DisplayPixels {
             key: s.display_key,
@@ -1746,12 +1760,14 @@ impl eframe::App for ZimgedApp {
             image_size,
             &mut view,
             message.as_deref(),
+            editing_text,
             |ui, layout, response| {
                 editor.canvas(ui.ctx(), layout, response, display, tools_get_pointer)
             },
         ));
         self.view = view;
         self.resize_dialog(&ctx);
+        self.help_dialog(&ctx);
         self.start_animation(&ctx);
         self.request_pixels(&ctx);
 
