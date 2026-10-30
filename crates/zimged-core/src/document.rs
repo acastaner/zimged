@@ -188,6 +188,18 @@ impl Document {
             .enforce_pixel_cap(self.history_pixel_cap, self.full_resolution.as_ref());
     }
 
+    /// A copy of what is drawn (the size, the pixels and the Annotations), with no Selection and
+    /// no History: what a worker thread Flattens (§7.2) while editing goes on.
+    pub fn drawing(&self) -> Document {
+        Document {
+            full_resolution: self.full_resolution.clone(),
+            image_generation: self.image_generation,
+            annotations: self.annotations.clone(),
+            revision: self.revision,
+            ..Document::new(self.width, self.height)
+        }
+    }
+
     // ---- Reading ----
 
     /// Bottom to top.

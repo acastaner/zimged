@@ -469,3 +469,17 @@ fn finishing_mid_composition_drops_the_preedit() {
     app.click_px((250.0, 200.0));
     assert_eq!(text_of(&app, 0), "A");
 }
+
+// ---- Saving ----
+
+#[test]
+fn ctrl_s_while_editing_finishes_the_text_and_saves_it() {
+    let mut app = app_with_new_box();
+    type_text(&mut app, "Saved");
+    app.key_with(egui::Modifiers::COMMAND, Key::S);
+
+    assert!(!editing(&app));
+    assert_eq!(text_of(&app, 0), "Saved");
+    assert_eq!(app.doc().undo_len(), 1);
+    assert!(!app.doc().is_modified());
+}

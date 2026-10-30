@@ -11,8 +11,8 @@ use std::sync::{Arc, mpsc};
 
 use zimged_codec::Size;
 use zimged_core::{
-    Document, HISTORY_PIXEL_CAP, PixelData, Point, Property, PropertyKind, Rect, Restack, Shape,
-    Style, Vector,
+    Document, HISTORY_PIXEL_CAP, PixelData, Pixels, Point, Property, PropertyKind, Rect, Restack,
+    Shape, Style, Vector,
 };
 use zimged_render::{Composite, Renderer, Source, SourcePixels, View};
 
@@ -44,6 +44,8 @@ struct Edited {
     path: PathBuf,
     view_only: bool,
     full_decode: Option<PendingFullDecode>,
+    /// Which open this is: a save finishing after another Image was opened leaves it alone.
+    generation: u64,
     /// A crop applied before the full-resolution pixels arrived: done when they do.
     queued_crop: Option<Rect>,
     /// The last composite, its texture, and what it was rendered for.
@@ -88,6 +90,25 @@ pub struct Editor {
     history_pixel_cap: usize,
     /// The rubber band as painted last frame, in points.
     rubber_band: Option<egui::Rect>,
+    /// How many Images have been opened (each one's [`Edited::generation`]).
+    opened: u64,
+}
+
+/// What a save (#34) needs from the editor when it starts.
+pub struct SaveSource {
+    /// What is drawn, for the worker to Flatten.
+    pub drawing: Document,
+    /// The file the Document came from.
+    pub path: PathBuf,
+    /// Identifies the Document and its state, for [`Editor::saved`].
+    pub stamp: SaveStamp,
+}
+
+/// Which Document, in which state, a save wrote.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SaveStamp {
+    generation: u64,
+    revision: u64,
 }
 
 /// The font families for the property bar's font control.
@@ -121,6 +142,7 @@ impl Editor {
             selection_box: None,
             text: None,
             fonts: Fonts::NotListed,
+            opened: 0,
             crop: None,
             history_pixel_cap: HISTORY_PIXEL_CAP,
             rubber_band: None,
@@ -161,6 +183,7 @@ impl Editor {
         self.pointer_down = false;
         self.property_session = None;
         self.text = None;
+        self.opened += 1;
         self.crop = None;
         let mut doc = Document::new(size.width, size.height);
         doc.set_history_pixel_cap(self.history_pixel_cap);
@@ -169,6 +192,7 @@ impl Editor {
             path: path.to_owned(),
             view_only,
             full_decode: None,
+            generation: self.opened,
             queued_crop: None,
             composite: None,
         });
@@ -262,6 +286,58 @@ impl Editor {
             .as_ref()
             .is_some_and(|e| e.full_decode.is_some())
             || matches!(self.fonts, Fonts::Listing(_))
+    }
+
+    // ---- Saving (#34) ----
+
+    /// The Document to save, as it is now. `None` without an Image, or mid-gesture.
+    pub fn save_source(&self) -> Option<SaveSource> {
+        let e = self.edited.as_ref().filter(|e| !e.doc.in_gesture())?;
+        Some(SaveSource {
+            drawing: e.doc.drawing(),
+            path: e.path.clone(),
+            stamp: SaveStamp {
+                generation: e.generation,
+                revision: e.doc.revision(),
+            },
+        })
+    }
+
+    /// A save of `stamp` was written to `target`. The Document now belongs to `target`; it is
+    /// marked saved (§4.8: the History stays) unless it changed while the save ran. `decoded`: the
+    /// full-resolution pixels the save had to decode, kept so later saves and zooms don't decode
+    /// the Flattened file.
+    pub fn saved(&mut self, stamp: SaveStamp, target: &Path, decoded: Option<Arc<Pixels>>) {
+        let Some(e) = self
+            .edited
+            .as_mut()
+            .filter(|e| e.generation == stamp.generation)
+        else {
+            return;
+        };
+        e.path = target.to_owned();
+        if e.doc.revision() == stamp.revision {
+            e.doc.mark_saved();
+        }
+        if let Some(pixels) = decoded
+            && e.doc.full_resolution().is_none()
+        {
+            // A full decode still running could read the Flattened file: these pixels win, and a
+            // crop waiting for that decode is done now.
+            e.full_decode = None;
+            e.doc.set_full_resolution(pixels);
+            if let Some(region) = e.queued_crop.take() {
+                e.doc.crop(region);
+            }
+        }
+    }
+
+    /// Is the Document waiting for its full-resolution pixels before it is what the user sees (a
+    /// crop queued until they arrive)? A save waits too.
+    pub fn save_waits(&self) -> bool {
+        self.edited
+            .as_ref()
+            .is_some_and(|e| e.queued_crop.is_some())
     }
 
     // ---- Commands ----
@@ -636,6 +712,11 @@ impl Editor {
             return true;
         }
         false
+    }
+
+    /// Finish editing text, if a text box is being edited (before a save, #34).
+    pub fn finish_text_editing(&mut self) {
+        self.finish_text();
     }
 
     /// Finish the text session, if one is open: one History step (§4.8).
