@@ -152,6 +152,12 @@ fn color_type(pixels: &Pixels) -> (&[u8], ExtendedColorType) {
     }
 }
 
+/// Encode `pixels` (sRGB, straight alpha, `size`) as a PNG with no metadata: what copying the Image
+/// puts on the clipboard (§6.2).
+pub fn encode_png_plain(pixels: &Pixels, size: Size) -> Result<Vec<u8>, SaveError> {
+    encode_png(pixels, size, None, None)
+}
+
 fn encode_png(
     pixels: &Pixels,
     size: Size,

@@ -9,14 +9,18 @@
 
 mod ellipse;
 mod freehand;
+mod inset;
 mod line;
 mod rectangle;
+mod step_counter;
 pub mod text;
 
 pub use ellipse::Ellipse;
 pub use freehand::Freehand;
+pub use inset::Inset;
 pub use line::{Arrow, Line};
 pub use rectangle::Rectangle;
+pub use step_counter::StepCounter;
 pub use text::Text;
 
 use crate::geometry::{Affine, Point, Rect};
@@ -28,6 +32,11 @@ pub trait Shape {
     /// The geometric bounds, without stroke width or shadow. The selection box is drawn around it
     /// and its handles resize it.
     fn bounds(&self) -> Rect;
+
+    /// The bounds for this style, for types whose size is a style property (Step counter).
+    fn styled_bounds(&self, _style: &Style) -> Rect {
+        self.bounds()
+    }
 
     /// Is `p` on the Annotation? `tolerance` (Image pixels) widens thin strokes so they can be
     /// clicked.
@@ -71,6 +80,9 @@ macro_rules! shapes {
             fn bounds(&self) -> Rect {
                 match self { $(Self::$variant(s) => s.bounds(),)+ }
             }
+            fn styled_bounds(&self, style: &Style) -> Rect {
+                match self { $(Self::$variant(s) => s.styled_bounds(style),)+ }
+            }
             fn hit(&self, p: Point, style: &Style, tolerance: f32) -> bool {
                 match self { $(Self::$variant(s) => s.hit(p, style, tolerance),)+ }
             }
@@ -95,11 +107,13 @@ macro_rules! shapes {
 
 shapes! {
     Rectangle(Rectangle),
+    StepCounter(StepCounter),
     Text(Text),
     Ellipse(Ellipse),
     Line(Line),
     Arrow(Arrow),
     Freehand(Freehand),
+    Inset(Inset),
 }
 
 /// Identifies an Annotation within its Document. Never reused, so it survives undo and redo.
@@ -116,7 +130,7 @@ pub struct Annotation {
 
 impl Annotation {
     pub fn bounds(&self) -> Rect {
-        self.shape.bounds()
+        self.shape.styled_bounds(&self.style)
     }
 
     pub fn hit(&self, p: Point, tolerance: f32) -> bool {
@@ -138,14 +152,15 @@ impl Annotation {
     }
 
     /// Follow an Image operation (ADR 0001). A resize also scales the Style's sizes (§4.7): every
-    /// size property given in Image pixels is multiplied by `t.size_scale()` here (text's font
-    /// size and the Step counter's size join `thickness` when those types land).
+    /// size property given in Image pixels is multiplied by `t.size_scale()` here (thickness, text's
+    /// font size, the Step counter's size).
     pub fn image_transform(&mut self, t: &ImageTransform) {
         self.shape.image_transform(t);
         let s = t.size_scale();
         if s != 1.0 {
             self.style.thickness *= s;
             self.style.font_size *= s;
+            self.style.counter_size *= s;
             self.relayout();
         }
     }

@@ -19,6 +19,8 @@ zimged-platform = { path = "crates/zimged-platform" }
 
 eframe = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11", "default_fonts", "accesskit"] }
 egui = "0.37"
+# egui's bundled fonts: the Step counter digits are drawn from one, so no system font is needed.
+epaint_default_fonts = "0.37"
 egui_kittest = { version = "0.37", features = ["eframe"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "ico", "tiff"] }
 # Little CMS, built from source and linked statically (§5.2 colour conversion).
@@ -37,6 +39,9 @@ interprocess = { version = "2.4", default-features = false }
 # The system trash (§8.2). chrono is only for listing the trash, which zimged never does.
 trash = { version = "5", default-features = false, features = ["coinit_apartmentthreaded"] }
 tempfile = "3"
+# The clipboard (§8.1): clipboard-rs on Windows, macOS and X11; its `wayland` backend is
+# wl-clipboard-rs (data-control), falling back to X11 (XWayland) without data-control.
+clipboard-rs = { version = "0.3.5", features = ["wayland"] }
 # Prebuilt Skia binaries are downloaded at build time (binary-cache). The default features plus
 # textlayout match a published binary set (`jpegd-jpege-pdf-textlayout`), so no C++ toolchain is
 # needed; another feature set can force a from-source build (LLVM, Python, Ninja).

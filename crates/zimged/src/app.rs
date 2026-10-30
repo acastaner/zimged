@@ -23,7 +23,8 @@ use crate::editor::{
     DisplayPixels, Editor, ImageOp, MAX_EDIT_PIXELS, SaveStamp, VIEW_ONLY_MESSAGE,
 };
 use crate::pan::PanGesture;
-use crate::save::{PendingSave, SaveJob};
+use crate::paste::{Destination, Incoming, PendingIncoming};
+use crate::save::{CLIPBOARD_IMAGE, CopyJob, PendingCopy, PendingSave, SaveJob};
 use crate::siblings::{Navigation, Step};
 use crate::tools::ToolId;
 use crate::ui::resize_dialog::{self, ResizeDialog};
@@ -36,6 +37,15 @@ const FULL_RESOLUTION_LIMIT: u64 = MAX_EDIT_PIXELS;
 
 /// The status-bar message after Delete trashed the file (§2, §3.1).
 pub const MOVED_TO_TRASH: &str = "Moved to trash";
+
+/// The status-bar message after Ctrl+C copied the Image (§2, §6.2).
+pub const IMAGE_COPIED: &str = "Image copied to the clipboard";
+
+/// The status-bar message when the clipboard holds nothing to paste (§6.3).
+pub const NOTHING_TO_PASTE: &str = "Nothing to paste";
+
+/// The status-bar message when Ctrl+V in the empty window finds no image (§3.5).
+pub const NO_CLIPBOARD_IMAGE: &str = "No image on the clipboard";
 
 /// How long a transient status-bar message stays up.
 const MESSAGE_DURATION: Duration = Duration::from_secs(3);
@@ -50,6 +60,8 @@ pub struct Launch {
     pub cache_cap: usize,
     /// The cap on pixels the History holds, in bytes (§4.8). Tests lower it.
     pub history_pixel_cap: usize,
+    /// Started by Ctrl+Shift+V in another window: show the clipboard image (§6.1).
+    pub from_clipboard: bool,
 }
 
 impl Launch {
@@ -62,6 +74,7 @@ impl Launch {
             first_image: None,
             cache_cap: zimged_siblings::prefetch::CACHE_CAP_BYTES,
             history_pixel_cap: zimged_core::HISTORY_PIXEL_CAP,
+            from_clipboard: false,
         }
     }
 }
@@ -80,7 +93,8 @@ pub struct CanvasView {
 
 /// The Image on screen.
 pub(crate) struct ShownImage {
-    pub path: PathBuf,
+    /// The file it came from; `None` for a clipboard image not saved yet (§3.5).
+    pub path: Option<PathBuf>,
     pub file_name: String,
     pub original_size: Size,
     /// The display-size decode (§5.2), re-decoded larger if the canvas outgrows it (a resize, or a
@@ -227,6 +241,12 @@ pub struct ZimgedApp {
     resize_dialog: Option<ResizeDialog>,
     /// A path another zimged process handed over (§8.4), waiting for a modal dialog to close.
     handed_over: Option<PathBuf>,
+    /// A copy of the Image running on the worker thread (§6.2), and the Document it copies.
+    copying: Option<(PendingCopy, SaveStamp)>,
+    /// A copy asked for while the Document waits for its pixels (a queued Image operation).
+    queued_copy: bool,
+    /// A pasted or Ctrl+dropped image being read and decoded (§4.6, §6.3).
+    incoming: Option<PendingIncoming>,
 }
 
 impl ZimgedApp {
@@ -243,7 +263,8 @@ impl ZimgedApp {
             .set_wake(Box::new(move || ctx.request_repaint()));
         let mut editor = Editor::with_tool_styles(&launch.config.tools);
         editor.set_history_pixel_cap(launch.history_pixel_cap);
-        Self {
+        let from_clipboard = launch.from_clipboard;
+        let mut app = Self {
             ctx: cc.egui_ctx.clone(),
             config_saver: ConfigSaver::new(launch.platform.config.clone()),
             platform: launch.platform,
@@ -274,7 +295,14 @@ impl ZimgedApp {
             closing: false,
             resize_dialog: None,
             handed_over: None,
+            copying: None,
+            queued_copy: false,
+            incoming: None,
+        };
+        if from_clipboard {
+            app.execute(Command::Paste);
         }
+        app
     }
 
     pub fn execute(&mut self, command: Command) {
@@ -321,6 +349,10 @@ impl ZimgedApp {
                 self.editor
                     .image_operation(ImageOp::Resize { width, height });
             }
+            Command::Copy => self.copy(),
+            Command::Paste => self.paste(),
+            Command::NewFromClipboard => self.new_from_clipboard(),
+            Command::InsertFile(path) => self.insert_file(path),
         }
     }
 
@@ -447,16 +479,22 @@ impl ZimgedApp {
             || self.save_dialog.is_some()
             || self.saving.is_some()
             || self.queued_save.is_some()
+            || self.copying.is_some()
+            || self.queued_copy
+            || self.incoming.is_some()
             || self.trashed.as_ref().is_some_and(|t| t.waits_for_scan)
             || self.after_save.is_some()
     }
 
     /// Does the Image have unsaved changes (` •` after the file name)? Edits to the Document, or a
-    /// file deleted from outside zimged (§3.2). The Save / Discard / Cancel prompt asks whenever
-    /// this is true, and saving writes the file back.
+    /// file deleted from outside zimged (§3.2), or a clipboard image not saved yet (§3.5). The
+    /// Save / Discard / Cancel prompt asks whenever this is true, and saving writes the file back.
     pub fn is_modified(&self) -> bool {
         self.document().is_some_and(|d| d.is_modified())
-            || self.shown.as_ref().is_some_and(|s| s.deleted_from_disk)
+            || self
+                .shown
+                .as_ref()
+                .is_some_and(|s| s.deleted_from_disk || s.path.is_none())
     }
 
     /// Is the window closing (a close let through, or confirmed in the unsaved-changes prompt)?
@@ -754,9 +792,13 @@ impl ZimgedApp {
     // ---- Save (#34, §5.1, §5.3) ----
 
     /// Ctrl+S: write the Image back in its own format; Save As (defaulting to PNG) for a read-only
-    /// one (§5.1). A clipboard Image (no file) will go to Save As too (§6.1).
+    /// one (§5.1) or a clipboard image (§6.1).
     fn save(&mut self) {
-        let Some(path) = self.path.clone().filter(|_| self.shown.is_some()) else {
+        let Some(shown) = &self.shown else {
+            return;
+        };
+        let Some(path) = shown.path.clone() else {
+            self.show_save_dialog();
             return;
         };
         match crate::save::in_place_format(&path) {
@@ -767,17 +809,18 @@ impl ZimgedApp {
 
     /// Ctrl+Shift+S, or Ctrl+S on a read-only format. One save (or dialog) at a time.
     fn show_save_dialog(&mut self) {
-        if self.save_dialog.is_some() || self.saving.is_some() || self.shown.is_none() {
+        if self.save_dialog.is_some() || self.saving.is_some() {
             return;
         }
-        let Some(path) = &self.path else {
+        let Some(shown) = &self.shown else {
             return;
         };
+        let suggested = crate::save::suggestion(shown.path.as_deref());
         let (tx, rx) = mpsc::channel();
         self.save_dialog = Some(rx);
         let ctx = self.ctx.clone();
         self.platform.dialogs.save_image(
-            &crate::save::suggestion(path),
+            &suggested,
             Box::new(move |chosen| {
                 let _ = tx.send(chosen);
                 ctx.request_repaint();
@@ -819,15 +862,8 @@ impl ZimgedApp {
         };
         let job = SaveJob {
             drawing: source.drawing,
-            source: Some(source.path),
-            fallback: self
-                .shown
-                .as_ref()
-                .filter(|s| {
-                    let [w, h] = s.display_pixels.size;
-                    Size::new(w as u32, h as u32) == s.original_size
-                })
-                .map(|s| s.display_pixels.clone()),
+            source: source.path,
+            fallback: self.full_size_display_pixels(),
             target,
             format,
             jpeg_quality: self.config.jpeg_quality,
@@ -863,6 +899,185 @@ impl ZimgedApp {
                 self.post_message(format!("Can't save {}: {reason}", file_name(&target)));
             }
         }
+    }
+
+    /// The display-size decode, when it is the full resolution: what a save or copy uses when the
+    /// file can't be decoded any more (deleted or changed on disk, #21).
+    fn full_size_display_pixels(&self) -> Option<Arc<egui::ColorImage>> {
+        self.shown
+            .as_ref()
+            .filter(|s| {
+                let [w, h] = s.display_pixels.size;
+                Size::new(w as u32, h as u32) == s.original_size
+            })
+            .map(|s| s.display_pixels.clone())
+    }
+
+    // ---- Clipboard (#36, §3.5, §4.6, §6.2, §6.3) ----
+
+    /// Ctrl+C. With Annotations selected, #37 copies them (JSON and PNG, §6.2). With nothing
+    /// selected, the Flattened Image goes to the clipboard as PNG, from the worker thread (§7.3).
+    fn copy(&mut self) {
+        if self.shown.is_none() || self.copying.is_some() || self.editor.in_gesture() {
+            return;
+        }
+        if self.document().is_some_and(|d| !d.selection().is_empty()) {
+            // #37: copy the selected Annotations.
+            return;
+        }
+        if self.editor.save_waits() {
+            self.queued_copy = true;
+            return;
+        }
+        let Some(source) = self.editor.save_source() else {
+            return;
+        };
+        let job = CopyJob {
+            drawing: source.drawing,
+            source: source.path,
+            fallback: self.full_size_display_pixels(),
+            clipboard: self.platform.clipboard.clone(),
+        };
+        let pending = PendingCopy::spawn_copy(job);
+        pending.wake(&self.ctx);
+        self.copying = Some((pending, source.stamp));
+    }
+
+    fn poll_copy(&mut self, ctx: &egui::Context) {
+        if self.queued_copy && !self.editor.save_waits() {
+            self.queued_copy = false;
+            self.copy();
+        }
+        let Some((pending, _)) = &self.copying else {
+            return;
+        };
+        pending.wake(ctx);
+        let Some(result) = pending.take() else {
+            return;
+        };
+        let (_, stamp) = self.copying.take().expect("checked above");
+        match result {
+            Ok(copied) => {
+                self.editor.keep_decoded(stamp, copied.decoded);
+                self.post_message(IMAGE_COPIED);
+            }
+            Err(reason) => self.post_message(format!("Can't copy the image: {reason}")),
+        }
+    }
+
+    /// Ctrl+V: the clipboard image becomes an Inset (§6.3), or the Image in the empty window
+    /// (§3.5). The clipboard is read, and the image decoded, off the UI thread.
+    fn paste(&mut self) {
+        if self.incoming.is_some() {
+            return;
+        }
+        let destination = if self.shown.is_some() {
+            if !self.editor.can_edit() || self.editor.in_gesture() {
+                return;
+            }
+            Destination::Inset
+        } else if self.pending.is_none() {
+            Destination::Window
+        } else {
+            // An Image is on its way: wait for it.
+            return;
+        };
+        let incoming = PendingIncoming::paste(
+            self.platform.clipboard.clone(),
+            destination,
+            self.display_box(),
+        );
+        incoming.pending.wake(&self.ctx);
+        self.incoming = Some(incoming);
+    }
+
+    /// Ctrl+Shift+V, File › New from clipboard (§6.1): another window shows the clipboard image.
+    fn new_from_clipboard(&mut self) {
+        if let Err(reason) = self.platform.launcher.new_window_from_clipboard() {
+            self.post_message(format!("Can't open a new window: {reason}"));
+        }
+    }
+
+    /// Ctrl+drop (§3.5, §4.6): the file becomes an Inset. Without an Image, it is opened.
+    fn insert_file(&mut self, path: PathBuf) {
+        if self.shown.is_none() {
+            self.execute(Command::Open(path));
+            return;
+        }
+        if self.incoming.is_some() || !self.editor.can_edit() || self.editor.in_gesture() {
+            return;
+        }
+        let incoming = PendingIncoming::file(path, Destination::Inset, self.display_box());
+        incoming.pending.wake(&self.ctx);
+        self.incoming = Some(incoming);
+    }
+
+    fn poll_incoming(&mut self, ctx: &egui::Context) {
+        let Some(incoming) = &self.incoming else {
+            return;
+        };
+        incoming.pending.wake(ctx);
+        let Some(result) = incoming.pending.take() else {
+            return;
+        };
+        let incoming = self.incoming.take().expect("checked above");
+        let window = incoming.destination == Destination::Window;
+        match result {
+            Ok(Incoming::Image { full, display }) => match (incoming.destination, display) {
+                (Destination::Window, Some(display)) if self.shown.is_none() => {
+                    self.show_clipboard_image(ctx, full, display);
+                }
+                (Destination::Inset, _) if self.shown.is_some() => {
+                    let centre = self
+                        .canvas
+                        .and_then(|layout| layout.visible())
+                        .map(|(_, region, _)| region.center());
+                    self.editor.insert_inset(Arc::new(full), centre);
+                }
+                // The window changed meanwhile (an Image opened, or went): drop it.
+                _ => {}
+            },
+            Ok(Incoming::Nothing) if window => self.post_message(NO_CLIPBOARD_IMAGE),
+            Ok(Incoming::Nothing) => self.post_message(NOTHING_TO_PASTE),
+            Err(reason) => match &incoming.file {
+                Some(file) => {
+                    let name = file_name(file);
+                    self.post_message(format!("Can't open {name}: {reason}"));
+                }
+                None => self.post_message(format!("Can't paste: {reason}")),
+            },
+        }
+    }
+
+    /// The clipboard image becomes the Image (§3.5): "Clipboard image", no file, no Siblings.
+    fn show_clipboard_image(
+        &mut self,
+        ctx: &egui::Context,
+        full: zimged_core::Pixels,
+        display: DisplayImage,
+    ) {
+        self.navigation.cancel();
+        self.path = None;
+        self.trashed = None;
+        self.error = None;
+        self.message = None;
+        self.editor.open_pixels(Arc::new(full));
+        let (texture, display_pixels) = upload(ctx, &display, Pixels::Display);
+        self.shown = Some(ShownImage {
+            path: None,
+            file_name: CLIPBOARD_IMAGE.to_owned(),
+            original_size: display.original_size,
+            display: texture,
+            display_pixels,
+            display_key: next_display_key(),
+            full: None,
+            requested: display.size,
+            may_animate: false,
+            animation: None,
+            deleted_from_disk: false,
+        });
+        self.upgrade = None;
+        self.view = View::fit();
     }
 
     /// Delete (§3.1, §4.2): the selected Annotations go and the file stays; with nothing selected,
@@ -944,10 +1159,10 @@ impl ZimgedApp {
         };
         // The file is back on disk (#21: it may have been deleted from outside).
         shown.deleted_from_disk = false;
-        if shown.path == target {
+        if shown.path.as_deref() == Some(target) {
             return;
         }
-        shown.path = target.to_owned();
+        shown.path = Some(target.to_owned());
         shown.file_name = file_name(target);
         // A zoom upgrade in flight belongs to the old path: drop it.
         self.upgrade = None;
@@ -997,10 +1212,10 @@ impl ZimgedApp {
         self.trashed = None;
         match decoded {
             Ok(image) => {
-                self.editor.open(&path, image.original_size);
+                self.editor.open(Some(&path), image.original_size);
                 let (display, display_pixels) = upload(ctx, &image, Pixels::Display);
                 self.shown = Some(ShownImage {
-                    path,
+                    path: Some(path),
                     file_name,
                     original_size: image.original_size,
                     display,
@@ -1037,7 +1252,9 @@ impl ZimgedApp {
             // A failed re-decode (the file changed or went away) keeps the pixels on screen.
             return;
         };
-        if upgrade.pending.path() != shown.path || image.original_size != shown.original_size {
+        if Some(upgrade.pending.path()) != shown.path.as_deref()
+            || image.original_size != shown.original_size
+        {
             return;
         }
         if shown.animation.is_some() {
@@ -1075,6 +1292,10 @@ impl ZimgedApp {
             // An animation's frames are decoded at the display size only.
             return;
         }
+        // A clipboard image has no file to decode again: the composite draws its full pixels.
+        let Some(path) = shown.path.clone() else {
+            return;
+        };
         let Some(on_screen) = layout.image_px() else {
             return;
         };
@@ -1099,7 +1320,7 @@ impl ZimgedApp {
             return;
         }
         shown.requested = target;
-        let pending = PendingDecode::spawn(shown.path.clone(), move || max);
+        let pending = PendingDecode::spawn(path, move || max);
         pending.wake(ctx);
         self.upgrade = Some(Upgrade { pending, pixels });
     }
@@ -1117,7 +1338,10 @@ impl ZimgedApp {
         }
         shown.may_animate = false;
         shown.full = None;
-        shown.animation = Some(Animation::spawn(shown.path.clone(), layout.area_px(), ctx));
+        let Some(path) = shown.path.clone() else {
+            return;
+        };
+        shown.animation = Some(Animation::spawn(path, layout.area_px(), ctx));
     }
 
     /// How many frames of an animation are held (decoded, CPU pixels): 0 without one (§3.4).
@@ -1330,6 +1554,8 @@ impl eframe::App for ZimgedApp {
         self.poll_open_dialog();
         self.poll_save_dialog();
         self.poll_save(&ctx);
+        self.poll_copy(&ctx);
+        self.poll_incoming(&ctx);
         self.poll_after_save();
         self.follow_directory(&ctx);
         self.poll_decode(&ctx);

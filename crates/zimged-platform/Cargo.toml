@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+clipboard-rs.workspace = true
 directories.workspace = true
 interprocess.workspace = true
 pollster.workspace = true

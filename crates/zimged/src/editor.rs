@@ -11,8 +11,8 @@ use std::sync::{Arc, mpsc};
 
 use zimged_codec::Size;
 use zimged_core::{
-    Document, HISTORY_PIXEL_CAP, PixelData, Pixels, Point, Property, PropertyKind, Rect, Restack,
-    Shape, Style, Vector,
+    Document, HISTORY_PIXEL_CAP, Inset, PixelData, Pixels, Point, Property, PropertyKind, Rect,
+    Restack, Shape, Style, Vector,
 };
 use zimged_render::{Composite, Renderer, Source, SourcePixels, View};
 
@@ -41,7 +41,8 @@ pub struct DisplayPixels<'a> {
 /// The editor's state for the open Image.
 struct Edited {
     doc: Document,
-    path: PathBuf,
+    /// The file the Image came from; `None` for a clipboard image not saved yet (§3.5).
+    path: Option<PathBuf>,
     view_only: bool,
     full_decode: Option<PendingFullDecode>,
     /// Which open this is: a save finishing after another Image was opened leaves it alone.
@@ -98,8 +99,8 @@ pub struct Editor {
 pub struct SaveSource {
     /// What is drawn, for the worker to Flatten.
     pub drawing: Document,
-    /// The file the Document came from.
-    pub path: PathBuf,
+    /// The file the Document came from (`None`: a clipboard image).
+    pub path: Option<PathBuf>,
     /// Identifies the Document and its state, for [`Editor::saved`].
     pub stamp: SaveStamp,
 }
@@ -158,11 +159,14 @@ impl Editor {
     /// A table that isn't a valid style leaves that tool on its defaults.
     pub fn with_tool_styles(saved: &BTreeMap<String, toml::Table>) -> Self {
         let mut editor = Self::new();
-        for tool in ToolId::ALL {
+        for tool in ToolId::STYLED {
             let Some(table) = saved.get(tool.config_key()) else {
                 continue;
             };
-            match toml::Value::Table(table.clone()).try_into::<Style>() {
+            // Keys missing from the table keep the tool's own defaults (a Step counter's fill).
+            let mut merged = toml::Table::try_from(tool.default_style()).unwrap_or_default();
+            merged.extend(table.clone());
+            match toml::Value::Table(merged).try_into::<Style>() {
                 Ok(style) => {
                     editor.styles.insert(tool, style.sanitised());
                 }
@@ -175,8 +179,9 @@ impl Editor {
         editor
     }
 
-    /// A new Image is on screen: start a fresh Document (and History).
-    pub fn open(&mut self, path: &Path, size: Size) {
+    /// A new Image is on screen: start a fresh Document (and History). `path`: the file it came
+    /// from; `None` for a clipboard image, whose pixels come with [`Self::open_pixels`].
+    pub fn open(&mut self, path: Option<&Path>, size: Size) {
         let view_only = u64::from(size.width) * u64::from(size.height) > MAX_EDIT_PIXELS;
         // Drop any half-done gesture: it belonged to the previous Document.
         self.behaviour = self.tool.create().expect("an available tool");
@@ -189,7 +194,7 @@ impl Editor {
         doc.set_history_pixel_cap(self.history_pixel_cap);
         self.edited = Some(Edited {
             doc,
-            path: path.to_owned(),
+            path: path.map(Path::to_owned),
             view_only,
             full_decode: None,
             generation: self.opened,
@@ -198,6 +203,14 @@ impl Editor {
         });
         if view_only {
             self.set_tool(ToolId::Select);
+        }
+    }
+
+    /// A clipboard image is on screen (§3.5): a fresh Document that already has its pixels.
+    pub fn open_pixels(&mut self, pixels: Arc<Pixels>) {
+        self.open(None, Size::new(pixels.width, pixels.height));
+        if let Some(e) = &mut self.edited {
+            e.doc.set_full_resolution(pixels);
         }
     }
 
@@ -277,7 +290,10 @@ impl Editor {
 
     /// The style the property bar shows when nothing is selected: the active tool's.
     pub fn tool_style(&self, tool: ToolId) -> Style {
-        self.styles.get(&tool).cloned().unwrap_or_default()
+        self.styles
+            .get(&tool)
+            .cloned()
+            .unwrap_or_else(|| tool.default_style())
     }
 
     /// Is the full-resolution decode still running?
@@ -315,10 +331,23 @@ impl Editor {
         else {
             return;
         };
-        e.path = target.to_owned();
+        e.path = Some(target.to_owned());
         if e.doc.revision() == stamp.revision {
             e.doc.mark_saved();
         }
+        self.keep_decoded(stamp, decoded);
+    }
+
+    /// The full-resolution pixels a save or a copy (on the worker) had to decode for `stamp`'s
+    /// Document: kept, so later saves and zooms don't decode again.
+    pub fn keep_decoded(&mut self, stamp: SaveStamp, decoded: Option<Arc<Pixels>>) {
+        let Some(e) = self
+            .edited
+            .as_mut()
+            .filter(|e| e.generation == stamp.generation)
+        else {
+            return;
+        };
         if let Some(pixels) = decoded
             && e.doc.full_resolution().is_none()
         {
@@ -361,7 +390,11 @@ impl Editor {
     fn set_tool(&mut self, tool: ToolId) {
         self.finish_text();
         if let Some(e) = &mut self.edited {
-            let style = self.styles.get(&self.tool).cloned().unwrap_or_default();
+            let style = self
+                .styles
+                .get(&self.tool)
+                .cloned()
+                .unwrap_or_else(|| self.tool.default_style());
             let mut cx = ToolContext {
                 doc: &mut e.doc,
                 style: &style,
@@ -437,6 +470,25 @@ impl Editor {
         self.edited_idle().is_some_and(|e| e.doc.delete_selection())
     }
 
+    /// Paste or Ctrl+drop an image (§4.6, §6.3): insert it as an Inset centred on `centre`
+    /// (Image pixels) as one step, switch to the select tool and select it. Returns false when the
+    /// Image can't be edited (view-only, mid-gesture).
+    pub fn insert_inset(&mut self, pixels: Arc<Pixels>, centre: Option<Point>) -> bool {
+        if !self.can_edit() || self.edited_idle().is_none() {
+            return false;
+        }
+        self.set_tool(ToolId::Select);
+        let style = self.tool_style(ToolId::Inset);
+        let e = self.edited.as_mut().expect("checked above");
+        let image = e.doc.bounds();
+        let inset = Inset::placed(pixels, centre.unwrap_or(image.center()), image);
+        e.doc.step(|doc| {
+            let id = doc.add(inset, style);
+            doc.select([id]);
+        });
+        true
+    }
+
     /// Ctrl+D: duplicate the selection, offset by [`DUPLICATE_OFFSET`] Image pixels.
     pub fn duplicate_selection(&mut self) {
         if let Some(e) = self.edited_idle() {
@@ -474,7 +526,10 @@ impl Editor {
         let kind = property.kind();
         for tool in tools {
             if tool.properties().contains(&kind) {
-                self.styles.entry(tool).or_default().set(property.clone());
+                self.styles
+                    .entry(tool)
+                    .or_insert_with(|| tool.default_style())
+                    .set(property.clone());
             }
         }
     }
@@ -509,7 +564,9 @@ impl Editor {
         if e.view_only || e.full_decode.is_some() || e.doc.full_resolution().is_some() {
             return;
         }
-        e.full_decode = Some(PendingFullDecode::spawn_full(e.path.clone()));
+        if let Some(path) = &e.path {
+            e.full_decode = Some(PendingFullDecode::spawn_full(path.clone()));
+        }
     }
 
     /// Collect background results.
@@ -826,7 +883,11 @@ impl Editor {
         let Some(e) = &mut self.edited else {
             return;
         };
-        let style = self.styles.get(&self.tool).cloned().unwrap_or_default();
+        let style = self
+            .styles
+            .get(&self.tool)
+            .cloned()
+            .unwrap_or_else(|| self.tool.default_style());
         let mut cx = ToolContext {
             doc: &mut e.doc,
             style: &style,

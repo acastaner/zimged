@@ -72,7 +72,7 @@ impl<'de> serde::Deserialize<'de> for Rgba {
     }
 }
 
-/// A fill colour in `config.toml`: a colour, or `"none"`.
+/// A fill or border colour in `config.toml`: a colour, or `"none"`.
 mod fill_serde {
     use super::Rgba;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -108,12 +108,17 @@ pub struct Style {
     /// Line thickness in Image pixels.
     pub thickness: f32,
     pub shadow: bool,
+    /// Step counter diameter in Image pixels.
+    pub counter_size: f32,
     /// The text font's family name (§4.4).
     pub font: String,
     /// The text size in Image pixels.
     pub font_size: f32,
     /// Which ends of an arrow carry a head.
     pub arrowheads: Arrowheads,
+    /// An Inset's border (§4.6): `None` is no border; its width is `thickness`.
+    #[serde(with = "fill_serde")]
+    pub border: Option<Rgba>,
 }
 
 /// Which ends of an arrow carry a head (§4.1 A).
@@ -164,9 +169,11 @@ impl Default for Style {
             fill: None,
             thickness: 3.0,
             shadow: true,
+            counter_size: 30.0,
             font: DEFAULT_FONT.to_owned(),
             font_size: 20.0,
             arrowheads: Arrowheads::End,
+            border: None,
         }
     }
 }
@@ -178,11 +185,13 @@ pub enum PropertyKind {
     FillColour,
     Thickness,
     Shadow,
+    CounterSize,
     /// The text colour: the same field as the line colour (`Style::line`).
     TextColour,
     Font,
     FontSize,
     Arrowheads,
+    BorderColour,
 }
 
 /// A style property with its value: one change in the property bar.
@@ -192,10 +201,13 @@ pub enum Property {
     FillColour(Option<Rgba>),
     Thickness(f32),
     Shadow(bool),
+    CounterSize(f32),
     TextColour(Rgba),
     Font(String),
     FontSize(f32),
     Arrowheads(Arrowheads),
+    /// `None` is no border.
+    BorderColour(Option<Rgba>),
 }
 
 impl Property {
@@ -205,10 +217,12 @@ impl Property {
             Property::FillColour(_) => PropertyKind::FillColour,
             Property::Thickness(_) => PropertyKind::Thickness,
             Property::Shadow(_) => PropertyKind::Shadow,
+            Property::CounterSize(_) => PropertyKind::CounterSize,
             Property::TextColour(_) => PropertyKind::TextColour,
             Property::Font(_) => PropertyKind::Font,
             Property::FontSize(_) => PropertyKind::FontSize,
             Property::Arrowheads(_) => PropertyKind::Arrowheads,
+            Property::BorderColour(_) => PropertyKind::BorderColour,
         }
     }
 }
@@ -216,6 +230,8 @@ impl Property {
 /// Thickness limits of the property bar.
 pub const THICKNESS_RANGE: std::ops::RangeInclusive<f32> = 1.0..=40.0;
 
+/// Step counter size limits of the property bar.
+pub const COUNTER_SIZE_RANGE: std::ops::RangeInclusive<f32> = 10.0..=200.0;
 /// Font size limits of the property bar, in Image pixels.
 pub const FONT_SIZE_RANGE: std::ops::RangeInclusive<f32> = 6.0..=400.0;
 
@@ -230,10 +246,12 @@ impl Style {
             PropertyKind::FillColour => Property::FillColour(self.fill),
             PropertyKind::Thickness => Property::Thickness(self.thickness),
             PropertyKind::Shadow => Property::Shadow(self.shadow),
+            PropertyKind::CounterSize => Property::CounterSize(self.counter_size),
             PropertyKind::TextColour => Property::TextColour(self.line),
             PropertyKind::Font => Property::Font(self.font.clone()),
             PropertyKind::FontSize => Property::FontSize(self.font_size),
             PropertyKind::Arrowheads => Property::Arrowheads(self.arrowheads),
+            PropertyKind::BorderColour => Property::BorderColour(self.border),
         }
     }
 
@@ -247,6 +265,10 @@ impl Style {
             self.font_size = Self::default().font_size;
         }
         self.set(Property::FontSize(self.font_size));
+        if !self.counter_size.is_finite() {
+            self.counter_size = Self::default().counter_size;
+        }
+        self.set(Property::CounterSize(self.counter_size));
         if self.font.trim().is_empty() {
             self.font = DEFAULT_FONT.to_owned();
         }
@@ -261,12 +283,16 @@ impl Style {
                 self.thickness = t.clamp(*THICKNESS_RANGE.start(), *THICKNESS_RANGE.end())
             }
             Property::Shadow(s) => self.shadow = s,
+            Property::CounterSize(s) => {
+                self.counter_size = s.clamp(*COUNTER_SIZE_RANGE.start(), *COUNTER_SIZE_RANGE.end())
+            }
             Property::TextColour(c) => self.line = c,
             Property::Font(f) => self.font = f,
             Property::FontSize(s) => {
                 self.font_size = s.clamp(*FONT_SIZE_RANGE.start(), *FONT_SIZE_RANGE.end())
             }
             Property::Arrowheads(a) => self.arrowheads = a,
+            Property::BorderColour(c) => self.border = c,
         }
     }
 }

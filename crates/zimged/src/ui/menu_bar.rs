@@ -1,6 +1,7 @@
 //! The menu bar (§2): File, Edit, Image, View, Help, with the quick actions on its right.
 //!
-//! Each entry turns into a [`Command`]; the app executes it. So far: the Image menu (rotate, flip,
+//! Each entry turns into a [`Command`]; the app executes it. So far: File › New from clipboard
+//! (§6.1), the Image menu (rotate, flip,
 //! resize, §4.7) with its quick action, and the View menu's *Allow multiple instances* toggle
 //! (§8.3). The other menus and quick actions land with their tickets: quick actions go in
 //! [`quick_actions`], right to left, so add them before the Image one in the order of §2.
@@ -17,6 +18,7 @@ pub const ROTATE_RIGHT: &str = "Rotate right";
 pub const FLIP_HORIZONTAL: &str = "Flip horizontal";
 pub const FLIP_VERTICAL: &str = "Flip vertical";
 pub const RESIZE: &str = "Resize…";
+pub const NEW_FROM_CLIPBOARD: &str = "New from clipboard";
 
 /// What the menus show this frame.
 pub struct MenuBar {
@@ -30,6 +32,7 @@ pub fn show(ui: &mut egui::Ui, bar: &MenuBar) -> Option<Command> {
     let mut command = None;
     egui::Panel::top("menu_bar").show(ui, |ui| {
         egui::MenuBar::new().ui(ui, |ui| {
+            ui.menu_button("File", |ui| file_items(ui, &mut command));
             ui.menu_button("Image", |ui| image_items(ui, bar, &mut command));
             ui.menu_button("View", |ui| {
                 let mut allow = bar.allow_multiple_instances;
@@ -46,6 +49,19 @@ pub fn show(ui: &mut egui::Ui, bar: &MenuBar) -> Option<Command> {
         });
     });
     command
+}
+
+/// The File menu's entries. Open, Save and Save As join them with the menu ticket.
+fn file_items(ui: &mut egui::Ui, command: &mut Option<Command>) {
+    let shortcut = egui::KeyboardShortcut::new(
+        egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+        egui::Key::V,
+    );
+    let button =
+        egui::Button::new(NEW_FROM_CLIPBOARD).shortcut_text(ui.ctx().format_shortcut(&shortcut));
+    if ui.add(button).accessible_name(NEW_FROM_CLIPBOARD).clicked() {
+        *command = Some(Command::NewFromClipboard);
+    }
 }
 
 /// The Image menu's entries (§4.7), also behind its quick action.
