@@ -150,7 +150,7 @@ impl Editor {
 
     /// The style the property bar shows when nothing is selected: the active tool's.
     pub fn tool_style(&self, tool: ToolId) -> Style {
-        self.styles.get(&tool).cloned().unwrap_or_default()
+        self.styles.get(&tool).cloned().unwrap_or_else(|| tool.default_style())
     }
 
     /// Is the full-resolution decode still running?
@@ -179,7 +179,7 @@ impl Editor {
 
     fn set_tool(&mut self, tool: ToolId) {
         if let Some(e) = &mut self.edited {
-            let style = self.styles.get(&self.tool).cloned().unwrap_or_default();
+            let style = self.styles.get(&self.tool).cloned().unwrap_or_else(|| self.tool.default_style());
             let mut cx = ToolContext {
                 doc: &mut e.doc,
                 style: &style,
@@ -217,7 +217,10 @@ impl Editor {
             return;
         }
         // Nothing selected: the active tool's default for its next Annotation.
-        self.styles.entry(tool).or_default().set(property);
+        self.styles
+            .entry(tool)
+            .or_insert_with(|| tool.default_style())
+            .set(property);
     }
 
     /// The edited Image, when no pointer gesture is in progress.
@@ -379,7 +382,7 @@ impl Editor {
         let Some(e) = &mut self.edited else {
             return;
         };
-        let style = self.styles.get(&self.tool).cloned().unwrap_or_default();
+        let style = self.styles.get(&self.tool).cloned().unwrap_or_else(|| self.tool.default_style());
         let mut cx = ToolContext {
             doc: &mut e.doc,
             style: &style,

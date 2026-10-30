@@ -11,8 +11,9 @@
 mod drag_box;
 mod rectangle;
 pub mod select;
+mod step_counter;
 
-use zimged_core::{Document, Point, PropertyKind, Rectangle, Style};
+use zimged_core::{Document, Point, PropertyKind, Rectangle, StepCounter, Style};
 
 /// Every tool, in tool-strip order (§4.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -86,6 +87,7 @@ impl ToolId {
         match self {
             ToolId::Select => Some(Box::new(select::Select::default())),
             ToolId::Rectangle => Some(Box::new(rectangle::new())),
+            ToolId::StepCounter => Some(Box::new(step_counter::PlaceCounter::default())),
             _ => None,
         }
     }
@@ -98,7 +100,16 @@ impl ToolId {
     pub fn properties(self) -> &'static [PropertyKind] {
         match self {
             ToolId::Rectangle => Rectangle::PROPERTIES,
+            ToolId::StepCounter => StepCounter::PROPERTIES,
             _ => &[],
+        }
+    }
+
+    /// The tool's style before the user changes any of its properties (§4.3, §8.3).
+    pub fn default_style(self) -> Style {
+        match self {
+            ToolId::StepCounter => step_counter::default_style(),
+            _ => Style::default(),
         }
     }
 

@@ -99,7 +99,7 @@ impl Renderer {
                 &sk::Paint::default(),
             );
             for annotation in doc.annotations() {
-                shapes::draw(canvas, annotation);
+                shapes::draw(canvas, annotation, doc);
             }
         }
         Composite {

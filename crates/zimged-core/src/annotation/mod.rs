@@ -7,8 +7,10 @@
 //! 4. a tool that creates it in the `zimged` crate (`tools/`).
 
 mod rectangle;
+mod step_counter;
 
 pub use rectangle::Rectangle;
+pub use step_counter::StepCounter;
 
 use crate::geometry::{Affine, Point, Rect};
 use crate::style::{PropertyKind, Style};
@@ -18,6 +20,11 @@ pub trait Shape {
     /// The geometric bounds, without stroke width or shadow. The selection box is drawn around it
     /// and its handles resize it.
     fn bounds(&self) -> Rect;
+
+    /// The bounds for this style, for types whose size is a style property (Step counter).
+    fn styled_bounds(&self, _style: &Style) -> Rect {
+        self.bounds()
+    }
 
     /// Is `p` on the Annotation? `tolerance` (Image pixels) widens thin strokes so they can be
     /// clicked.
@@ -54,6 +61,9 @@ macro_rules! shapes {
             fn bounds(&self) -> Rect {
                 match self { $(Self::$variant(s) => s.bounds(),)+ }
             }
+            fn styled_bounds(&self, style: &Style) -> Rect {
+                match self { $(Self::$variant(s) => s.styled_bounds(style),)+ }
+            }
             fn hit(&self, p: Point, style: &Style, tolerance: f32) -> bool {
                 match self { $(Self::$variant(s) => s.hit(p, style, tolerance),)+ }
             }
@@ -75,6 +85,7 @@ macro_rules! shapes {
 
 shapes! {
     Rectangle(Rectangle),
+    StepCounter(StepCounter),
 }
 
 /// Identifies an Annotation within its Document. Never reused, so it survives undo and redo.
@@ -91,7 +102,7 @@ pub struct Annotation {
 
 impl Annotation {
     pub fn bounds(&self) -> Rect {
-        self.shape.bounds()
+        self.shape.styled_bounds(&self.style)
     }
 
     pub fn hit(&self, p: Point, tolerance: f32) -> bool {

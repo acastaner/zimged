@@ -41,6 +41,8 @@ pub struct Style {
     /// Line thickness in Image pixels.
     pub thickness: f32,
     pub shadow: bool,
+    /// Step counter diameter in Image pixels.
+    pub counter_size: f32,
 }
 
 impl Default for Style {
@@ -51,6 +53,7 @@ impl Default for Style {
             fill: None,
             thickness: 3.0,
             shadow: true,
+            counter_size: 30.0,
         }
     }
 }
@@ -62,6 +65,7 @@ pub enum PropertyKind {
     FillColour,
     Thickness,
     Shadow,
+    CounterSize,
 }
 
 /// A style property with its value: one change in the property bar.
@@ -71,6 +75,7 @@ pub enum Property {
     FillColour(Option<Rgba>),
     Thickness(f32),
     Shadow(bool),
+    CounterSize(f32),
 }
 
 impl Property {
@@ -80,12 +85,16 @@ impl Property {
             Property::FillColour(_) => PropertyKind::FillColour,
             Property::Thickness(_) => PropertyKind::Thickness,
             Property::Shadow(_) => PropertyKind::Shadow,
+            Property::CounterSize(_) => PropertyKind::CounterSize,
         }
     }
 }
 
 /// Thickness limits of the property bar.
 pub const THICKNESS_RANGE: std::ops::RangeInclusive<f32> = 1.0..=40.0;
+
+/// Step counter size limits of the property bar.
+pub const COUNTER_SIZE_RANGE: std::ops::RangeInclusive<f32> = 10.0..=200.0;
 
 impl Style {
     pub fn get(&self, kind: PropertyKind) -> Property {
@@ -94,6 +103,7 @@ impl Style {
             PropertyKind::FillColour => Property::FillColour(self.fill),
             PropertyKind::Thickness => Property::Thickness(self.thickness),
             PropertyKind::Shadow => Property::Shadow(self.shadow),
+            PropertyKind::CounterSize => Property::CounterSize(self.counter_size),
         }
     }
 
@@ -105,6 +115,9 @@ impl Style {
                 self.thickness = t.clamp(*THICKNESS_RANGE.start(), *THICKNESS_RANGE.end())
             }
             Property::Shadow(s) => self.shadow = s,
+            Property::CounterSize(s) => {
+                self.counter_size = s.clamp(*COUNTER_SIZE_RANGE.start(), *COUNTER_SIZE_RANGE.end())
+            }
         }
     }
 }
