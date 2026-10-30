@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use zimged_core::Property;
+use zimged_core::{Property, Restack};
 
 use crate::tools::ToolId;
 
@@ -39,6 +39,11 @@ pub enum Command {
     ShowResizeDialog,
     /// Resize the Image to this many pixels (the Resize dialog's **Resize**, §4.7).
     Resize { width: u32, height: u32 },
+    /// Ctrl+D (§4.2): duplicate the selected Annotations, offset by 10 px, without touching the
+    /// clipboard.
+    Duplicate,
+    /// Bring to front / Send to back (property bar), Ctrl+] / Ctrl+[ (§4.2).
+    Restack(Restack),
     /// Show the next Sibling (§3.1: wheel down, →).
     NextSibling,
     /// Show the previous Sibling (§3.1: wheel up, ←).
@@ -59,6 +64,11 @@ pub enum Command {
     ZoomFit,
     /// Enter or leave fullscreen (F11, §2).
     ToggleFullscreen,
+    /// Ctrl+S (§6.1): write the Image back in its own format, or Save As (defaulting to PNG) for a
+    /// read-only format (§5.1).
+    Save,
+    /// Ctrl+Shift+S: the native Save As dialog, offering PNG, JPEG and WebP.
+    SaveAs,
     /// View → *Allow multiple instances* (§8.3, §8.4). Persisted; takes effect at the next start.
     SetAllowMultipleInstances(bool),
 }

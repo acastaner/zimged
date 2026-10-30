@@ -4,7 +4,7 @@
 //! from whatever thread the dialog finished on. The app polls for it each frame.
 
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// Receives what the user chose: `None` when the dialog was cancelled.
@@ -14,7 +14,18 @@ pub type DialogReply = Box<dyn FnOnce(Option<PathBuf>) + Send>;
 pub trait FileDialogs: Send + Sync {
     /// Show the open dialog for an image file (Ctrl+O, §3.5). `reply` is called exactly once.
     fn pick_image(&self, reply: DialogReply);
+
+    /// Show the Save As dialog (Ctrl+Shift+S, §6.1), offering PNG, JPEG and WebP (§5.1), with
+    /// `suggested` as the starting folder and file name. `reply` is called exactly once.
+    fn save_image(&self, suggested: &Path, reply: DialogReply);
 }
+
+/// The formats Save As offers (§5.1): (filter name, extensions).
+pub const SAVE_FILTERS: &[(&str, &[&str])] = &[
+    ("PNG", &["png"]),
+    ("JPEG", &["jpg", "jpeg"]),
+    ("WebP", &["webp"]),
+];
 
 /// The extensions of the formats zimged reads (§5.1).
 pub const IMAGE_EXTENSIONS: &[&str] = &[
@@ -44,6 +55,37 @@ impl FileDialogs for OsFileDialogs {
             eprintln!("zimged: can't show the open dialog: {e}");
         }
     }
+
+    fn save_image(&self, suggested: &Path, reply: DialogReply) {
+        let mut dialog = rfd::AsyncFileDialog::new().set_title("Save As");
+        if let Some(dir) = suggested.parent().filter(|d| !d.as_os_str().is_empty()) {
+            dialog = dialog.set_directory(dir);
+        }
+        if let Some(name) = suggested.file_name() {
+            dialog = dialog.set_file_name(name.to_string_lossy());
+        }
+        // The suggested name's format first: it is the filter the dialog starts on.
+        let ext = suggested
+            .extension()
+            .map(|e| e.to_string_lossy().to_ascii_lowercase())
+            .unwrap_or_default();
+        let (first, rest): (Vec<_>, Vec<_>) = SAVE_FILTERS
+            .iter()
+            .partition(|(_, exts)| exts.contains(&ext.as_str()));
+        for (name, exts) in first.into_iter().chain(rest) {
+            dialog = dialog.add_filter(name.to_string(), exts);
+        }
+        let dialog = dialog.save_file();
+        let spawned = std::thread::Builder::new()
+            .name("save-dialog".into())
+            .spawn(move || {
+                let chosen = pollster::block_on(dialog);
+                reply(chosen.map(|file| file.path().to_owned()));
+            });
+        if let Err(e) = spawned {
+            eprintln!("zimged: can't show the save dialog: {e}");
+        }
+    }
 }
 
 /// Scripted dialogs for tests: each dialog shown takes the next queued answer (cancel when none).
@@ -59,6 +101,7 @@ struct MemoryDialogsState {
     /// When set, dialogs stay up: their replies are kept, never called.
     hold: bool,
     held: Vec<DialogReply>,
+    last_suggested: Option<PathBuf>,
 }
 
 impl MemoryFileDialogs {
@@ -76,10 +119,13 @@ impl MemoryFileDialogs {
     pub fn opened(&self) -> usize {
         self.state.lock().unwrap().opened
     }
-}
 
-impl FileDialogs for MemoryFileDialogs {
-    fn pick_image(&self, reply: DialogReply) {
+    /// The path the last Save As dialog suggested.
+    pub fn last_suggested(&self) -> Option<PathBuf> {
+        self.state.lock().unwrap().last_suggested.clone()
+    }
+
+    fn show(&self, reply: DialogReply) {
         let mut state = self.state.lock().unwrap();
         state.opened += 1;
         if state.hold {
@@ -89,5 +135,16 @@ impl FileDialogs for MemoryFileDialogs {
         let answer = state.answers.pop_front().flatten();
         drop(state);
         reply(answer);
+    }
+}
+
+impl FileDialogs for MemoryFileDialogs {
+    fn pick_image(&self, reply: DialogReply) {
+        self.show(reply);
+    }
+
+    fn save_image(&self, suggested: &Path, reply: DialogReply) {
+        self.state.lock().unwrap().last_suggested = Some(suggested.to_owned());
+        self.show(reply);
     }
 }

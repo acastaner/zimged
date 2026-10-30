@@ -30,6 +30,8 @@ pub struct EditorPaint {
     pub selection: Option<egui::Rect>,
     /// The crop tool's region, in points: the rest of the Image is dimmed.
     pub crop: Option<egui::Rect>,
+    /// The select tool's rubber band, in points: a dashed box without handles.
+    pub rubber_band: Option<egui::Rect>,
 }
 
 impl Layout {
@@ -149,6 +151,9 @@ pub fn show(
             if let Some(selection) = paint.selection {
                 paint_selection(&painter, selection);
             }
+            if let Some(band) = paint.rubber_band {
+                paint_dashed_box(&painter, band);
+            }
             layout
         })
         .inner
@@ -177,8 +182,8 @@ fn paint_crop(painter: &egui::Painter, image: egui::Rect, crop: egui::Rect) {
     paint_selection(painter, crop);
 }
 
-/// The selection box (§2): dashed, with 8 handles.
-fn paint_selection(painter: &egui::Painter, r: egui::Rect) {
+/// A dashed box, visible on light and dark Images. Returns its dark stroke.
+fn paint_dashed_box(painter: &egui::Painter, r: egui::Rect) -> egui::Stroke {
     let dark = egui::Stroke::new(1.0, egui::Color32::from_rgb(20, 20, 20));
     let light = egui::Stroke::new(1.0, egui::Color32::WHITE);
     let corners = [
@@ -190,6 +195,12 @@ fn paint_selection(painter: &egui::Painter, r: egui::Rect) {
     ];
     painter.add(egui::Shape::line(corners.to_vec(), dark));
     painter.extend(egui::Shape::dashed_line(&corners, light, 5.0, 4.0));
+    dark
+}
+
+/// The selection box (§2): dashed, with 8 handles.
+fn paint_selection(painter: &egui::Painter, r: egui::Rect) {
+    let dark = paint_dashed_box(painter, r);
     for handle in Handle::ALL {
         let (u, v) = handle.anchor();
         let center = egui::pos2(r.min.x + u * r.width(), r.min.y + v * r.height());

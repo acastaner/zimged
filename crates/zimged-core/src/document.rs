@@ -15,11 +15,24 @@
 
 use std::sync::Arc;
 
-use crate::annotation::{Annotation, AnnotationId, AnnotationShape};
-use crate::geometry::{Point, Rect};
+use crate::annotation::{Annotation, AnnotationId, AnnotationShape, Shape};
+use crate::geometry::{Affine, Point, Rect, Vector};
 use crate::history::{HISTORY_PIXEL_CAP, History, ImageState, Snapshot, Step, StepKind};
 use crate::image_op::{ImageTransform, PixelRect};
 use crate::style::{Property, Style};
+
+/// A move in the z-order (§4.2), for the selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Restack {
+    /// Bring to front: above every other Annotation.
+    Front,
+    /// Send to back: below every other Annotation.
+    Back,
+    /// One level up (Ctrl+]).
+    Up,
+    /// One level down (Ctrl+[).
+    Down,
+}
 
 /// Full-resolution Image pixels: 8-bit sRGB, tightly packed, row-major.
 #[derive(Clone)]
@@ -237,6 +250,18 @@ impl Document {
             .enforce_pixel_cap(self.history_pixel_cap, self.full_resolution.as_ref());
     }
 
+    /// A copy of what is drawn (the size, the pixels and the Annotations), with no Selection and
+    /// no History: what a worker thread Flattens (§7.2) while editing goes on.
+    pub fn drawing(&self) -> Document {
+        Document {
+            full_resolution: self.full_resolution.clone(),
+            image_generation: self.image_generation,
+            annotations: self.annotations.clone(),
+            revision: self.revision,
+            ..Document::new(self.width, self.height)
+        }
+    }
+
     // ---- Reading ----
 
     /// Bottom to top.
@@ -377,6 +402,66 @@ impl Document {
         let ids = self.selection.clone();
         self.step(|doc| doc.remove(&ids));
         true
+    }
+
+    /// Duplicate the selected Annotations as one step (Ctrl+D, §4.2): the copies go on top, in the
+    /// same order, moved by `offset`, and become the selection. Returns false when nothing was
+    /// selected.
+    pub fn duplicate_selection(&mut self, offset: Vector) -> bool {
+        if self.selection.is_empty() {
+            return false;
+        }
+        let t = Affine::translate(offset);
+        let copies: Vec<(AnnotationShape, Style)> = self
+            .selected()
+            .map(|a| (a.shape.transformed(&t), a.style.clone()))
+            .collect();
+        self.step(|doc| {
+            let ids: Vec<AnnotationId> = copies
+                .into_iter()
+                .map(|(shape, style)| doc.add(shape, style))
+                .collect();
+            doc.select(ids);
+        });
+        true
+    }
+
+    /// Change the selection's place in the z-order as one step (§4.2). Nothing changes, and no
+    /// step is recorded, when the selection is already there.
+    pub fn restack(&mut self, restack: Restack) {
+        if self.selection.is_empty() || self.gesture.is_some() {
+            return;
+        }
+        self.step(|doc| {
+            // Bottom to top: is each Annotation selected? Kept in step with the swaps below.
+            let mut order: Vec<(bool, Annotation)> = std::mem::take(&mut doc.annotations)
+                .into_iter()
+                .map(|a| (doc.selection.contains(&a.id), a))
+                .collect();
+            let n = order.len();
+            match restack {
+                // A stable sort keeps the relative order within each group.
+                Restack::Front => order.sort_by_key(|(selected, _)| *selected),
+                Restack::Back => order.sort_by_key(|(selected, _)| !*selected),
+                // Each selected Annotation swaps with the unselected one just above (below) it.
+                Restack::Up => {
+                    for i in (0..n.saturating_sub(1)).rev() {
+                        if order[i].0 && !order[i + 1].0 {
+                            order.swap(i, i + 1);
+                        }
+                    }
+                }
+                Restack::Down => {
+                    for i in 1..n {
+                        if order[i].0 && !order[i - 1].0 {
+                            order.swap(i, i - 1);
+                        }
+                    }
+                }
+            }
+            doc.annotations = order.into_iter().map(|(_, a)| a).collect();
+            doc.revision += 1;
+        });
     }
 
     /// Restyle the selected Annotations as one step. With `merge`, the change is folded into the
