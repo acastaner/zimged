@@ -5,6 +5,10 @@
 //! Every expected order below was measured with the real GLib 2.88 (`g_utf8_collate_key_for_filename`
 //! plus Nautilus's sort-last rule) in the named locale. The locale-dependent tables need the
 //! `en_US.UTF-8` locale installed.
+//!
+//! Linux only: elsewhere `GlibOrder` falls back to code-point order (it is only used on Linux), and
+//! the release workflow runs this crate's tests on Windows and macOS (#42).
+#![cfg(target_os = "linux")]
 
 use std::cmp::Ordering;
 
