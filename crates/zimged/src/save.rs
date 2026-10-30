@@ -1,6 +1,6 @@
 //! Save (§5.1, §5.3, §7.2): Flatten the Document and write it, on the worker thread (§7.3).
 //!
-//! The UI hands the worker a copy of what is drawn ([`zimged_core::Document::drawing`]), so editing
+//! The UI hands the worker a copy of what is drawn ([`zimged_core::Document::to_flatten`]), so editing
 //! can go on meanwhile. The worker decodes the full-resolution pixels itself when editing hasn't
 //! (they come back, so the Document keeps them), Flattens with the same Skia code as the screen,
 //! encodes, and writes atomically ([`zimged_codec::save`]).
@@ -18,7 +18,7 @@ use crate::strings;
 /// What to save, and where.
 pub(crate) struct SaveJob {
     /// What is drawn: the size, the Annotations and (when decoded) the full-resolution pixels.
-    pub drawing: Document,
+    pub doc: Document,
     /// The file the Image came from: its pixels (when not yet decoded) and metadata.
     pub source: Option<PathBuf>,
     /// The display-size decode when it is the full resolution: used when the source can't be
@@ -49,7 +49,7 @@ impl PendingSave {
 }
 
 fn run(job: SaveJob) -> SaveResult {
-    let (flattened, decoded) = flatten_drawing(job.drawing, job.source.as_deref(), &job.fallback)?;
+    let (flattened, decoded) = flatten_document(job.doc, job.source.as_deref(), &job.fallback)?;
     let info = job
         .source
         .as_deref()
@@ -64,13 +64,13 @@ fn run(job: SaveJob) -> SaveResult {
         &info,
         job.jpeg_quality,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| strings::save_reason(&e))?;
     Ok(Saved { decoded })
 }
 
 /// What to copy to the clipboard (§6.2): the same as a save, without a target file.
 pub(crate) struct CopyJob {
-    pub drawing: Document,
+    pub doc: Document,
     pub source: Option<PathBuf>,
     pub fallback: Option<Arc<egui::ColorImage>>,
     pub clipboard: Arc<dyn zimged_platform::Clipboard>,
@@ -86,9 +86,10 @@ impl PendingCopy {
 }
 
 fn copy(job: CopyJob) -> SaveResult {
-    let (flattened, decoded) = flatten_drawing(job.drawing, job.source.as_deref(), &job.fallback)?;
+    let (flattened, decoded) = flatten_document(job.doc, job.source.as_deref(), &job.fallback)?;
     let (pixels, size) = straight(&flattened);
-    let png = zimged_codec::encode_png_plain(&pixels, size).map_err(|e| e.to_string())?;
+    let png =
+        zimged_codec::encode_png_plain(&pixels, size).map_err(|e| strings::save_reason(&e))?;
     job.clipboard
         .write(vec![zimged_platform::ClipboardItem::new(
             zimged_platform::clipboard::IMAGE_PNG,
@@ -99,7 +100,7 @@ fn copy(job: CopyJob) -> SaveResult {
 
 /// What copying selected Annotations puts on the clipboard (§6.2).
 pub(crate) struct AnnotationsCopyJob {
-    pub drawing: Document,
+    pub doc: Document,
     /// The copied Annotations (the selection).
     pub ids: Vec<AnnotationId>,
     pub clipboard: Arc<dyn zimged_platform::Clipboard>,
@@ -123,7 +124,7 @@ fn drawn_margin(style: &zimged_core::Style) -> f32 {
 /// ([`Shape::needs_pixels_below`]: highlight, obfuscate); it is omitted when nothing is left.
 fn copy_annotations(job: AnnotationsCopyJob) -> SaveResult {
     let copied: Vec<&Annotation> = job
-        .drawing
+        .doc
         .annotations()
         .iter()
         .filter(|a| job.ids.contains(&a.id))
@@ -137,7 +138,7 @@ fn copy_annotations(job: AnnotationsCopyJob) -> SaveResult {
         .filter(|a| !a.shape.needs_pixels_below())
         .collect();
     let mut items = Vec::new();
-    if let Some(png) = annotations_png(&job.drawing, &in_png)? {
+    if let Some(png) = annotations_png(&job.doc, &in_png)? {
         // The PNG first: on Windows, setting an image clears the clipboard (see OsClipboard).
         items.push(zimged_platform::ClipboardItem::new(
             zimged_platform::clipboard::IMAGE_PNG,
@@ -177,7 +178,7 @@ fn annotations_png(doc: &Document, annotations: &[&Annotation]) -> Result<Option
     let (pixels, size) = straight(&trimmed);
     zimged_codec::encode_png_plain(&pixels, size)
         .map(Some)
-        .map_err(|e| e.to_string())
+        .map_err(|e| strings::save_reason(&e))
 }
 
 /// The composite cropped to its pixels that aren't fully transparent; `None` when all are.
@@ -209,21 +210,21 @@ fn trim_transparent(c: &Composite) -> Option<Composite> {
     })
 }
 
-/// Flatten `drawing` at full resolution, decoding its pixels from `source` (or taking `fallback`)
+/// Flatten `doc` at full resolution, decoding its pixels from `source` (or taking `fallback`)
 /// when the Document hasn't got them yet; those decoded pixels come back too.
-fn flatten_drawing(
-    mut drawing: Document,
+fn flatten_document(
+    mut doc: Document,
     source: Option<&Path>,
     fallback: &Option<Arc<egui::ColorImage>>,
 ) -> Result<(Composite, Option<Arc<Pixels>>), String> {
-    let (full, decoded) = match drawing.full_resolution() {
+    let (full, decoded) = match doc.full_resolution() {
         Some(full) => (full.clone(), None),
         None => {
             let decoded = source
                 .ok_or_else(|| strings::NO_PIXELS_TO_SAVE.to_owned())
                 .and_then(|source| decode_full(source).map_err(|e| e.to_string()))
                 .ok()
-                .filter(|p| (p.width, p.height) == (drawing.width(), drawing.height()));
+                .filter(|p| (p.width, p.height) == (doc.width(), doc.height()));
             let full = match (decoded, fallback) {
                 (Some(pixels), _) => Arc::new(pixels),
                 (None, Some(fallback)) => Arc::new(from_color_image(fallback)),
@@ -232,11 +233,11 @@ fn flatten_drawing(
             (full.clone(), Some(full))
         }
     };
-    if (full.width, full.height) != (drawing.width(), drawing.height()) {
+    if (full.width, full.height) != (doc.width(), doc.height()) {
         return Err(strings::FILE_CHANGED.into());
     }
-    drawing.set_full_resolution(full.clone());
-    Ok((flatten(&drawing, &full), decoded))
+    doc.set_full_resolution(full.clone());
+    Ok((flatten(&doc, &full), decoded))
 }
 
 /// Flatten (§7.2): the same renderer as the canvas, over the whole Image at full resolution.

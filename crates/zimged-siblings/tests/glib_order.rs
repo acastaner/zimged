@@ -6,8 +6,8 @@
 //! plus Nautilus's sort-last rule) in the named locale. The locale-dependent tables need the
 //! `en_US.UTF-8` locale installed.
 //!
-//! Linux only: elsewhere `GlibOrder` falls back to code-point order (it is only used on Linux), and
-//! the release workflow runs this crate's tests on Windows and macOS (#42).
+//! Linux only: elsewhere `GlibOrder` falls back to code-point order (it is only used on Linux), so
+//! these tables would fail in a test run on Windows or macOS.
 #![cfg(target_os = "linux")]
 
 use std::cmp::Ordering;

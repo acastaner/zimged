@@ -331,7 +331,7 @@ impl Style {
         }
     }
 
-    /// Values read from `config.toml` brought back into range.
+    /// Values read from `config.toml` or the clipboard JSON brought back into range.
     pub fn sanitised(mut self) -> Self {
         if !self.thickness.is_finite() {
             self.thickness = Self::default().thickness;
@@ -349,6 +349,11 @@ impl Style {
             self.strength = Self::default().strength;
         }
         self.set(Property::Strength(self.strength));
+        // Only the clipboard JSON carries it (the config has `magnify_factor`).
+        if !self.magnification.is_finite() {
+            self.magnification = Self::default().magnification;
+        }
+        self.set(Property::Magnification(self.magnification));
         if self.font.trim().is_empty() {
             self.font = DEFAULT_FONT.to_owned();
         }

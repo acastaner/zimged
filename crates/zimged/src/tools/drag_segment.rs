@@ -11,10 +11,10 @@ const SNAP_DEGREES: f32 = 15.0;
 pub struct DragSegment {
     /// Builds the Annotation's shape from the dragged ends.
     make: fn(Point, Point) -> AnnotationShape,
-    drawing: Option<Drawing>,
+    drag: Option<Drag>,
 }
 
-struct Drawing {
+struct Drag {
     start: Point,
     id: AnnotationId,
     moved: bool,
@@ -32,10 +32,7 @@ pub fn arrow() -> DragSegment {
 
 impl DragSegment {
     pub fn new(make: fn(Point, Point) -> AnnotationShape) -> Self {
-        Self {
-            make,
-            drawing: None,
-        }
+        Self { make, drag: None }
     }
 }
 
@@ -62,7 +59,7 @@ impl Tool for DragSegment {
             .doc
             .add((self.make)(pointer.pos, pointer.pos), cx.style.clone());
         cx.doc.select([id]);
-        self.drawing = Some(Drawing {
+        self.drag = Some(Drag {
             start: pointer.pos,
             id,
             moved: false,
@@ -70,34 +67,34 @@ impl Tool for DragSegment {
     }
 
     fn drag(&mut self, cx: &mut ToolContext<'_>, pointer: Pointer) {
-        let Some(drawing) = &mut self.drawing else {
+        let Some(drag) = &mut self.drag else {
             return;
         };
-        drawing.moved = true;
-        let shape = (self.make)(drawing.start, dragged_end(drawing.start, pointer));
-        if let Some(a) = cx.doc.annotation_mut(drawing.id) {
+        drag.moved = true;
+        let shape = (self.make)(drag.start, dragged_end(drag.start, pointer));
+        if let Some(a) = cx.doc.annotation_mut(drag.id) {
             a.shape = shape;
         }
     }
 
     fn release(&mut self, cx: &mut ToolContext<'_>, pointer: Pointer) {
-        let Some(drawing) = self.drawing.take() else {
+        let Some(drag) = self.drag.take() else {
             return;
         };
-        let end = dragged_end(drawing.start, pointer);
-        if !drawing.moved || drawing.start.distance(end) < 1.0 {
+        let end = dragged_end(drag.start, pointer);
+        if !drag.moved || drag.start.distance(end) < 1.0 {
             // A click draws nothing.
             cx.doc.cancel_gesture();
             return;
         }
-        if let Some(a) = cx.doc.annotation_mut(drawing.id) {
-            a.shape = (self.make)(drawing.start, end);
+        if let Some(a) = cx.doc.annotation_mut(drag.id) {
+            a.shape = (self.make)(drag.start, end);
         }
         cx.doc.commit_gesture();
     }
 
     fn cancel(&mut self, cx: &mut ToolContext<'_>) {
-        if self.drawing.take().is_some() && cx.doc.in_gesture() {
+        if self.drag.take().is_some() && cx.doc.in_gesture() {
             cx.doc.cancel_gesture();
         }
     }

@@ -253,7 +253,7 @@ impl Document {
 
     /// A copy of what is drawn (the size, the pixels and the Annotations), with no Selection and
     /// no History: what a worker thread Flattens (§7.2) while editing goes on.
-    pub fn drawing(&self) -> Document {
+    pub fn to_flatten(&self) -> Document {
         Document {
             full_resolution: self.full_resolution.clone(),
             image_generation: self.image_generation,

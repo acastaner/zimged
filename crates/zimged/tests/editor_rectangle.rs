@@ -389,17 +389,25 @@ fn the_file_name_shows_a_dot_while_there_are_unsaved_changes() {
 // ---- Rendering and decoding ----
 
 #[test]
-fn skia_initialises_on_the_first_annotation_only() {
+fn the_first_rectangle_shows_on_the_canvas_over_the_image() {
     let mut app = app_with_image();
     app.press(Key::R);
-    assert!(!app.harness.state().skia_initialised());
-    assert!(app.harness.state().composite().is_none());
+    let inside = app.pixel(90, 60).expect("the Image on screen");
 
     app.drag_px((40.0, 30.0), (140.0, 90.0));
-    assert!(app.harness.state().skia_initialised());
-    let composite = app.harness.state().composite().expect("a composite");
+    let canvas = app.composite_image();
     // The visible region at physical resolution: the whole 320×240 Image at 100%.
-    assert_eq!((composite.width, composite.height), (320, 240));
+    assert_eq!(canvas.dimensions(), (320, 240));
+    // A red line along the left edge; inside, the Image shows through unchanged.
+    let [r, g, b, _] = canvas.get_pixel(40, 60).0;
+    assert!(r > 200 && g < 60 && b < 60, "edge {:?}", [r, g, b]);
+    let [r, g, b, _] = canvas.get_pixel(90, 60).0;
+    let close = |a: u8, b: u8| a.abs_diff(b) <= 6;
+    assert!(
+        close(r, inside.r()) && close(g, inside.g()) && close(b, inside.b()),
+        "inside {:?}, Image {inside:?}",
+        [r, g, b]
+    );
 }
 
 #[test]

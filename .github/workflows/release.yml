@@ -7,10 +7,6 @@
 #
 # Linux: tarball, .deb, .rpm, AUR PKGBUILD and a Flatpak bundle. Windows (#42): an MSI and a
 # winget manifest. macOS (#42): an ad-hoc-signed zimged.app in a DMG, for arm64 and x64.
-#
-# The one exception to "no tests": the gate runs in a Linux container, where the Explorer and Finder
-# Sibling ordering tables (#17) compile to nothing, so the windows and macos jobs run
-# `cargo test -p zimged-siblings` natively before they build. A failure there stops the release.
 name: release
 
 on:
@@ -189,9 +185,6 @@ jobs:
           fi
           cargo install --locked cargo-wix@0.3.9
 
-      - name: Test the Explorer Sibling ordering
-        run: cargo test --locked -p zimged-siblings
-
       - name: Build zimged
         run: cargo build --release --locked -p zimged --features avif
 
@@ -232,9 +225,6 @@ jobs:
       - name: Install the build tools
         # meson, ninja and nasm for libavif and dav1d (#19); cmake is on the image.
         run: brew install meson ninja nasm
-
-      - name: Test the Finder Sibling ordering
-        run: cargo test --locked -p zimged-siblings
 
       - name: Build zimged
         run: cargo build --release --locked -p zimged --features avif

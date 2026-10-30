@@ -56,6 +56,29 @@ fn a_known_key_with_the_wrong_type_makes_the_file_corrupt() {
 }
 
 #[test]
+fn an_out_of_range_jpeg_quality_is_clamped_not_corrupt() {
+    for (value, clamped) in [
+        ("300", 100),
+        ("0", 1),
+        ("-5", 1),
+        ("9223372036854775807", 100),
+    ] {
+        let store = Arc::new(MemoryConfigStore::with_text(format!(
+            "version = 1\njpeg_quality = {value}\nmagnify_factor = 3.0\n"
+        )));
+        let app = TestApp::with_platform(platform_with(&store));
+
+        let config = app.harness.state().config().clone();
+        assert_eq!(config.jpeg_quality, clamped, "{value}");
+        assert_eq!(
+            config.magnify_factor, 3.0,
+            "{value}: the rest of the file is kept"
+        );
+        assert_eq!(store.bad_text(), None, "{value}");
+    }
+}
+
+#[test]
 fn on_disk_a_corrupt_config_toml_is_renamed_to_config_toml_bad() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");

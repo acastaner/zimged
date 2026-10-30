@@ -2,6 +2,9 @@
 //!
 //! The app never blocks on a dialog: it asks for one and gets the answer through a callback, called
 //! from whatever thread the dialog finished on. The app polls for it each frame.
+//!
+//! The words a dialog shows (its title, filter names) come from the app's string table (§8.6): this
+//! crate has none of its own.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -10,14 +13,24 @@ use std::sync::Mutex;
 /// Receives what the user chose: `None` when the dialog was cancelled.
 pub type DialogReply = Box<dyn FnOnce(Option<PathBuf>) + Send>;
 
+/// What the open dialog says, in the app's words.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OpenDialogText {
+    pub title: String,
+    /// The name of the filter for the formats zimged reads.
+    pub images: String,
+    /// The name of the filter that shows every file.
+    pub all_files: String,
+}
+
 /// The native file dialogs.
 pub trait FileDialogs: Send + Sync {
     /// Show the open dialog for an image file (Ctrl+O, §3.5). `reply` is called exactly once.
-    fn pick_image(&self, reply: DialogReply);
+    fn pick_image(&self, text: &OpenDialogText, reply: DialogReply);
 
-    /// Show the Save As dialog (Ctrl+Shift+S, §6.1), offering PNG, JPEG and WebP (§5.1), with
-    /// `suggested` as the starting folder and file name. `reply` is called exactly once.
-    fn save_image(&self, suggested: &Path, reply: DialogReply);
+    /// Show the Save As dialog (Ctrl+Shift+S, §6.1) titled `title`, offering PNG, JPEG and WebP
+    /// (§5.1), with `suggested` as the starting folder and file name. `reply` is called exactly once.
+    fn save_image(&self, title: &str, suggested: &Path, reply: DialogReply);
 }
 
 /// The formats Save As offers (§5.1): (filter name, extensions).
@@ -37,13 +50,13 @@ pub const IMAGE_EXTENSIONS: &[&str] = &[
 pub struct OsFileDialogs;
 
 impl FileDialogs for OsFileDialogs {
-    fn pick_image(&self, reply: DialogReply) {
+    fn pick_image(&self, text: &OpenDialogText, reply: DialogReply) {
         // Build the dialog on the calling (UI) thread, as rfd wants on macOS, and wait for it on a
         // thread of its own so the window keeps painting while it is up.
         let dialog = rfd::AsyncFileDialog::new()
-            .set_title("Open")
-            .add_filter("Images", IMAGE_EXTENSIONS)
-            .add_filter("All files", &["*"])
+            .set_title(&text.title)
+            .add_filter(&text.images, IMAGE_EXTENSIONS)
+            .add_filter(&text.all_files, &["*"])
             .pick_file();
         let spawned = std::thread::Builder::new()
             .name("open-dialog".into())
@@ -56,8 +69,8 @@ impl FileDialogs for OsFileDialogs {
         }
     }
 
-    fn save_image(&self, suggested: &Path, reply: DialogReply) {
-        let mut dialog = rfd::AsyncFileDialog::new().set_title("Save As");
+    fn save_image(&self, title: &str, suggested: &Path, reply: DialogReply) {
+        let mut dialog = rfd::AsyncFileDialog::new().set_title(title);
         if let Some(dir) = suggested.parent().filter(|d| !d.as_os_str().is_empty()) {
             dialog = dialog.set_directory(dir);
         }
@@ -102,6 +115,8 @@ struct MemoryDialogsState {
     hold: bool,
     held: Vec<DialogReply>,
     last_suggested: Option<PathBuf>,
+    last_title: Option<String>,
+    last_open_text: Option<OpenDialogText>,
 }
 
 impl MemoryFileDialogs {
@@ -125,9 +140,20 @@ impl MemoryFileDialogs {
         self.state.lock().unwrap().last_suggested.clone()
     }
 
-    fn show(&self, reply: DialogReply) {
+    /// The title of the last dialog shown.
+    pub fn last_title(&self) -> Option<String> {
+        self.state.lock().unwrap().last_title.clone()
+    }
+
+    /// What the last open dialog said.
+    pub fn last_open_text(&self) -> Option<OpenDialogText> {
+        self.state.lock().unwrap().last_open_text.clone()
+    }
+
+    fn show(&self, title: &str, reply: DialogReply) {
         let mut state = self.state.lock().unwrap();
         state.opened += 1;
+        state.last_title = Some(title.to_owned());
         if state.hold {
             state.held.push(reply);
             return;
@@ -139,12 +165,13 @@ impl MemoryFileDialogs {
 }
 
 impl FileDialogs for MemoryFileDialogs {
-    fn pick_image(&self, reply: DialogReply) {
-        self.show(reply);
+    fn pick_image(&self, text: &OpenDialogText, reply: DialogReply) {
+        self.state.lock().unwrap().last_open_text = Some(text.clone());
+        self.show(&text.title, reply);
     }
 
-    fn save_image(&self, suggested: &Path, reply: DialogReply) {
+    fn save_image(&self, title: &str, suggested: &Path, reply: DialogReply) {
         self.state.lock().unwrap().last_suggested = Some(suggested.to_owned());
-        self.show(reply);
+        self.show(title, reply);
     }
 }

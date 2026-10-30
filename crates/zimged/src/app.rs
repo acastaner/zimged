@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use zimged_codec::{DisplayImage, Size, fit_within};
 use zimged_core::{Document, Property};
-use zimged_platform::{Arrival, Config, Platform};
+use zimged_platform::{Arrival, Config, HandOff, Platform};
 use zimged_render::Composite;
 use zimged_siblings::{Decoded, Direction};
 
@@ -49,7 +49,7 @@ pub struct Launch {
     pub platform: Platform,
     pub config: Config,
     /// The first-image decode started at `main()` (§1.3), if a path was given.
-    pub first_image: Option<PendingDecode>,
+    pub(crate) first_image: Option<PendingDecode>,
     /// The display-size cache cap in bytes (§3.3). Tests lower it to watch eviction.
     pub cache_cap: usize,
     /// The cap on pixels the History holds, in bytes (§4.8). Tests lower it.
@@ -69,6 +69,40 @@ impl Launch {
             cache_cap: zimged_siblings::prefetch::CACHE_CAP_BYTES,
             history_pixel_cap: zimged_core::HISTORY_PIXEL_CAP,
             from_clipboard: false,
+        }
+    }
+
+    /// Start decoding `path` for the first window, as `zimged <path>` does (§1.3 step 1), sized
+    /// for the window `config.window` describes.
+    pub fn decode_first_image(&mut self, path: PathBuf) {
+        self.decode_first_image_after(path, || ());
+    }
+
+    /// Like [`Self::decode_first_image`], but the decode doesn't finish before `ready` returns (a
+    /// test steps the app frame by frame from the first image on).
+    pub fn decode_first_image_after(
+        &mut self,
+        path: PathBuf,
+        ready: impl FnOnce() + Send + 'static,
+    ) {
+        let display_box = startup_display_box(&self.config);
+        self.first_image = Some(PendingDecode::spawn(path, move || {
+            ready();
+            display_box
+        }));
+    }
+
+    /// §1.3 step 2 / §8.4: should this process exit, a running zimged having taken `path`? With
+    /// *Allow multiple instances* on (the default) the socket isn't touched. Off: `path` is
+    /// offered to a running instance, and if nothing answers this process becomes the listener
+    /// (the app picks up arrivals each frame).
+    pub fn handed_off(&self, path: Option<&Path>) -> bool {
+        if self.config.allow_multiple_instances {
+            return false;
+        }
+        match self.platform.instance.hand_off_or_listen(path) {
+            HandOff::Answered => true,
+            HandOff::Listening | HandOff::Alone => false,
         }
     }
 }
@@ -422,11 +456,6 @@ impl ZimgedApp {
         self.editor.font_families()
     }
 
-    /// Has Skia been initialised (§1.3: only on the first Annotation)?
-    pub fn skia_initialised(&self) -> bool {
-        self.editor.skia_initialised()
-    }
-
     /// The last Skia composite of the canvas, while there are Annotations (§7.2).
     pub fn composite(&self) -> Option<&Composite> {
         self.editor.composite()
@@ -684,8 +713,8 @@ impl ZimgedApp {
         self.navigation.is_watching()
     }
 
-    /// The files in the display-size cache (§3.3) and their total size in bytes.
-    pub fn cached_siblings(&self) -> (Vec<PathBuf>, usize) {
+    /// The files kept ready in the display-size cache (§3.3: what's kept).
+    pub fn cached_siblings(&self) -> Vec<PathBuf> {
         self.navigation.cached()
     }
 
@@ -781,23 +810,22 @@ impl ZimgedApp {
         let (tx, rx) = mpsc::channel();
         self.open_dialog = Some(rx);
         let ctx = self.ctx.clone();
-        self.platform.dialogs.pick_image(Box::new(move |chosen| {
-            let _ = tx.send(chosen);
-            ctx.request_repaint();
-        }));
+        let text = zimged_platform::OpenDialogText {
+            title: strings::OPEN_DIALOG_TITLE.to_owned(),
+            images: strings::IMAGES_FILTER.to_owned(),
+            all_files: strings::ALL_FILES_FILTER.to_owned(),
+        };
+        self.platform.dialogs.pick_image(
+            &text,
+            Box::new(move |chosen| {
+                let _ = tx.send(chosen);
+                ctx.request_repaint();
+            }),
+        );
     }
 
     fn poll_open_dialog(&mut self) {
-        let Some(rx) = &self.open_dialog else {
-            return;
-        };
-        let chosen = match rx.try_recv() {
-            Ok(chosen) => chosen,
-            Err(mpsc::TryRecvError::Empty) => return,
-            Err(mpsc::TryRecvError::Disconnected) => None,
-        };
-        self.open_dialog = None;
-        if let Some(path) = chosen {
+        if let Some(Some(path)) = dialog_answer(&mut self.open_dialog) {
             self.execute(Command::Open(path));
         }
     }
@@ -884,6 +912,7 @@ impl ZimgedApp {
         self.save_dialog = Some(rx);
         let ctx = self.ctx.clone();
         self.platform.dialogs.save_image(
+            strings::SAVE_AS_DIALOG_TITLE,
             &suggested,
             Box::new(move |chosen| {
                 let _ = tx.send(chosen);
@@ -893,16 +922,7 @@ impl ZimgedApp {
     }
 
     fn poll_save_dialog(&mut self) {
-        let Some(rx) = &self.save_dialog else {
-            return;
-        };
-        let chosen = match rx.try_recv() {
-            Ok(chosen) => chosen,
-            Err(mpsc::TryRecvError::Empty) => return,
-            Err(mpsc::TryRecvError::Disconnected) => None,
-        };
-        self.save_dialog = None;
-        if let Some(chosen) = chosen {
+        if let Some(Some(chosen)) = dialog_answer(&mut self.save_dialog) {
             let (target, format) = crate::save::chosen_target(chosen);
             self.save_to(target, format);
         }
@@ -962,7 +982,7 @@ impl ZimgedApp {
             return;
         };
         let job = SaveJob {
-            drawing: source.drawing,
+            doc: source.doc,
             source: source.path,
             fallback: self.full_size_display_pixels(),
             target,
@@ -1041,7 +1061,7 @@ impl ZimgedApp {
             .unwrap_or_default();
         let (pending, message) = if selection.is_empty() {
             let job = CopyJob {
-                drawing: source.drawing,
+                doc: source.doc,
                 source: source.path,
                 fallback: self.full_size_display_pixels(),
                 clipboard: self.platform.clipboard.clone(),
@@ -1049,7 +1069,7 @@ impl ZimgedApp {
             (PendingCopy::spawn_copy(job), strings::IMAGE_COPIED)
         } else {
             let job = AnnotationsCopyJob {
-                drawing: source.drawing,
+                doc: source.doc,
                 ids: selection,
                 clipboard: self.platform.clipboard.clone(),
             };
@@ -1469,7 +1489,12 @@ impl ZimgedApp {
         let Some(path) = shown.path.clone() else {
             return;
         };
-        shown.animation = Some(Animation::spawn(path, layout.area_px(), ctx));
+        // §1.2: the frames and the file's display decode share the display-size cache's budget.
+        let budget = self
+            .navigation
+            .cache_cap()
+            .saturating_sub(crate::animation::frame_bytes(&shown.display_pixels));
+        shown.animation = Some(Animation::spawn(path, layout.area_px(), budget, ctx));
     }
 
     /// How many frames of an animation are held (decoded, CPU pixels): 0 without one (§3.4).
@@ -1478,6 +1503,16 @@ impl ZimgedApp {
             .as_ref()
             .and_then(|s| s.animation.as_ref())
             .map_or(0, Animation::frame_count)
+    }
+
+    /// The bytes the shown animation holds under the display-size cache's cap (§1.2): its frames
+    /// and the file's display decode. 0 without one.
+    fn animation_bytes(&self) -> usize {
+        self.shown.as_ref().map_or(0, |shown| {
+            shown.animation.as_ref().map_or(0, |a| {
+                a.bytes() + crate::animation::frame_bytes(&shown.display_pixels)
+            })
+        })
     }
 
     /// Move the animation on to the frame due now (§3.4); forget it once it turns out to be a still.
@@ -1713,6 +1748,7 @@ impl eframe::App for ZimgedApp {
         self.poll_decode(&ctx);
         self.poll_upgrade(&ctx);
         self.play_animation(&ctx);
+        self.navigation.hold(self.animation_bytes());
         self.editor.poll(&ctx);
         self.expire_message(&ctx);
         self.drive_bench(&ctx);
@@ -1790,7 +1826,7 @@ impl eframe::App for ZimgedApp {
 
 /// The display box to decode into before the window exists: the configured window size, at a
 /// scale factor of 1 (the real one is unknown until the window is created).
-pub fn startup_display_box(config: &Config) -> Size {
+pub(crate) fn startup_display_box(config: &Config) -> Size {
     Size::new(
         config.window.width.round() as u32,
         config.window.height.round() as u32,
@@ -1802,6 +1838,18 @@ fn file_name(path: &Path) -> String {
         .unwrap_or(path.as_os_str())
         .to_string_lossy()
         .into_owned()
+}
+
+/// The answer of the file dialog waited on in `slot`, once it has come: the path chosen, or
+/// `None` for Cancel (or a dialog that went away). `slot` is emptied then; `None` while it is up.
+fn dialog_answer(slot: &mut Option<mpsc::Receiver<Option<PathBuf>>>) -> Option<Option<PathBuf>> {
+    let chosen = match slot.as_ref()?.try_recv() {
+        Ok(chosen) => chosen,
+        Err(mpsc::TryRecvError::Empty) => return None,
+        Err(mpsc::TryRecvError::Disconnected) => None,
+    };
+    *slot = None;
+    Some(chosen)
 }
 
 /// Do `a` and `b` name the same file? (Save As may spell it differently.)

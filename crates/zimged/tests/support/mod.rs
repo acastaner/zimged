@@ -10,7 +10,6 @@ use std::time::{Duration, Instant};
 use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use zimged::decode::PendingDecode;
 use zimged::{Command, Launch, ZimgedApp};
 use zimged_platform::Platform;
 
@@ -167,8 +166,7 @@ impl TestApp {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = copy_fixtures(dir.path(), names);
         let mut launch = Launch::new(platform);
-        let display_box = zimged::app::startup_display_box(&launch.config);
-        launch.first_image = Some(PendingDecode::spawn(path, move || display_box));
+        launch.decode_first_image(path);
         let harness = Harness::builder()
             .with_size(WINDOW)
             .with_pixels_per_point(pixels_per_point)
@@ -191,12 +189,10 @@ impl TestApp {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = copy_fixtures(dir.path(), names);
         let mut launch = Launch::new(platform);
-        let display_box = zimged::app::startup_display_box(&launch.config);
         let (release, held) = std::sync::mpsc::channel::<()>();
-        launch.first_image = Some(PendingDecode::spawn(path, move || {
+        launch.decode_first_image_after(path, move || {
             let _ = held.recv();
-            display_box
-        }));
+        });
         let harness = Harness::builder()
             .with_size(WINDOW)
             .build_eframe(move |cc| ZimgedApp::new(cc, launch));

@@ -176,6 +176,8 @@ impl Default for WindowConfig {
 #[serde(default)]
 pub struct Config {
     pub allow_multiple_instances: bool,
+    /// 1–100. Read as any TOML integer and clamped, so an out-of-range value isn't corrupt.
+    #[serde(deserialize_with = "jpeg_quality_clamped")]
     pub jpeg_quality: u8,
     pub magnify_factor: f32,
     // Tables come after the plain keys in TOML.
@@ -204,6 +206,14 @@ struct ConfigFile<'a> {
     version: u32,
     #[serde(flatten)]
     config: &'a Config,
+}
+
+/// The JPEG quality range (§8.3).
+const JPEG_QUALITY: std::ops::RangeInclusive<i64> = 1..=100;
+
+fn jpeg_quality_clamped<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u8, D::Error> {
+    let quality = i64::deserialize(d)?.clamp(*JPEG_QUALITY.start(), *JPEG_QUALITY.end());
+    Ok(u8::try_from(quality).expect("1..=100 fits in u8"))
 }
 
 /// The smallest window size kept from the file, in points.
@@ -250,7 +260,6 @@ impl Config {
 
     fn sanitised(mut self) -> Self {
         let defaults = Self::default();
-        self.jpeg_quality = self.jpeg_quality.clamp(1, 100);
         if !(self.magnify_factor.is_finite() && self.magnify_factor >= 1.0) {
             self.magnify_factor = defaults.magnify_factor;
         }

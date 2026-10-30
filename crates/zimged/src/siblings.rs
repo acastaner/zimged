@@ -34,6 +34,8 @@ pub struct Navigation {
     scan: Scan,
     prefetch: Option<Prefetcher>,
     cache_cap: usize,
+    /// Bytes held outside the cache under its cap (the shown animation, §3.4).
+    held: usize,
     direction: Direction,
     /// The Sibling being moved to while its decode is pending.
     target: Option<PathBuf>,
@@ -52,6 +54,7 @@ impl Navigation {
             scan: Scan::NotStarted,
             prefetch: None,
             cache_cap,
+            held: 0,
             direction: Direction::Forward,
             target: None,
             watcher: None,
@@ -83,6 +86,9 @@ impl Navigation {
                 self.cache_cap,
                 move || waker.request_repaint(),
             ));
+            if let Some(prefetch) = &self.prefetch {
+                prefetch.hold(self.held);
+            }
         }
         self.target = None;
         self.direction = Direction::Forward;
@@ -189,7 +195,7 @@ impl Navigation {
             return false;
         };
         let from = self.target.as_deref().unwrap_or(shown);
-        neighbour(list, from, direction).is_some()
+        sibling_towards(list, from, direction).is_some()
     }
 
     /// Move one Sibling forward or back from the Image on screen (or from the pending target).
@@ -198,7 +204,7 @@ impl Navigation {
             return Step::NotReady;
         };
         let from = self.target.as_deref().unwrap_or(shown);
-        let Some(index) = neighbour(list, from, direction) else {
+        let Some(index) = sibling_towards(list, from, direction) else {
             return Step::End(match direction {
                 Direction::Forward => crate::strings::LAST_IMAGE,
                 Direction::Backward => crate::strings::FIRST_IMAGE,
@@ -278,17 +284,33 @@ impl Navigation {
             || self.prefetch.as_ref().is_some_and(|p| !p.is_idle())
     }
 
-    /// The files in the display-size cache and their total size in bytes.
-    pub fn cached(&self) -> (Vec<PathBuf>, usize) {
+    /// The display-size cache's cap (§1.2): the shown animation shares it.
+    pub fn cache_cap(&self) -> usize {
+        self.cache_cap
+    }
+
+    /// Count `bytes` held outside the cache (the shown animation) against its cap.
+    pub fn hold(&mut self, bytes: usize) {
+        if bytes == self.held {
+            return;
+        }
+        self.held = bytes;
+        if let Some(prefetch) = &self.prefetch {
+            prefetch.hold(bytes);
+        }
+    }
+
+    /// The files in the display-size cache.
+    pub fn cached(&self) -> Vec<PathBuf> {
         self.prefetch
             .as_ref()
-            .map_or_else(Default::default, Prefetcher::cached)
+            .map_or_else(Vec::new, |p| p.cached().0)
     }
 }
 
 /// The index of the Sibling after (or before) `from`, which may have left the list: `None` at an
 /// end of it.
-fn neighbour(list: &SiblingList, from: &Path, direction: Direction) -> Option<usize> {
+fn sibling_towards(list: &SiblingList, from: &Path, direction: Direction) -> Option<usize> {
     let len = list.len();
     match (list.locate(from), direction) {
         (Ok(i), Direction::Forward) => Some(i + 1).filter(|&i| i < len),

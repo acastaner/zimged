@@ -59,8 +59,9 @@ A new readable format goes in `READ_EXTENSIONS`, the desktop file, the metainfo,
    submit the winget manifest (`zimged-X.Y.Z-winget.zip`) to `microsoft/winget-pkgs` under
    `manifests/a/acastaner/zimged/X.Y.Z/` (for instance with `wingetcreate submit`).
 
-Windows and macOS builds are best-effort (§8.5): they build on GitHub's runners, which run only the
-Sibling ordering tests (#17). The macOS app is ad-hoc signed, not notarised, so Gatekeeper asks
+Windows and macOS builds are best-effort (§8.5): they build on GitHub's runners, which run no
+tests, so the Explorer and Finder Sibling ordering tables (#17), which compile only there, go
+untested. The macOS app is ad-hoc signed, not notarised, so Gatekeeper asks
 before its first launch (right-click > Open); the MSI is unsigned, so SmartScreen may warn.
 
 ## Building locally
