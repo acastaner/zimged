@@ -9,7 +9,10 @@
 //! resolution, so the screen and the file match.
 
 mod effects;
+mod resample;
 mod shapes;
+
+pub use resample::resample;
 
 use skia_safe as sk;
 use zimged_core::{Document, Rect};

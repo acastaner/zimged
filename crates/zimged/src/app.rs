@@ -19,11 +19,14 @@ use crate::Command;
 use crate::animation::Animation;
 use crate::config_save::ConfigSaver;
 use crate::decode::PendingDecode;
-use crate::editor::{DisplayPixels, Editor, MAX_EDIT_PIXELS, SaveStamp, VIEW_ONLY_MESSAGE};
+use crate::editor::{
+    DisplayPixels, Editor, ImageOp, MAX_EDIT_PIXELS, SaveStamp, VIEW_ONLY_MESSAGE,
+};
 use crate::pan::PanGesture;
 use crate::save::{PendingSave, SaveJob};
 use crate::siblings::{Navigation, Step};
 use crate::tools::ToolId;
+use crate::ui::resize_dialog::{self, ResizeDialog};
 use crate::ui::{canvas, menu_bar, property_bar, status_bar, tool_strip, unsaved_dialog};
 use crate::view::{View, ZOOM_STEP, Zoom};
 
@@ -220,6 +223,8 @@ pub struct ZimgedApp {
     after_save: Option<Proceed>,
     /// The window is closing: a close request was let through, or sent after the prompt.
     closing: bool,
+    /// The Resize dialog while it is up (modal, §6.4).
+    resize_dialog: Option<ResizeDialog>,
 }
 
 impl ZimgedApp {
@@ -260,6 +265,7 @@ impl ZimgedApp {
             unsaved_prompt: None,
             after_save: None,
             closing: false,
+            resize_dialog: None,
         }
     }
 
@@ -296,6 +302,17 @@ impl ZimgedApp {
             Command::CancelCrop => self.editor.cancel_crop(),
             Command::Duplicate => self.editor.duplicate_selection(),
             Command::Restack(restack) => self.editor.restack(restack),
+            Command::Rotate { clockwise } => {
+                self.editor.image_operation(ImageOp::Rotate { clockwise })
+            }
+            Command::Flip { horizontal } => {
+                self.editor.image_operation(ImageOp::Flip { horizontal })
+            }
+            Command::ShowResizeDialog => self.show_resize_dialog(),
+            Command::Resize { width, height } => {
+                self.editor
+                    .image_operation(ImageOp::Resize { width, height });
+            }
         }
     }
 
@@ -334,6 +351,41 @@ impl ZimgedApp {
                 .map(|d| Size::new(d.width(), d.height()))
                 .unwrap_or(shown.original_size),
         )
+    }
+
+    /// Is the Resize dialog up?
+    pub fn is_resize_dialog_open(&self) -> bool {
+        self.resize_dialog.is_some()
+    }
+
+    /// Image › Resize…: open the dialog on the Image's current size (§6.4). Starts the
+    /// full-resolution decode meanwhile (§4.7: it starts with the first Image operation).
+    fn show_resize_dialog(&mut self) {
+        if !self.editor.can_edit() || self.editor.in_gesture() {
+            return;
+        }
+        if let Some(size) = self.image_size() {
+            self.editor.prepare_image_operation();
+            self.resize_dialog = Some(ResizeDialog::new(size, MAX_EDIT_PIXELS));
+        }
+    }
+
+    /// Show the Resize dialog, if it is up, and act on how it ended.
+    fn resize_dialog(&mut self, ctx: &egui::Context) {
+        let Some(dialog) = &mut self.resize_dialog else {
+            return;
+        };
+        match dialog.show(ctx) {
+            None => {}
+            Some(resize_dialog::Outcome::Cancel) => self.resize_dialog = None,
+            Some(resize_dialog::Outcome::Resize(size)) => {
+                self.resize_dialog = None;
+                self.execute(Command::Resize {
+                    width: size.width,
+                    height: size.height,
+                });
+            }
+        }
     }
 
     /// The selection box (dashed, with 8 handles) as painted last frame, in points.
@@ -391,7 +443,7 @@ impl ZimgedApp {
 
     /// Is a modal dialog up? Window input (shortcuts, wheel, drops, pan) waits meanwhile.
     fn dialog_up(&self) -> bool {
-        self.unsaved_prompt.is_some()
+        self.unsaved_prompt.is_some() || self.resize_dialog.is_some()
     }
 
     // ---- The unsaved-changes flow (#35, §6.4) ----
@@ -1211,9 +1263,9 @@ impl eframe::App for ZimgedApp {
             self.after_first_paint(&ctx);
         }
         self.on_close_requested(&ctx);
-        // A modal dialog takes the keys (Esc is its Cancel); the window behind it gets no input.
+        let canvas_area = self.canvas.map(|c| c.area);
+        // A modal dialog has the keyboard and the pointer to itself (§6.4); Esc is its Cancel.
         if !self.dialog_up() {
-            let canvas_area = self.canvas.map(|c| c.area);
             let mut commands = crate::input::commands(&ctx, canvas_area);
             commands.extend(self.pan.commands(&ctx, canvas_area));
             for command in commands {
@@ -1240,6 +1292,7 @@ impl eframe::App for ZimgedApp {
         if !self.fullscreen {
             let menu = menu_bar::MenuBar {
                 allow_multiple_instances: self.config.allow_multiple_instances,
+                can_edit: self.editor.can_edit(),
             };
             if let Some(command) = menu_bar::show(ui, &menu) {
                 self.execute(command);
@@ -1273,6 +1326,7 @@ impl eframe::App for ZimgedApp {
             },
         ));
         self.view = view;
+        self.resize_dialog(&ctx);
         self.start_animation(&ctx);
         self.request_pixels(&ctx);
 
