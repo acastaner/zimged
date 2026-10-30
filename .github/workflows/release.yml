@@ -77,11 +77,13 @@ jobs:
       - name: Install the build tools
         # git before checkout, so it is a real clone; dpkg-dev for cargo-deb's dpkg-shlibdeps.
         # cmake, make, g++, meson, ninja and nasm: the `avif` feature builds libavif and dav1d from
-        # source and links them statically (#19, as in tools/local-ci/Dockerfile).
+        # source and links them statically (#19, as in tools/local-ci/Dockerfile). curl,
+        # libfontconfig1-dev and libfreetype-dev: skia-bindings downloads prebuilt Skia with curl and
+        # links fontconfig and freetype (#25).
         run: |
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates curl git dpkg-dev \
-            cmake make g++ meson ninja-build nasm
+            cmake make g++ meson ninja-build nasm libfontconfig1-dev libfreetype-dev
 
       - uses: actions/checkout@v5
 

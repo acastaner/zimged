@@ -40,6 +40,20 @@ fn delete_trashes_the_file_and_shows_the_next_sibling() {
 }
 
 #[test]
+fn delete_with_an_annotation_selected_removes_it_and_keeps_the_file() {
+    let (mut app, trash) = folder(&["a.jpg", "b.jpg"], "a.jpg");
+    app.press(Key::R);
+    app.drag_px((40.0, 30.0), (140.0, 90.0));
+    assert!(!app.doc().selection().is_empty());
+
+    app.press(Key::Delete);
+
+    assert!(app.doc().annotations().is_empty());
+    assert!(trash.trashed().is_empty());
+    assert_eq!(app.status("File name"), "a.jpg");
+}
+
+#[test]
 fn delete_at_the_end_of_the_list_shows_the_previous_sibling() {
     let (mut app, trash) = folder(&["a.jpg", "b.jpg", "c.jpg"], "c.jpg");
 

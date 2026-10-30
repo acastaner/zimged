@@ -5,10 +5,27 @@
 
 use std::path::PathBuf;
 
+use zimged_core::Property;
+
+use crate::tools::ToolId;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     /// Open this file as the Image (§3.5).
     Open(PathBuf),
+    /// Make this the active tool (§4.1). Ignored for unavailable tools and view-only Images.
+    SelectTool(ToolId),
+    /// Ctrl+Z (§4.8).
+    Undo,
+    /// Ctrl+Shift+Z or Ctrl+Y.
+    Redo,
+    /// Delete (§3.1, §4.2): remove the selected Annotations; with nothing selected, move the file
+    /// to the system trash and show the next Sibling (#22).
+    Delete,
+    /// A property-bar change (§4.3): restyles the selection, or sets the active tool's default
+    /// when nothing is selected. `merge` folds it into the previous step when that changed the same
+    /// property on the same Annotations (one widget interaction is one step).
+    SetProperty { property: Property, merge: bool },
     /// Show the next Sibling (§3.1: wheel down, →).
     NextSibling,
     /// Show the previous Sibling (§3.1: wheel up, ←).
@@ -31,7 +48,4 @@ pub enum Command {
     ToggleFullscreen,
     /// View → *Allow multiple instances* (§8.3, §8.4). Persisted; takes effect at the next start.
     SetAllowMultipleInstances(bool),
-    /// Delete (§3.1, §4.2): remove the selected Annotations; with nothing selected, move the file
-    /// to the system trash and show the next Sibling.
-    Delete,
 }
