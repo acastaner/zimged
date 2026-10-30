@@ -57,7 +57,7 @@ const PADDING: f32 = 0.2;
 const MIN_CHARS: &str = "00000";
 
 /// The laid-out size and what it was laid out with.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct Layout {
     font: String,
     size: f32,
@@ -68,13 +68,15 @@ struct Layout {
     min_width: f32,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Text {
     /// The top-left corner of the box.
     pub origin: Point,
     text: String,
     /// A fixed width for the text (inside the padding), set by the left and right handles (§4.4).
     width: Option<f32>,
+    /// Not in the clipboard JSON: measured again when a Document adds the Text.
+    #[serde(skip)]
     layout: Layout,
 }
 

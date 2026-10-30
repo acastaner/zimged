@@ -24,7 +24,9 @@ use crate::editor::{
 };
 use crate::pan::PanGesture;
 use crate::paste::{Destination, Incoming, PendingIncoming};
-use crate::save::{CLIPBOARD_IMAGE, CopyJob, PendingCopy, PendingSave, SaveJob};
+use crate::save::{
+    AnnotationsCopyJob, CLIPBOARD_IMAGE, CopyJob, PendingCopy, PendingSave, SaveJob,
+};
 use crate::siblings::{Navigation, Step};
 use crate::tools::ToolId;
 use crate::ui::resize_dialog::{self, ResizeDialog};
@@ -40,6 +42,13 @@ pub const MOVED_TO_TRASH: &str = "Moved to trash";
 
 /// The status-bar message after Ctrl+C copied the Image (§2, §6.2).
 pub const IMAGE_COPIED: &str = "Image copied to the clipboard";
+
+/// The status-bar message after Ctrl+C copied the selected Annotations (§6.2).
+pub const ANNOTATIONS_COPIED: &str = "Annotations copied to the clipboard";
+
+/// How far pasted Annotations move when they would land exactly on Annotations already there
+/// (§6.3), in Image pixels.
+pub const PASTE_OFFSET: f32 = 10.0;
 
 /// The status-bar message when the clipboard holds nothing to paste (§6.3).
 pub const NOTHING_TO_PASTE: &str = "Nothing to paste";
@@ -239,8 +248,8 @@ pub struct ZimgedApp {
     closing: bool,
     /// The Resize dialog while it is up (modal, §6.4).
     resize_dialog: Option<ResizeDialog>,
-    /// A copy of the Image running on the worker thread (§6.2), and the Document it copies.
-    copying: Option<(PendingCopy, SaveStamp)>,
+    /// A copy running on the worker thread (§6.2), the Document it copies, and its message.
+    copying: Option<(PendingCopy, SaveStamp, &'static str)>,
     /// A copy asked for while the Document waits for its pixels (a queued Image operation).
     queued_copy: bool,
     /// A pasted or Ctrl+dropped image being read and decoded (§4.6, §6.3).
@@ -884,14 +893,11 @@ impl ZimgedApp {
 
     // ---- Clipboard (#36, §3.5, §4.6, §6.2, §6.3) ----
 
-    /// Ctrl+C. With Annotations selected, #37 copies them (JSON and PNG, §6.2). With nothing
-    /// selected, the Flattened Image goes to the clipboard as PNG, from the worker thread (§7.3).
+    /// Ctrl+C, from the worker thread (§7.3). With Annotations selected, they are copied as
+    /// clipboard JSON and a PNG of them, together (§6.2). With nothing selected, the Flattened Image
+    /// goes to the clipboard as PNG.
     fn copy(&mut self) {
         if self.shown.is_none() || self.copying.is_some() || self.editor.in_gesture() {
-            return;
-        }
-        if self.document().is_some_and(|d| !d.selection().is_empty()) {
-            // #37: copy the selected Annotations.
             return;
         }
         if self.editor.save_waits() {
@@ -901,15 +907,28 @@ impl ZimgedApp {
         let Some(source) = self.editor.save_source() else {
             return;
         };
-        let job = CopyJob {
-            drawing: source.drawing,
-            source: source.path,
-            fallback: self.full_size_display_pixels(),
-            clipboard: self.platform.clipboard.clone(),
+        let selection = self
+            .document()
+            .map(|d| d.selection().to_vec())
+            .unwrap_or_default();
+        let (pending, message) = if selection.is_empty() {
+            let job = CopyJob {
+                drawing: source.drawing,
+                source: source.path,
+                fallback: self.full_size_display_pixels(),
+                clipboard: self.platform.clipboard.clone(),
+            };
+            (PendingCopy::spawn_copy(job), IMAGE_COPIED)
+        } else {
+            let job = AnnotationsCopyJob {
+                drawing: source.drawing,
+                ids: selection,
+                clipboard: self.platform.clipboard.clone(),
+            };
+            (PendingCopy::spawn_copy_annotations(job), ANNOTATIONS_COPIED)
         };
-        let pending = PendingCopy::spawn_copy(job);
         pending.wake(&self.ctx);
-        self.copying = Some((pending, source.stamp));
+        self.copying = Some((pending, source.stamp, message));
     }
 
     fn poll_copy(&mut self, ctx: &egui::Context) {
@@ -917,20 +936,23 @@ impl ZimgedApp {
             self.queued_copy = false;
             self.copy();
         }
-        let Some((pending, _)) = &self.copying else {
+        let Some((pending, _, _)) = &self.copying else {
             return;
         };
         pending.wake(ctx);
         let Some(result) = pending.take() else {
             return;
         };
-        let (_, stamp) = self.copying.take().expect("checked above");
+        let (_, stamp, message) = self.copying.take().expect("checked above");
         match result {
             Ok(copied) => {
                 self.editor.keep_decoded(stamp, copied.decoded);
-                self.post_message(IMAGE_COPIED);
+                self.post_message(message);
             }
-            Err(reason) => self.post_message(format!("Can't copy the image: {reason}")),
+            Err(reason) if message == IMAGE_COPIED => {
+                self.post_message(format!("Can't copy the image: {reason}"))
+            }
+            Err(reason) => self.post_message(format!("Can't copy the Annotations: {reason}")),
         }
     }
 
@@ -1006,6 +1028,10 @@ impl ZimgedApp {
                 // The window changed meanwhile (an Image opened, or went): drop it.
                 _ => {}
             },
+            Ok(Incoming::Annotations(copied)) if self.shown.is_some() => {
+                self.editor.paste_annotations(copied);
+            }
+            Ok(Incoming::Annotations(_)) => {}
             Ok(Incoming::Nothing) if window => self.post_message(NO_CLIPBOARD_IMAGE),
             Ok(Incoming::Nothing) => self.post_message(NOTHING_TO_PASTE),
             Err(reason) => match &incoming.file {

@@ -5,7 +5,7 @@ use crate::geometry::{Affine, Point, Rect};
 use crate::image_op::ImageTransform;
 use crate::style::{PropertyKind, Style};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Rectangle {
     /// The rectangle the line is centred on.
     pub rect: Rect,

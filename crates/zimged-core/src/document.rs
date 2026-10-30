@@ -16,6 +16,7 @@
 use std::sync::Arc;
 
 use crate::annotation::{Annotation, AnnotationId, AnnotationShape, Shape};
+use crate::clipboard::CopiedAnnotation;
 use crate::geometry::{Affine, Point, Rect, Vector};
 use crate::history::{HISTORY_PIXEL_CAP, History, ImageState, Snapshot, Step, StepKind};
 use crate::image_op::{ImageTransform, PixelRect};
@@ -440,6 +441,54 @@ impl Document {
             doc.select(ids);
         });
         true
+    }
+
+    /// Paste copied Annotations as one step (§6.3): they go on top, in their order, and become the
+    /// selection. While they would land exactly on Annotations already there (same type, same
+    /// bounds: pasting back onto the Image they were copied from), they move by `offset` each
+    /// time, so repeated pastes cascade. Returns false when there was nothing to paste.
+    pub fn paste(&mut self, copied: Vec<CopiedAnnotation>, offset: Vector) -> bool {
+        if copied.is_empty() || self.gesture.is_some() {
+            return false;
+        }
+        let mut pasted: Vec<Annotation> = copied
+            .into_iter()
+            .map(|c| {
+                let mut a = Annotation {
+                    id: AnnotationId(0),
+                    shape: c.shape,
+                    style: c.style,
+                };
+                a.relayout();
+                a
+            })
+            .collect();
+        let t = Affine::translate(offset);
+        // Bounded: a cascade can't run forever, however many copies are stacked.
+        for _ in 0..1000 {
+            if !pasted.iter().all(|p| self.has_one_like(p)) {
+                break;
+            }
+            for p in &mut pasted {
+                p.shape.transform(&t);
+            }
+        }
+        self.step(|doc| {
+            let ids: Vec<AnnotationId> = pasted
+                .into_iter()
+                .map(|a| doc.add(a.shape, a.style))
+                .collect();
+            doc.select(ids);
+        });
+        true
+    }
+
+    /// Is there an Annotation of the same type exactly where `like` is?
+    fn has_one_like(&self, like: &Annotation) -> bool {
+        self.annotations.iter().any(|a| {
+            std::mem::discriminant(&a.shape) == std::mem::discriminant(&like.shape)
+                && a.bounds() == like.bounds()
+        })
     }
 
     /// Change the selection's place in the z-order as one step (§4.2). Nothing changes, and no

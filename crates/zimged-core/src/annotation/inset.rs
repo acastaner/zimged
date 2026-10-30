@@ -9,11 +9,12 @@ use crate::geometry::{Affine, Point, Rect};
 use crate::image_op::ImageTransform;
 use crate::style::{PropertyKind, Style};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Inset {
     /// Where its pixels are drawn, in Image pixels.
     pub rect: Rect,
     /// Its own pixels (sRGB, straight alpha), shared by the History's snapshots and the copies.
+    #[serde(with = "crate::clipboard::pixels_serde")]
     pub pixels: Arc<Pixels>,
 }
 

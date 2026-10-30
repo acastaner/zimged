@@ -5,7 +5,7 @@ use crate::geometry::{Affine, Point, Rect};
 use crate::image_op::ImageTransform;
 use crate::style::{PropertyKind, Style};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Ellipse {
     /// The box the ellipse (the centre of its line) is inscribed in.
     pub rect: Rect,
