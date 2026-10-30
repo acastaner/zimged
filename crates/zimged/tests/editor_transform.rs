@@ -198,6 +198,10 @@ fn geometry(app: &TestApp) -> Vec<Vec<(i32, i32)>> {
                 let [x0, y0, x1, y1] = rounded(h.rect);
                 vec![(x0, y0), (x1, y1)]
             }
+            AnnotationShape::Obfuscate(o) => {
+                let [x0, y0, x1, y1] = rounded(o.rect);
+                vec![(x0, y0), (x1, y1)]
+            }
             AnnotationShape::Ellipse(e) => {
                 let [x0, y0, x1, y1] = rounded(e.rect);
                 vec![(x0, y0), (x1, y1)]

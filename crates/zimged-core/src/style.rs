@@ -127,6 +127,34 @@ pub struct Style {
     /// setting (§8.3), which the app seeds the highlight tool's default from.
     #[serde(skip)]
     pub magnification: f32,
+    pub obfuscate_mode: ObfuscateMode,
+    /// The obfuscation's strength in Image pixels: the pixelate block size, the blur radius.
+    pub strength: f32,
+}
+
+/// The obfuscation's modes (§4.2).
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ObfuscateMode {
+    /// Blocks whose size is the strength.
+    #[default]
+    Pixelate,
+    /// A Gaussian blur whose radius is the strength.
+    Blur,
+}
+
+impl ObfuscateMode {
+    /// In the order the property bar lists them.
+    pub const ALL: [ObfuscateMode; 2] = [ObfuscateMode::Pixelate, ObfuscateMode::Blur];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ObfuscateMode::Pixelate => "Pixelate",
+            ObfuscateMode::Blur => "Blur",
+        }
+    }
 }
 
 /// The highlight's modes (§4.2).
@@ -221,6 +249,8 @@ impl Default for Style {
             highlight_mode: HighlightMode::Text,
             highlight: Rgba::YELLOW,
             magnification: 2.0,
+            obfuscate_mode: ObfuscateMode::Pixelate,
+            strength: 10.0,
         }
     }
 }
@@ -242,6 +272,8 @@ pub enum PropertyKind {
     HighlightMode,
     HighlightColour,
     Magnification,
+    ObfuscateMode,
+    Strength,
 }
 
 /// A style property with its value: one change in the property bar.
@@ -261,6 +293,8 @@ pub enum Property {
     HighlightMode(HighlightMode),
     HighlightColour(Rgba),
     Magnification(f32),
+    ObfuscateMode(ObfuscateMode),
+    Strength(f32),
 }
 
 impl Property {
@@ -279,6 +313,8 @@ impl Property {
             Property::HighlightMode(_) => PropertyKind::HighlightMode,
             Property::HighlightColour(_) => PropertyKind::HighlightColour,
             Property::Magnification(_) => PropertyKind::Magnification,
+            Property::ObfuscateMode(_) => PropertyKind::ObfuscateMode,
+            Property::Strength(_) => PropertyKind::Strength,
         }
     }
 }
@@ -292,6 +328,8 @@ pub const COUNTER_SIZE_RANGE: std::ops::RangeInclusive<f32> = 10.0..=200.0;
 pub const FONT_SIZE_RANGE: std::ops::RangeInclusive<f32> = 6.0..=400.0;
 /// Magnification limits of the property bar.
 pub const MAGNIFICATION_RANGE: std::ops::RangeInclusive<f32> = 1.0..=10.0;
+/// Obfuscation strength limits of the property bar, in Image pixels.
+pub const STRENGTH_RANGE: std::ops::RangeInclusive<f32> = 2.0..=100.0;
 
 /// The text tool's default font: the platform's sans-serif (fontconfig resolves the alias; where
 /// nothing matches, Skia falls back to the system's default font).
@@ -313,6 +351,8 @@ impl Style {
             PropertyKind::HighlightMode => Property::HighlightMode(self.highlight_mode),
             PropertyKind::HighlightColour => Property::HighlightColour(self.highlight),
             PropertyKind::Magnification => Property::Magnification(self.magnification),
+            PropertyKind::ObfuscateMode => Property::ObfuscateMode(self.obfuscate_mode),
+            PropertyKind::Strength => Property::Strength(self.strength),
         }
     }
 
@@ -330,6 +370,10 @@ impl Style {
             self.counter_size = Self::default().counter_size;
         }
         self.set(Property::CounterSize(self.counter_size));
+        if !self.strength.is_finite() {
+            self.strength = Self::default().strength;
+        }
+        self.set(Property::Strength(self.strength));
         if self.font.trim().is_empty() {
             self.font = DEFAULT_FONT.to_owned();
         }
@@ -360,6 +404,12 @@ impl Style {
                 if f.is_finite() {
                     self.magnification =
                         f.clamp(*MAGNIFICATION_RANGE.start(), *MAGNIFICATION_RANGE.end())
+                }
+            }
+            Property::ObfuscateMode(m) => self.obfuscate_mode = m,
+            Property::Strength(s) => {
+                if s.is_finite() {
+                    self.strength = s.clamp(*STRENGTH_RANGE.start(), *STRENGTH_RANGE.end())
                 }
             }
         }

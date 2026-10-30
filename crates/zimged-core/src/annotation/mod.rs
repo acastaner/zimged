@@ -12,6 +12,7 @@ mod freehand;
 mod highlight;
 mod inset;
 mod line;
+mod obfuscate;
 mod rectangle;
 mod step_counter;
 pub mod text;
@@ -21,6 +22,7 @@ pub use freehand::Freehand;
 pub use highlight::Highlight;
 pub use inset::Inset;
 pub use line::{Arrow, Line};
+pub use obfuscate::Obfuscate;
 pub use rectangle::Rectangle;
 pub use step_counter::StepCounter;
 pub use text::Text;
@@ -116,6 +118,7 @@ shapes! {
     Arrow(Arrow),
     Freehand(Freehand),
     Highlight(Highlight),
+    Obfuscate(Obfuscate),
     Inset(Inset),
 }
 
@@ -164,6 +167,7 @@ impl Annotation {
             self.style.thickness *= s;
             self.style.font_size *= s;
             self.style.counter_size *= s;
+            self.style.strength *= s;
             self.relayout();
         }
     }

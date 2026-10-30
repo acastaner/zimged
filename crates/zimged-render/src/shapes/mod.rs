@@ -9,6 +9,7 @@ mod freehand;
 mod highlight;
 mod inset;
 mod line;
+mod obfuscate;
 mod rectangle;
 mod step_counter;
 mod text;
@@ -34,6 +35,7 @@ pub fn draw(canvas: &sk::Canvas, annotation: &Annotation, below: &Scene<'_>) {
         AnnotationShape::Arrow(s) => arrow::draw(canvas, s, style),
         AnnotationShape::Freehand(s) => freehand::draw(canvas, s, style),
         AnnotationShape::Highlight(s) => highlight::draw(canvas, s, style, below),
+        AnnotationShape::Obfuscate(s) => obfuscate::draw(canvas, s, style, below),
         AnnotationShape::Inset(s) => inset::draw(canvas, s, style),
     }
 }

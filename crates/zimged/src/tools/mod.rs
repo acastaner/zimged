@@ -15,13 +15,14 @@ mod drag_segment;
 mod ellipse;
 mod freehand;
 mod highlight;
+mod obfuscate;
 mod rectangle;
 pub mod select;
 mod step_counter;
 pub mod text;
 
 use zimged_core::{
-    AnnotationShape, Arrow, Document, Ellipse, Freehand, Highlight, Inset, Line, Point,
+    AnnotationShape, Arrow, Document, Ellipse, Freehand, Highlight, Inset, Line, Obfuscate, Point,
     PropertyKind, Rect, Rectangle, StepCounter, Style, Text,
 };
 
@@ -125,6 +126,7 @@ impl ToolId {
             AnnotationShape::Text(_) => ToolId::Text,
             AnnotationShape::StepCounter(_) => ToolId::StepCounter,
             AnnotationShape::Highlight(_) => ToolId::Highlight,
+            AnnotationShape::Obfuscate(_) => ToolId::Obfuscate,
         }
     }
 
@@ -159,6 +161,7 @@ impl ToolId {
             ToolId::Arrow => Some(Box::new(drag_segment::arrow())),
             ToolId::Freehand => Some(Box::new(freehand::FreehandTool::default())),
             ToolId::Highlight => Some(Box::new(highlight::new())),
+            ToolId::Obfuscate => Some(Box::new(obfuscate::new())),
             ToolId::Crop => Some(Box::new(crop::Crop::default())),
             _ => None,
         }
@@ -179,6 +182,7 @@ impl ToolId {
             ToolId::Arrow => Arrow::PROPERTIES,
             ToolId::Freehand => Freehand::PROPERTIES,
             ToolId::Highlight => Highlight::PROPERTIES,
+            ToolId::Obfuscate => Obfuscate::PROPERTIES,
             ToolId::Inset => Inset::PROPERTIES,
             _ => &[],
         }

@@ -13,10 +13,10 @@ pub mod style;
 
 pub use annotation::{
     Annotation, AnnotationId, AnnotationShape, Arrow, Ellipse, Freehand, Highlight, Inset, Line,
-    Rectangle, Shape, StepCounter, Text,
+    Obfuscate, Rectangle, Shape, StepCounter, Text,
 };
 pub use document::{Document, PixelData, Pixels, Restack};
 pub use geometry::{Affine, Handle, Point, Rect, Vector};
 pub use history::HISTORY_PIXEL_CAP;
 pub use image_op::{ImageTransform, PixelRect};
-pub use style::{Arrowheads, HighlightMode, Property, PropertyKind, Rgba, Style};
+pub use style::{Arrowheads, HighlightMode, ObfuscateMode, Property, PropertyKind, Rgba, Style};
