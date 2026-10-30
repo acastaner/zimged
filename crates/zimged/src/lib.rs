@@ -9,10 +9,12 @@ pub mod bench;
 pub mod commands;
 mod config_save;
 pub mod decode;
+mod editor;
 mod input;
 mod pan;
 mod siblings;
 pub mod startup;
+pub mod tools;
 mod ui;
 pub mod view;
 

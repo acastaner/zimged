@@ -8,10 +8,12 @@ arch=('x86_64' 'aarch64')
 url='https://github.com/acastaner/zimged'
 license=('GPL-3.0-or-later')
 # winit and glutin dlopen the Wayland, X11 and GL libraries, so they are listed by hand.
-depends=('gcc-libs' 'glibc' 'hicolor-icon-theme' 'libglvnd' 'libx11' 'libxcursor' 'libxi'
-         'libxkbcommon' 'libxrandr' 'wayland')
-# cmake, meson, ninja and nasm build libavif and dav1d (linked statically) for AVIF read.
-makedepends=('cargo' 'cmake' 'meson' 'nasm' 'ninja')
+# fontconfig and freetype2 are linked by Skia (#25).
+depends=('fontconfig' 'freetype2' 'gcc-libs' 'glibc' 'hicolor-icon-theme' 'libglvnd' 'libx11'
+         'libxcursor' 'libxi' 'libxkbcommon' 'libxrandr' 'wayland')
+# cmake, meson, ninja and nasm build libavif and dav1d (linked statically) for AVIF read; curl
+# downloads the prebuilt Skia (skia-bindings).
+makedepends=('cargo' 'cmake' 'curl' 'meson' 'nasm' 'ninja')
 optdepends=('xdg-desktop-portal: native open and save dialogs')
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
 sha256sums=('@SHA256@')
