@@ -108,6 +108,10 @@ pub struct Style {
     /// Line thickness in Image pixels.
     pub thickness: f32,
     pub shadow: bool,
+    /// The text font's family name (§4.4).
+    pub font: String,
+    /// The text size in Image pixels.
+    pub font_size: f32,
     /// Which ends of an arrow carry a head.
     pub arrowheads: Arrowheads,
 }
@@ -160,6 +164,8 @@ impl Default for Style {
             fill: None,
             thickness: 3.0,
             shadow: true,
+            font: DEFAULT_FONT.to_owned(),
+            font_size: 20.0,
             arrowheads: Arrowheads::End,
         }
     }
@@ -172,6 +178,10 @@ pub enum PropertyKind {
     FillColour,
     Thickness,
     Shadow,
+    /// The text colour: the same field as the line colour (`Style::line`).
+    TextColour,
+    Font,
+    FontSize,
     Arrowheads,
 }
 
@@ -182,6 +192,9 @@ pub enum Property {
     FillColour(Option<Rgba>),
     Thickness(f32),
     Shadow(bool),
+    TextColour(Rgba),
+    Font(String),
+    FontSize(f32),
     Arrowheads(Arrowheads),
 }
 
@@ -192,6 +205,9 @@ impl Property {
             Property::FillColour(_) => PropertyKind::FillColour,
             Property::Thickness(_) => PropertyKind::Thickness,
             Property::Shadow(_) => PropertyKind::Shadow,
+            Property::TextColour(_) => PropertyKind::TextColour,
+            Property::Font(_) => PropertyKind::Font,
+            Property::FontSize(_) => PropertyKind::FontSize,
             Property::Arrowheads(_) => PropertyKind::Arrowheads,
         }
     }
@@ -200,6 +216,13 @@ impl Property {
 /// Thickness limits of the property bar.
 pub const THICKNESS_RANGE: std::ops::RangeInclusive<f32> = 1.0..=40.0;
 
+/// Font size limits of the property bar, in Image pixels.
+pub const FONT_SIZE_RANGE: std::ops::RangeInclusive<f32> = 6.0..=400.0;
+
+/// The text tool's default font: the platform's sans-serif (fontconfig resolves the alias; where
+/// nothing matches, Skia falls back to the system's default font).
+pub const DEFAULT_FONT: &str = "sans-serif";
+
 impl Style {
     pub fn get(&self, kind: PropertyKind) -> Property {
         match kind {
@@ -207,6 +230,9 @@ impl Style {
             PropertyKind::FillColour => Property::FillColour(self.fill),
             PropertyKind::Thickness => Property::Thickness(self.thickness),
             PropertyKind::Shadow => Property::Shadow(self.shadow),
+            PropertyKind::TextColour => Property::TextColour(self.line),
+            PropertyKind::Font => Property::Font(self.font.clone()),
+            PropertyKind::FontSize => Property::FontSize(self.font_size),
             PropertyKind::Arrowheads => Property::Arrowheads(self.arrowheads),
         }
     }
@@ -217,6 +243,13 @@ impl Style {
             self.thickness = Self::default().thickness;
         }
         self.set(Property::Thickness(self.thickness));
+        if !self.font_size.is_finite() {
+            self.font_size = Self::default().font_size;
+        }
+        self.set(Property::FontSize(self.font_size));
+        if self.font.trim().is_empty() {
+            self.font = DEFAULT_FONT.to_owned();
+        }
         self
     }
 
@@ -228,6 +261,11 @@ impl Style {
                 self.thickness = t.clamp(*THICKNESS_RANGE.start(), *THICKNESS_RANGE.end())
             }
             Property::Shadow(s) => self.shadow = s,
+            Property::TextColour(c) => self.line = c,
+            Property::Font(f) => self.font = f,
+            Property::FontSize(s) => {
+                self.font_size = s.clamp(*FONT_SIZE_RANGE.start(), *FONT_SIZE_RANGE.end())
+            }
             Property::Arrowheads(a) => self.arrowheads = a,
         }
     }

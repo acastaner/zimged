@@ -7,16 +7,17 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 
 use zimged_codec::Size;
 use zimged_core::{
-    Document, HISTORY_PIXEL_CAP, PixelData, Pixels, Property, PropertyKind, Rect, Restack, Shape,
-    Style, Vector,
+    Document, HISTORY_PIXEL_CAP, PixelData, Pixels, Point, Property, PropertyKind, Rect, Restack,
+    Shape, Style, Vector,
 };
 use zimged_render::{Composite, Renderer, Source, SourcePixels, View};
 
 use crate::decode::PendingFullDecode;
+use crate::tools::text::{TextSession, text_at};
 use crate::tools::{Pointer, Tool, ToolContext, ToolId};
 use crate::ui::canvas::{EditorPaint, Layout};
 
@@ -79,6 +80,10 @@ pub struct Editor {
     property_session: Option<PropertySession>,
     /// The selection box as painted last frame, in points.
     selection_box: Option<egui::Rect>,
+    /// The text box being edited (§4.4), if any.
+    text: Option<TextSession>,
+    /// The installed font families, listed on first use of the text tool (§7.2).
+    fonts: Fonts,
     /// The crop tool's region, in Image pixels (§4.1 C).
     crop: Option<Rect>,
     /// The cap on pixels each Document's History holds (§4.8).
@@ -106,6 +111,16 @@ pub struct SaveStamp {
     revision: u64,
 }
 
+/// The font families for the property bar's font control.
+enum Fonts {
+    NotListed,
+    Listing(mpsc::Receiver<Vec<String>>),
+    Listed(Vec<String>),
+}
+
+/// How far from a text box a press still counts as inside it, in points.
+const TEXT_SLOP: f32 = 2.0;
+
 impl Default for Editor {
     fn default() -> Self {
         Self::new()
@@ -114,6 +129,8 @@ impl Default for Editor {
 
 impl Editor {
     pub fn new() -> Self {
+        // Registering a function pointer touches no fonts: they load on the first text box.
+        zimged_core::annotation::text::set_measure(zimged_render::text::measure);
         Self {
             tool: ToolId::Select,
             behaviour: ToolId::Select.create().expect("the select tool"),
@@ -123,6 +140,8 @@ impl Editor {
             pointer_down: false,
             property_session: None,
             selection_box: None,
+            text: None,
+            fonts: Fonts::NotListed,
             opened: 0,
             crop: None,
             history_pixel_cap: HISTORY_PIXEL_CAP,
@@ -163,6 +182,7 @@ impl Editor {
         self.behaviour = self.tool.create().expect("an available tool");
         self.pointer_down = false;
         self.property_session = None;
+        self.text = None;
         self.opened += 1;
         self.crop = None;
         let mut doc = Document::new(size.width, size.height);
@@ -186,7 +206,32 @@ impl Editor {
         self.edited = None;
         self.behaviour = self.tool.create().expect("an available tool");
         self.pointer_down = false;
+        self.text = None;
         self.crop = None;
+    }
+
+    /// Is a text box being edited (§4.4)?
+    pub fn editing_text(&self) -> bool {
+        self.text.is_some()
+    }
+
+    /// The installed font families, once listed.
+    pub fn font_families(&self) -> Option<&[String]> {
+        match &self.fonts {
+            Fonts::Listed(names) => Some(names),
+            _ => None,
+        }
+    }
+
+    /// §7.2: the fonts are enumerated the first time the text tool is used, in the background.
+    fn list_fonts(&mut self) {
+        if matches!(self.fonts, Fonts::NotListed) {
+            let (tx, rx) = mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(zimged_render::text::families());
+            });
+            self.fonts = Fonts::Listing(rx);
+        }
     }
 
     pub fn document(&self) -> Option<&Document> {
@@ -240,6 +285,7 @@ impl Editor {
         self.edited
             .as_ref()
             .is_some_and(|e| e.full_decode.is_some())
+            || matches!(self.fonts, Fonts::Listing(_))
     }
 
     // ---- Saving (#34) ----
@@ -298,6 +344,9 @@ impl Editor {
         if !tool.is_available() || (tool != ToolId::Select && !self.can_edit()) {
             return;
         }
+        if tool == ToolId::Text {
+            self.list_fonts();
+        }
         if tool != ToolId::Select {
             self.start_full_decode();
             if let Some(e) = &mut self.edited
@@ -310,6 +359,7 @@ impl Editor {
     }
 
     fn set_tool(&mut self, tool: ToolId) {
+        self.finish_text();
         if let Some(e) = &mut self.edited {
             let style = self.styles.get(&self.tool).cloned().unwrap_or_default();
             let mut cx = ToolContext {
@@ -404,6 +454,13 @@ impl Editor {
     /// Restyle the selection, and make the change the default of the tools that create the
     /// selected Annotations (§4.3). With nothing selected, it is the active tool's default.
     pub fn set_property(&mut self, property: Property, merge: bool) {
+        // While editing text, the box being edited is restyled within the session's step, and the
+        // change becomes the text tool's default (§4.3).
+        if let (Some(session), Some(e)) = (&self.text, &mut self.edited) {
+            session.restyle(&mut e.doc, property.clone());
+            self.styles.entry(ToolId::Text).or_default().set(property);
+            return;
+        }
         let mut tools = vec![self.tool];
         if let Some(e) = self.edited.as_mut().filter(|e| !e.doc.in_gesture())
             && e.doc.set_property(property.clone(), merge)
@@ -457,6 +514,15 @@ impl Editor {
 
     /// Collect background results.
     pub fn poll(&mut self, ctx: &egui::Context) {
+        if let Fonts::Listing(rx) = &self.fonts {
+            match rx.try_recv() {
+                Ok(names) => self.fonts = Fonts::Listed(names),
+                Err(mpsc::TryRecvError::Empty) => {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(30))
+                }
+                Err(mpsc::TryRecvError::Disconnected) => self.fonts = Fonts::Listed(Vec::new()),
+            }
+        }
         let Some(e) = &mut self.edited else {
             return;
         };
@@ -541,6 +607,7 @@ impl Editor {
         if self.can_edit() && (pointer_is_ours || self.pointer_down) {
             self.pointer(ctx, layout, response);
         }
+        let overlay = self.text_input(ctx, layout, response);
         if self.document().map(|d| d.revision()) != revision {
             ctx.request_repaint();
         }
@@ -558,6 +625,7 @@ impl Editor {
         EditorPaint {
             composite,
             selection,
+            overlay,
             crop: self.crop.map(|r| layout.rect_to_screen(r)),
             rubber_band,
         }
@@ -571,6 +639,25 @@ impl Editor {
         };
         let press_origin = ctx.input(|i| i.pointer.press_origin());
         let current = response.interact_pointer_pos();
+
+        // Text boxes (§4.4) take presses before the tools do.
+        let press = if response.drag_started_by(egui::PointerButton::Primary) {
+            press_origin
+        } else if response.clicked() {
+            current.or(press_origin)
+        } else {
+            None
+        };
+        if let Some(pos) = press
+            && self.text_press(
+                layout,
+                at(pos).pos,
+                response.clicked(),
+                response.double_clicked(),
+            )
+        {
+            return;
+        }
 
         if response.drag_started_by(egui::PointerButton::Primary)
             && let Some(origin) = press_origin
@@ -599,6 +686,137 @@ impl Editor {
                 tool.release(cx, at(pos));
             });
         }
+    }
+
+    /// A press on the canvas, as far as text is concerned (§4.4). Returns true when it was used.
+    ///
+    /// While editing, a press in the box moves the caret and a press elsewhere finishes (with the
+    /// text tool that is all it does; other tools go on to handle it). The text tool's click edits
+    /// the text Annotation under it or places a new box; a double-click on a text Annotation edits
+    /// it (with the select tool too).
+    fn text_press(&mut self, layout: &Layout, p: Point, clicked: bool, double: bool) -> bool {
+        let slop = layout.image_per_point();
+        let Some(e) = &mut self.edited else {
+            return false;
+        };
+        if let Some(session) = &mut self.text {
+            if session.contains(&e.doc, p, TEXT_SLOP * slop) {
+                if clicked {
+                    session.click(&e.doc, p);
+                }
+                return true;
+            }
+            self.finish_text();
+            return self.tool == ToolId::Text;
+        }
+        let edits = (double && matches!(self.tool, ToolId::Select | ToolId::Text))
+            || (clicked && self.tool == ToolId::Text);
+        if !edits {
+            return false;
+        }
+        self.list_fonts();
+        self.start_full_decode();
+        let style = self.tool_style(ToolId::Text);
+        let Some(e) = &mut self.edited else {
+            return false;
+        };
+        if let Some(id) = text_at(&e.doc, p, TEXT_SLOP * slop) {
+            self.text = TextSession::edit(&mut e.doc, id);
+            return true;
+        }
+        if self.tool == ToolId::Text && clicked {
+            self.text = Some(TextSession::place(&mut e.doc, &style, p));
+            return true;
+        }
+        false
+    }
+
+    /// Finish editing text, if a text box is being edited (before a save, #34).
+    pub fn finish_text_editing(&mut self) {
+        self.finish_text();
+    }
+
+    /// Finish the text session, if one is open: one History step (§4.8).
+    fn finish_text(&mut self) {
+        if let (Some(session), Some(e)) = (self.text.take(), &mut self.edited) {
+            session.finish(&mut e.doc);
+        }
+    }
+
+    /// While editing text: keep the keyboard on the canvas, apply this frame's typing and input
+    /// method events, tell the platform where the caret is (for the input method's window), and
+    /// return the caret to paint.
+    fn text_input(
+        &mut self,
+        ctx: &egui::Context,
+        layout: &Layout,
+        response: &egui::Response,
+    ) -> Vec<egui::Shape> {
+        let id = response.id;
+        let (Some(session), Some(e)) = (&mut self.text, &mut self.edited) else {
+            if ctx.memory(|m| m.has_focus(id)) {
+                ctx.memory_mut(|m| m.surrender_focus(id));
+            }
+            return Vec::new();
+        };
+        ctx.memory_mut(|m| {
+            // Take the keyboard back once nothing else wants it (after a property-bar click).
+            if m.focused().is_none() {
+                m.request_focus(id);
+            }
+            m.set_focus_lock_filter(
+                id,
+                egui::EventFilter {
+                    tab: true,
+                    horizontal_arrows: true,
+                    vertical_arrows: true,
+                    escape: true,
+                },
+            );
+        });
+        if !ctx.memory(|m| m.has_focus(id)) {
+            return Vec::new();
+        }
+        let events = ctx.input(|i| i.events.clone());
+        if session.input(&mut e.doc, &events) {
+            self.finish_text();
+            ctx.memory_mut(|m| m.surrender_focus(id));
+            ctx.request_repaint();
+            return Vec::new();
+        }
+        if !events.is_empty() {
+            ctx.request_repaint();
+        }
+        let Some(annotation) = e.doc.annotation(session.id()) else {
+            return Vec::new();
+        };
+        let colour = annotation.style.line;
+        let colour = egui::Color32::from_rgb(colour.r, colour.g, colour.b);
+        let bounds = layout.rect_to_screen(annotation.bounds());
+        let Some(paint) = session.caret(&e.doc) else {
+            return Vec::new();
+        };
+        let caret = layout.rect_to_screen(paint.caret);
+        ctx.output_mut(|o| {
+            o.ime = Some(egui::output::IMEOutput {
+                purpose: egui::IMEPurpose::Normal,
+                rect: bounds,
+                cursor_rect: caret,
+                should_interrupt_composition: false,
+            });
+        });
+        let mut shapes = vec![egui::Shape::line_segment(
+            [caret.center_top(), caret.center_bottom()],
+            egui::Stroke::new(1.5, colour),
+        )];
+        if let Some(under) = paint.preedit {
+            let under = layout.rect_to_screen(under);
+            shapes.push(egui::Shape::line_segment(
+                [under.left_bottom(), under.right_bottom()],
+                egui::Stroke::new(1.0, colour),
+            ));
+        }
+        shapes
     }
 
     fn with_tool(&mut self, layout: &Layout, f: impl FnOnce(&mut dyn Tool, &mut ToolContext<'_>)) {

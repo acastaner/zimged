@@ -11,6 +11,7 @@
 mod effects;
 mod resample;
 mod shapes;
+pub mod text;
 
 pub use resample::resample;
 

@@ -201,6 +201,7 @@ fn geometry(app: &TestApp) -> Vec<Vec<(i32, i32)>> {
             AnnotationShape::Line(l) => vec![rounded_point(l.from), rounded_point(l.to)],
             AnnotationShape::Arrow(l) => vec![rounded_point(l.from), rounded_point(l.to)],
             AnnotationShape::Freehand(f) => f.points.iter().copied().map(rounded_point).collect(),
+            AnnotationShape::Text(t) => vec![rounded_point(t.origin)],
         })
         .collect()
 }

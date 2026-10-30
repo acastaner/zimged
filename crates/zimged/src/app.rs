@@ -303,6 +303,21 @@ impl ZimgedApp {
         self.editor.tool()
     }
 
+    /// A tool's current style: its defaults for the next Annotation (§4.3).
+    pub fn tool_style(&self, tool: ToolId) -> zimged_core::Style {
+        self.editor.tool_style(tool)
+    }
+
+    /// Is a text box being edited (§4.4)?
+    pub fn editing_text(&self) -> bool {
+        self.editor.editing_text()
+    }
+
+    /// The installed font families, once listed (on first use of the text tool, §7.2).
+    pub fn font_families(&self) -> Option<&[String]> {
+        self.editor.font_families()
+    }
+
     /// Has Skia been initialised (§1.3: only on the first Annotation)?
     pub fn skia_initialised(&self) -> bool {
         self.editor.skia_initialised()
@@ -635,6 +650,8 @@ impl ZimgedApp {
         }
         // #38: when the Image is an edited animation and `target` is its own file, ask "Overwrite
         // animated image?" (Cancel, Save As..., Overwrite; §6.4) here, before anything is written.
+        // A text box being edited is finished first, so it is saved (#28).
+        self.editor.finish_text_editing();
         let Some(source) = self.editor.save_source() else {
             return;
         };
@@ -1102,6 +1119,7 @@ impl ZimgedApp {
                 selection,
                 crop,
                 hint: self.editor.tool().hint(),
+                fonts: self.editor.font_families().unwrap_or_default(),
             },
         );
         if out.apply_crop {
