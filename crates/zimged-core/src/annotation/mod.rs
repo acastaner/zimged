@@ -38,9 +38,10 @@ pub trait Shape {
     fn transform(&mut self, t: &Affine);
 
     /// Follow an Image operation (ADR 0001). Each type decides how: shapes, lines, arrows,
-    /// freehand strokes and Insets apply `t.affine()` (as [`Rectangle`] does); text and Step
-    /// counters move their anchor through it but stay upright. Style scaling on resize is done by
-    /// [`Annotation::image_transform`], not here.
+    /// freehand strokes and Insets apply `t.affine()` (as [`Rectangle`] does), so they rotate and
+    /// flip with the Image; text and Step counters stay upright: their box goes through
+    /// `t.upright_rect(..)` (a point anchor through `t.affine()`). Style scaling on resize is done
+    /// by [`Annotation::image_transform`], not here.
     fn image_transform(&mut self, t: &ImageTransform);
 
     /// The style properties the property bar shows for this type (§4.3), in display order.
@@ -136,9 +137,14 @@ impl Annotation {
         self.bounds().expand(self.style.thickness / 2.0)
     }
 
-    /// Follow an Image operation (ADR 0001). #33's resize also scales the Style here (line
-    /// thickness, font size).
+    /// Follow an Image operation (ADR 0001). A resize also scales the Style's sizes (§4.7): every
+    /// size property given in Image pixels is multiplied by `t.size_scale()` here (text's font
+    /// size and the Step counter's size join `thickness` when those types land).
     pub fn image_transform(&mut self, t: &ImageTransform) {
         self.shape.image_transform(t);
+        let s = t.size_scale();
+        if s != 1.0 {
+            self.style.thickness *= s;
+        }
     }
 }

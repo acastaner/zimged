@@ -1,8 +1,9 @@
-//! Image operations (§4.7, ADR 0001): crop, and (#33) rotate, flip and resize.
+//! Image operations (§4.7, ADR 0001): crop, rotate 90°, flip and resize.
 //!
 //! An Image operation is two things:
-//! - new pixels, computed from the full-resolution [`Pixels`] (`Pixels::crop` here; #33 adds
-//!   rotate/flip/resize next to it);
+//! - new pixels, computed from the full-resolution [`Pixels`] (`Pixels::crop`, `rotate90` and
+//!   `flip` here; resize resamples with Skia, so its pixels come from `zimged-render` through
+//!   [`crate::Document::resize`]);
 //! - an [`ImageTransform`] saying how old Image pixel coordinates map to new ones, which every
 //!   Annotation follows through [`crate::Shape::image_transform`].
 //!
@@ -19,9 +20,20 @@ pub enum ImageTransform {
     /// Crop: the new Image starts at `origin` (old Image pixels). Annotations keep their position
     /// in the image, so they move by `-origin`; the canvas clips what lies past the new edges.
     Crop { origin: Point },
-    // #33: Rotate90 { clockwise, old size }, Flip { horizontal, old size }, Resize { sx, sy }.
-    // Text and Step counters move their anchor but stay upright; resize also scales line
-    // thickness and font size (a Style change: see `Annotation::image_transform`).
+    /// A quarter turn of an Image that was `width`×`height` before it.
+    Rotate90 {
+        clockwise: bool,
+        width: f32,
+        height: f32,
+    },
+    /// A mirror image of a `width`×`height` Image: left-right when `horizontal`, else top-bottom.
+    Flip {
+        horizontal: bool,
+        width: f32,
+        height: f32,
+    },
+    /// The Image scaled by `sx` horizontally and `sy` vertically (new size / old size).
+    Resize { sx: f32, sy: f32 },
 }
 
 impl ImageTransform {
@@ -30,7 +42,76 @@ impl ImageTransform {
     pub fn affine(&self) -> Affine {
         match *self {
             ImageTransform::Crop { origin } => Affine::translate(Vector::new(-origin.x, -origin.y)),
+            // (x, y) → (H − y, x): the old left edge becomes the top.
+            ImageTransform::Rotate90 {
+                clockwise: true,
+                height,
+                ..
+            } => Affine {
+                a: 0.0,
+                b: 1.0,
+                c: -1.0,
+                d: 0.0,
+                e: height,
+                f: 0.0,
+            },
+            // (x, y) → (y, W − x): the old top edge becomes the left.
+            ImageTransform::Rotate90 {
+                clockwise: false,
+                width,
+                ..
+            } => Affine {
+                a: 0.0,
+                b: -1.0,
+                c: 1.0,
+                d: 0.0,
+                e: 0.0,
+                f: width,
+            },
+            ImageTransform::Flip {
+                horizontal: true,
+                width,
+                ..
+            } => Affine {
+                a: -1.0,
+                e: width,
+                ..Affine::IDENTITY
+            },
+            ImageTransform::Flip {
+                horizontal: false,
+                height,
+                ..
+            } => Affine {
+                d: -1.0,
+                f: height,
+                ..Affine::IDENTITY
+            },
+            ImageTransform::Resize { sx, sy } => Affine {
+                a: sx,
+                d: sy,
+                ..Affine::IDENTITY
+            },
         }
+    }
+
+    /// How much sizes given in Image pixels scale: line thickness, font size, the Step counter's
+    /// size (§4.7: resize scales everything). 1 except for a resize, where it is the geometric
+    /// mean of the two axes' scales (a stretch thickens lines by its average).
+    pub fn size_scale(&self) -> f32 {
+        match *self {
+            ImageTransform::Resize { sx, sy } => (sx * sy).sqrt(),
+            _ => 1.0,
+        }
+    }
+
+    /// Where an upright box (text, Step counter: ADR 0001 keeps them unrotated) goes: its centre
+    /// moves through [`Self::affine`], it keeps its orientation, and its size scales by
+    /// [`Self::size_scale`].
+    pub fn upright_rect(&self, r: Rect) -> Rect {
+        let c = self.affine().apply(r.center());
+        let s = self.size_scale();
+        let (w, h) = (r.width() * s, r.height() * s);
+        Rect::from_min_size(Point::new(c.x - w / 2.0, c.y - h / 2.0), w, h)
     }
 }
 
@@ -69,6 +150,63 @@ impl Pixels {
         Pixels {
             width: region.width,
             height: region.height,
+            data: match self.data {
+                PixelData::Rgb(_) => PixelData::Rgb(out),
+                PixelData::Rgba(_) => PixelData::Rgba(out),
+            },
+        }
+    }
+}
+
+impl Pixels {
+    /// The Image turned a quarter, clockwise or not.
+    pub fn rotate90(&self, clockwise: bool) -> Pixels {
+        let (w, h) = (self.width as usize, self.height as usize);
+        // New pixel (x, y), in a h×w Image, comes from old pixel (sx, sy).
+        self.remap(self.height, self.width, |x, y| {
+            if clockwise {
+                (y, h - 1 - x)
+            } else {
+                (w - 1 - y, x)
+            }
+        })
+    }
+
+    /// The mirror image: left-right when `horizontal`, else top-bottom.
+    pub fn flip(&self, horizontal: bool) -> Pixels {
+        let (w, h) = (self.width as usize, self.height as usize);
+        self.remap(self.width, self.height, |x, y| {
+            if horizontal {
+                (w - 1 - x, y)
+            } else {
+                (x, h - 1 - y)
+            }
+        })
+    }
+
+    /// A `width`×`height` Image whose pixel (x, y) is this one's pixel `from(x, y)`.
+    fn remap(
+        &self,
+        width: u32,
+        height: u32,
+        from: impl Fn(usize, usize) -> (usize, usize),
+    ) -> Pixels {
+        let n = self.channels();
+        let src = match &self.data {
+            PixelData::Rgb(d) | PixelData::Rgba(d) => d,
+        };
+        let stride = self.width as usize * n;
+        let mut out = Vec::with_capacity(width as usize * height as usize * n);
+        for y in 0..height as usize {
+            for x in 0..width as usize {
+                let (sx, sy) = from(x, y);
+                let i = sy * stride + sx * n;
+                out.extend_from_slice(&src[i..i + n]);
+            }
+        }
+        Pixels {
+            width,
+            height,
             data: match self.data {
                 PixelData::Rgb(_) => PixelData::Rgb(out),
                 PixelData::Rgba(_) => PixelData::Rgba(out),
