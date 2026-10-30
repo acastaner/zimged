@@ -22,7 +22,7 @@ pub struct StatusBar<'a> {
     pub position: Option<String>,
     pub pixel_size: Option<Size>,
     pub zoom: Option<Zoom>,
-    /// The transient message slot ("Last image in folder", …).
+    /// The transient message slot ("Last image in folder", "View only: …", …).
     pub message: Option<&'a str>,
 }
 

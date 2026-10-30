@@ -1,14 +1,22 @@
 //! Sibling ordering (spec §3.2): the file manager's own order, reproduced exactly, quirks included.
 //!
-//! One [`NameOrder`] per ordering rule. Today only [`GlibOrder`] (Nautilus and every non-KDE Linux
-//! desktop) exists; the Dolphin port (#16) and the native Windows and macOS comparisons (#17) are
-//! further implementations of the same trait, picked by [`platform_order`].
+//! One [`NameOrder`] per ordering rule, picked by [`platform_order`]: [`GlibOrder`] (Nautilus and
+//! every non-KDE Linux desktop), the Dolphin port (#16), `ExplorerOrder` on Windows and
+//! `FinderOrder` on macOS (the OS's own comparisons).
 
+#[cfg(windows)]
+mod explorer;
+#[cfg(target_os = "macos")]
+mod finder;
 mod glib;
 mod locale;
 
 use std::cmp::Ordering;
 
+#[cfg(windows)]
+pub use explorer::ExplorerOrder;
+#[cfg(target_os = "macos")]
+pub use finder::FinderOrder;
 pub use glib::GlibOrder;
 
 /// How a file manager orders file names.
@@ -32,9 +40,21 @@ pub trait NameOrder: Send + Sync {
     }
 }
 
-/// The ordering of the file manager on this platform and desktop, in the user's locale.
+/// The ordering of Explorer: `StrCmpLogicalW`, or ordinal under the `NoStrCmpLogical` policy.
+#[cfg(windows)]
 pub fn platform_order() -> Box<dyn NameOrder> {
-    // #16 picks the Dolphin port here when `XDG_CURRENT_DESKTOP` contains `KDE`; #17 the native
-    // Windows and macOS comparisons.
+    Box::new(ExplorerOrder::from_environment())
+}
+
+/// The ordering of Finder: `localizedStandardCompare:` in the user's locale.
+#[cfg(target_os = "macos")]
+pub fn platform_order() -> Box<dyn NameOrder> {
+    Box::new(FinderOrder)
+}
+
+/// The ordering of the file manager on this desktop, in the user's locale.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn platform_order() -> Box<dyn NameOrder> {
+    // #16 picks the Dolphin port here when `XDG_CURRENT_DESKTOP` contains `KDE`.
     Box::new(GlibOrder::from_environment())
 }

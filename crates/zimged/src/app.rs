@@ -1,27 +1,33 @@
 //! The eframe app: state, the per-frame loop, and command execution.
 //!
-//! Keep this file thin. Chrome lives in `ui/` (one module per bar), commands in `commands.rs`, and
-//! domain state in `zimged-core`. `ui()` polls background work, then lays out the panels.
+//! Keep this file thin. Chrome lives in `ui/` (one module per bar), commands in `commands.rs`,
+//! input mapping in `input.rs`, the editor (Document, tools, composite) in `editor.rs`, and domain
+//! state in `zimged-core`. `ui()` polls background work, then lays out the panels.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use zimged_codec::{DisplayImage, Size, fit_within};
+use zimged_core::Document;
 use zimged_platform::{Config, Platform};
+use zimged_render::Composite;
 use zimged_siblings::{Decoded, Direction};
 
 use crate::Command;
 use crate::config_save::ConfigSaver;
 use crate::decode::PendingDecode;
+use crate::editor::{DisplayPixels, Editor, MAX_EDIT_PIXELS, VIEW_ONLY_MESSAGE};
 use crate::pan::PanGesture;
 use crate::siblings::{Navigation, Step};
-use crate::ui::{canvas, menu_bar, status_bar};
+use crate::tools::ToolId;
+use crate::ui::{canvas, menu_bar, property_bar, status_bar, tool_strip};
 use crate::view::{View, ZOOM_STEP, Zoom};
 
 /// The largest Image whose full-resolution pixels are decoded (§4.7). Larger ones are view-only and
 /// zoom in on their display-size pixels.
-const FULL_RESOLUTION_LIMIT: u64 = 100_000_000;
+const FULL_RESOLUTION_LIMIT: u64 = MAX_EDIT_PIXELS;
 
 /// How long a transient status-bar message stays up.
 const MESSAGE_DURATION: Duration = Duration::from_secs(3);
@@ -72,6 +78,8 @@ pub(crate) struct ShownImage {
     /// `display`'s pixels, shared with egui (no copy). Tests read them; so will the on-screen
     /// composite (§7.2).
     display_pixels: Arc<egui::ColorImage>,
+    /// Identifies `display_pixels` for the Skia renderer's cache (a new key per decode).
+    display_key: u64,
     /// The full-resolution decode, once zoomed past the display-size one (§7.2). Capped at the GPU's
     /// largest texture.
     full: Option<egui::TextureHandle>,
@@ -157,6 +165,7 @@ pub struct ZimgedApp {
     message: Option<(&'static str, Instant)>,
     /// Benchmark driver for Sibling switching (`tools/bench switch`).
     bench_nav: Option<crate::bench::NavBench>,
+    editor: Editor,
 }
 
 impl ZimgedApp {
@@ -187,6 +196,7 @@ impl ZimgedApp {
             navigation: Navigation::new(launch.cache_cap),
             message: None,
             bench_nav: crate::bench::NavBench::from_env(),
+            editor: Editor::new(),
         }
     }
 
@@ -207,7 +217,46 @@ impl ZimgedApp {
             Command::SetAllowMultipleInstances(allow) => {
                 self.update_config(|config| config.allow_multiple_instances = allow);
             }
+            Command::SelectTool(tool) => self.editor.select_tool(tool),
+            Command::Undo => self.editor.undo(),
+            Command::Redo => self.editor.redo(),
+            Command::Delete => {
+                // With nothing selected, Delete trashes the file (#22).
+                self.editor.delete_selection();
+            }
+            Command::SetProperty { property, merge } => self.editor.set_property(property, merge),
         }
+    }
+
+    // ---- The editor, as tests (and later the menus) see it ----
+
+    /// The open Document: the Annotations, the selection and the History.
+    pub fn document(&self) -> Option<&Document> {
+        self.editor.document()
+    }
+
+    pub fn tool(&self) -> ToolId {
+        self.editor.tool()
+    }
+
+    /// Has Skia been initialised (§1.3: only on the first Annotation)?
+    pub fn skia_initialised(&self) -> bool {
+        self.editor.skia_initialised()
+    }
+
+    /// The last Skia composite of the canvas, while there are Annotations (§7.2).
+    pub fn composite(&self) -> Option<&Composite> {
+        self.editor.composite()
+    }
+
+    /// The selection box (dashed, with 8 handles) as painted last frame, in points.
+    pub fn selection_box(&self) -> Option<egui::Rect> {
+        self.editor.selection_box()
+    }
+
+    /// Over 100 MP: the tools are disabled (§4.7).
+    pub fn is_view_only(&self) -> bool {
+        self.editor.is_view_only()
     }
 
     /// The settings in effect (§8.3), including changes not yet written to `config.toml`.
@@ -222,14 +271,16 @@ impl ZimgedApp {
             || self.upgrade.is_some()
             || self.open_dialog.is_some()
             || self.config_saver.is_busy()
+            || self.editor.is_busy()
             || self.navigation.is_busy()
     }
 
-    /// Does the Image have unsaved changes (` •` after the file name)? Today that's only a file
-    /// deleted from outside zimged (§3.2). #25: `|| doc.is_modified()`; #35's Save / Discard / Cancel
-    /// prompt asks whenever this is true, and saving writes the file back.
+    /// Does the Image have unsaved changes (` •` after the file name)? Edits to the Document, or a
+    /// file deleted from outside zimged (§3.2). #35's Save / Discard / Cancel prompt asks whenever
+    /// this is true, and saving writes the file back.
     pub fn is_modified(&self) -> bool {
-        self.shown.as_ref().is_some_and(|s| s.deleted_from_disk)
+        self.document().is_some_and(|d| d.is_modified())
+            || self.shown.as_ref().is_some_and(|s| s.deleted_from_disk)
     }
 
     /// Is the Image's directory being watched for changes (§3.2)?
@@ -419,6 +470,7 @@ impl ZimgedApp {
         self.path = Some(path.clone());
         match decoded {
             Ok(image) => {
+                self.editor.open(&path, image.original_size);
                 let (display, display_pixels) = upload(ctx, &image, Pixels::Display);
                 self.shown = Some(ShownImage {
                     path,
@@ -426,6 +478,7 @@ impl ZimgedApp {
                     original_size: image.original_size,
                     display,
                     display_pixels,
+                    display_key: next_display_key(),
                     full: None,
                     requested: image.size,
                     deleted_from_disk: false,
@@ -436,6 +489,7 @@ impl ZimgedApp {
             }
             Err(reason) => {
                 self.shown = None;
+                self.editor.close();
                 self.error = Some(format!("Can't open {file_name}: {reason}"));
             }
         }
@@ -462,6 +516,7 @@ impl ZimgedApp {
             Pixels::Display => {
                 shown.display = texture;
                 shown.display_pixels = pixels;
+                shown.display_key = next_display_key();
             }
             Pixels::Full => shown.full = Some(texture),
         }
@@ -606,7 +661,36 @@ impl ZimgedApp {
             position: self.path.as_deref().map(|p| self.navigation.position(p)),
             pixel_size: self.shown.as_ref().map(|s| s.original_size),
             zoom: self.shown.as_ref().map(|_| self.view.zoom),
-            message: self.message.map(|(text, _)| text),
+            // The view-only notice stays until another Image; transient messages win.
+            message: self
+                .message
+                .map(|(text, _)| text)
+                .or(self.is_view_only().then_some(VIEW_ONLY_MESSAGE)),
+        }
+    }
+
+    fn property_bar(&mut self, ui: &mut egui::Ui) {
+        let (style, properties, selection) = self.editor.property_target();
+        let out = property_bar::show(
+            ui,
+            &property_bar::PropertyBar {
+                style: &style,
+                properties: if self.editor.can_edit() {
+                    &properties
+                } else {
+                    &[]
+                },
+                selection,
+                hint: self.editor.tool().hint(),
+            },
+        );
+        for property in out.changes {
+            let command = self.editor.property_change(property);
+            self.execute(command);
+        }
+        self.editor.property_interaction(out.active);
+        if out.delete {
+            self.execute(Command::Delete);
         }
     }
 }
@@ -632,13 +716,14 @@ impl eframe::App for ZimgedApp {
         self.follow_directory(&ctx);
         self.poll_decode(&ctx);
         self.poll_upgrade(&ctx);
+        self.editor.poll(&ctx);
         self.expire_message(&ctx);
         self.drive_bench(&ctx);
         self.sync_fullscreen(&ctx);
         self.track_window(&ctx);
         self.config_saver.poll(&ctx, &self.config);
 
-        // Fullscreen hides all chrome (§2): the menu bar and the status bar.
+        // Fullscreen hides all chrome (§2): the menu bar, property bar, tool strip and status bar.
         if !self.fullscreen {
             let menu = menu_bar::MenuBar {
                 allow_multiple_instances: self.config.allow_multiple_instances,
@@ -646,15 +731,31 @@ impl eframe::App for ZimgedApp {
             if let Some(command) = menu_bar::show(ui, &menu) {
                 self.execute(command);
             }
+            self.property_bar(ui);
+            if let Some(command) = tool_strip::show(ui, self.editor.tool(), self.editor.can_edit())
+            {
+                self.execute(command);
+            }
             status_bar::show(ui, &self.status_bar());
         }
         // Laying out keeps the zoomed Image in bounds, so the view comes back updated.
         let mut view = self.view;
+        let message = self.canvas_message().map(str::to_owned);
+        // Space and the middle button pan; the tools leave the pointer alone meanwhile (#43).
+        let tools_get_pointer = !self.pan_owns_pointer();
+        let editor = &mut self.editor;
+        let display = self.shown.as_ref().map(|s| DisplayPixels {
+            key: s.display_key,
+            image: &s.display_pixels,
+        });
         self.canvas = Some(canvas::show(
             ui,
             self.shown.as_ref(),
             &mut view,
-            self.canvas_message(),
+            message.as_deref(),
+            |ui, layout, response| {
+                editor.canvas(ui.ctx(), layout, response, display, tools_get_pointer)
+            },
         ));
         self.view = view;
         self.request_pixels(&ctx);
@@ -714,6 +815,12 @@ fn upload(
         ),
     };
     (ctx.load_texture(name, pixels.clone(), options), pixels)
+}
+
+/// A fresh cache key for a display-size decode's pixels (see [`DisplayPixels`]).
+fn next_display_key() -> u64 {
+    static NEXT_KEY: AtomicU64 = AtomicU64::new(1);
+    NEXT_KEY.fetch_add(1, Ordering::Relaxed)
 }
 
 fn texture_size(texture: &egui::TextureHandle) -> Size {

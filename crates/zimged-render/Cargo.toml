@@ -10,3 +10,4 @@ publish.workspace = true
 
 [dependencies]
 zimged-core.workspace = true
+skia-safe.workspace = true

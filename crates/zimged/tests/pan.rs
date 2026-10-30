@@ -103,11 +103,20 @@ fn the_pan_stops_where_the_image_edge_meets_the_canvas_edge() {
 
 #[test]
 fn an_image_narrower_than_the_canvas_stays_centred_on_that_axis() {
-    // Five steps (305%) make 320×240 about 977×732: narrower than the canvas, but taller.
+    // 280% makes 320×240 about 898×674: narrower than the canvas (the window less the tool strip),
+    // but taller.
     let mut app = TestApp::open_fixture("small-320x240.jpg");
-    for _ in 0..5 {
+    for _ in 0..4 {
         app.press(Key::Plus);
     }
+    let centre = app.harness.state().canvas().unwrap().area.center();
+    app.harness
+        .state_mut()
+        .execute(zimged::Command::ZoomAround {
+            factor: 1.15,
+            around: centre,
+        });
+    app.settle();
     let before = app.harness.state().canvas().unwrap();
     assert!(before.image.width() < before.area.width());
     assert!(before.image.height() > before.area.height());

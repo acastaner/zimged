@@ -1,0 +1,127 @@
+//! The property bar (§2, §4.3): the active tool's controls, or the selection's.
+//!
+//! One control per [`PropertyKind`], in [`control`]. A new property adds one arm there (and its
+//! accessibility label constant). Controls report changes as [`Property`] values; the app turns
+//! them into commands.
+
+use zimged_core::{Property, PropertyKind, Rgba, Style};
+
+pub const LABEL_LINE_COLOUR: &str = "Line colour";
+pub const LABEL_FILL_COLOUR: &str = "Fill colour";
+pub const LABEL_NO_FILL: &str = "No fill";
+pub const LABEL_THICKNESS: &str = "Thickness";
+pub const LABEL_SHADOW: &str = "Shadow";
+pub const LABEL_DELETE: &str = "Delete";
+
+/// What the property bar shows this frame.
+pub struct PropertyBar<'a> {
+    pub style: &'a Style,
+    pub properties: &'a [PropertyKind],
+    /// Annotations are selected: the controls restyle them, and Delete is offered.
+    pub selection: bool,
+    /// Shown when there are no controls.
+    pub hint: &'a str,
+}
+
+/// What the user did in the property bar this frame.
+#[derive(Default)]
+pub struct Output {
+    pub changes: Vec<Property>,
+    /// The property whose control is still being interacted with (a colour picker open, a value
+    /// being dragged): its changes form one History step.
+    pub active: Option<PropertyKind>,
+    pub delete: bool,
+}
+
+pub fn show(ui: &mut egui::Ui, bar: &PropertyBar<'_>) -> Output {
+    let mut out = Output::default();
+    egui::Panel::top("property_bar").show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            for kind in bar.properties {
+                control(ui, *kind, bar.style, &mut out);
+            }
+            if bar.selection && ui.button("Delete").accessible_name(LABEL_DELETE).clicked() {
+                out.delete = true;
+            }
+            // Bring to front and Send to back (#27) go here.
+            if bar.properties.is_empty() && !bar.selection {
+                ui.weak(bar.hint);
+            }
+        });
+    });
+    out
+}
+
+fn control(ui: &mut egui::Ui, kind: PropertyKind, style: &Style, out: &mut Output) {
+    match kind {
+        PropertyKind::LineColour => {
+            ui.label("Line");
+            if let Some(c) = colour(ui, style.line, LABEL_LINE_COLOUR, kind, out) {
+                out.changes.push(Property::LineColour(c));
+            }
+        }
+        PropertyKind::FillColour => {
+            ui.label("Fill");
+            let shown = style.fill.unwrap_or(Rgba::WHITE);
+            if let Some(c) = colour(ui, shown, LABEL_FILL_COLOUR, kind, out) {
+                out.changes.push(Property::FillColour(Some(c)));
+            }
+            let none = style.fill.is_none();
+            if ui
+                .add(egui::Button::selectable(none, "None"))
+                .on_hover_text("No fill")
+                .accessible_name(LABEL_NO_FILL)
+                .clicked()
+            {
+                out.changes
+                    .push(Property::FillColour(if none { Some(shown) } else { None }));
+            }
+        }
+        PropertyKind::Thickness => {
+            ui.label("Thickness");
+            let mut value = style.thickness;
+            let range = zimged_core::style::THICKNESS_RANGE;
+            let response = ui
+                .add(egui::DragValue::new(&mut value).range(range).speed(0.1))
+                .accessible_name(LABEL_THICKNESS);
+            if response.dragged() || response.has_focus() {
+                out.active = Some(kind);
+            }
+            if response.changed() && value != style.thickness {
+                out.changes.push(Property::Thickness(value));
+            }
+        }
+        PropertyKind::Shadow => {
+            let mut on = style.shadow;
+            if ui
+                .checkbox(&mut on, "Shadow")
+                .accessible_name(LABEL_SHADOW)
+                .changed()
+            {
+                out.changes.push(Property::Shadow(on));
+            }
+        }
+    }
+}
+
+/// A colour button with a picker. Returns the new colour when it changed.
+fn colour(
+    ui: &mut egui::Ui,
+    c: Rgba,
+    label: &str,
+    kind: PropertyKind,
+    out: &mut Output,
+) -> Option<Rgba> {
+    // The picker's popup id, as egui's colour button derives it, to tell whether it is open.
+    let popup_id = ui.auto_id_with("popup");
+    let mut srgba = [c.r, c.g, c.b, c.a];
+    let response = ui
+        .color_edit_button_srgba_unmultiplied(&mut srgba)
+        .accessible_name(label);
+    if egui::Popup::is_id_open(ui.ctx(), popup_id) {
+        out.active = Some(kind);
+    }
+    let new = Rgba::new(srgba[0], srgba[1], srgba[2], srgba[3]);
+    (response.changed() && new != c).then_some(new)
+}
