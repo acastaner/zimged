@@ -3,6 +3,7 @@
 //! The binary (`main.rs`) only calls [`startup::run`]. Everything else lives in this library so the
 //! headless App tests (spec §9) drive exactly the code the binary runs.
 
+mod animation;
 pub mod app;
 pub mod bench;
 pub mod commands;
@@ -11,6 +12,8 @@ pub mod decode;
 mod editor;
 mod input;
 mod pan;
+mod paste;
+mod save;
 mod siblings;
 pub mod startup;
 pub mod tools;

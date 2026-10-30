@@ -5,11 +5,21 @@
 //! [`crate::ZimgedApp::execute`]. Widgets don't act on keys or drops themselves.
 
 use egui::{Event, Key, KeyboardShortcut, Modifiers, MouseWheelUnit};
+use zimged_core::Restack;
 
 use crate::Command;
 use crate::tools::ToolId;
 
 const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
+const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
+const SAVE_AS: KeyboardShortcut =
+    KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::S);
+// The window is started with eframe's clipboard shortcuts off (`startup.rs`), so these arrive as
+// plain key events rather than egui's Copy and Paste events.
+const COPY: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::C);
+const PASTE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::V);
+const NEW_FROM_CLIPBOARD: KeyboardShortcut =
+    KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::V);
 
 /// Points of smooth (touchpad) scrolling that count as one wheel notch.
 const POINTS_PER_STEP: f32 = 50.0;
@@ -23,6 +33,26 @@ pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>) -> Vec<Command>
     ctx.input_mut(|input| {
         if input.consume_shortcut(&OPEN) {
             commands.push(Command::OpenDialog);
+        }
+        // Save As first: egui ignores an extra Shift when matching Ctrl+S.
+        if input.consume_shortcut(&SAVE_AS) {
+            commands.push(Command::SaveAs);
+        }
+        if input.consume_shortcut(&SAVE) {
+            commands.push(Command::Save);
+        }
+        // A focused text field (the text tool, a dialog) has the clipboard keys to itself.
+        if plain_keys {
+            // Ctrl+Shift+V first: egui ignores an extra Shift when matching Ctrl+V.
+            if input.consume_shortcut(&NEW_FROM_CLIPBOARD) {
+                commands.push(Command::NewFromClipboard);
+            }
+            if input.consume_shortcut(&PASTE) {
+                commands.push(Command::Paste);
+            }
+            if input.consume_shortcut(&COPY) {
+                commands.push(Command::Copy);
+            }
         }
         if plain_keys {
             // `+` is Shift+= on many layouts; `=` alone also zooms in, as in most viewers.
@@ -60,9 +90,12 @@ pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>) -> Vec<Command>
         // Several files dropped at once: only the first is opened, as the new Image.
         let dropped = input.raw.dropped_files.first().map(|f| f.path().to_owned());
         if let Some(path) = dropped {
-            // #36: Ctrl+drop (`input.modifiers.command`) inserts the file as an Inset instead
-            // (§4.6). Until Insets exist, it opens the file like a plain drop.
-            commands.push(Command::Open(path));
+            // Ctrl+drop inserts the file as an Inset instead (§3.5, §4.6).
+            if input.modifiers.command {
+                commands.push(Command::InsertFile(path));
+            } else {
+                commands.push(Command::Open(path));
+            }
         }
     });
     wheel(ctx, &mut commands);
@@ -80,11 +113,25 @@ fn editor_keys(input: &mut egui::InputState, commands: &mut Vec<Command>) {
     if input.consume_key(Modifiers::COMMAND, Key::Z) {
         commands.push(Command::Undo);
     }
+    if input.consume_key(Modifiers::COMMAND, Key::D) {
+        commands.push(Command::Duplicate);
+    }
+    if input.consume_key(Modifiers::COMMAND, Key::CloseBracket) {
+        commands.push(Command::Restack(Restack::Up));
+    }
+    if input.consume_key(Modifiers::COMMAND, Key::OpenBracket) {
+        commands.push(Command::Restack(Restack::Down));
+    }
     if input.consume_key(Modifiers::NONE, Key::Delete) {
         commands.push(Command::Delete);
     }
+    if input.consume_key(Modifiers::NONE, Key::Enter) {
+        commands.push(Command::ApplyCrop);
+    }
     for tool in ToolId::ALL {
-        if input.consume_key(Modifiers::NONE, tool.key()) {
+        if let Some(key) = tool.key()
+            && input.consume_key(Modifiers::NONE, key)
+        {
             commands.push(Command::SelectTool(tool));
         }
     }

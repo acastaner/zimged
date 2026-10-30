@@ -26,12 +26,13 @@ ARG RUST_VERSION
 # git: the self-test of the guard scripts builds throwaway repositories. cmake, make, g++, meson,
 # ninja and nasm: libavif-sys builds libavif and dav1d from source (the `avif` feature, §5.1).
 # curl, ca-certificates, fontconfig and freetype: skia-bindings (zimged-render, #25) downloads its
-# prebuilt Skia with curl at build time and links fontconfig, freetype and libstdc++.
+# prebuilt Skia with curl at build time and links fontconfig, freetype and libstdc++. fonts-dejavu-core:
+# the text tool tests (#28) need at least one installed font.
 # locales + en_US.UTF-8: the Sibling ordering tables (#15) are measured in that locale (GLib's
 # collation runs through libc's wcsxfrm); slim images ship only C.UTF-8.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git cmake make g++ meson ninja-build nasm locales \
-         curl ca-certificates libfontconfig1-dev libfreetype-dev \
+         curl ca-certificates libfontconfig1-dev libfreetype-dev fonts-dejavu-core \
     && sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
     && locale-gen \
     && rm -rf /var/lib/apt/lists/* \

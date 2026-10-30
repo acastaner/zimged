@@ -44,8 +44,9 @@ pub fn show(ui: &mut egui::Ui, active: ToolId, can_edit: bool) -> Option<Command
 
 fn key_label(tool: ToolId) -> &'static str {
     match tool.key() {
-        egui::Key::Escape => "Esc",
-        key => key.name(),
+        Some(egui::Key::Escape) => "Esc",
+        Some(key) => key.name(),
+        None => "",
     }
 }
 
@@ -110,5 +111,7 @@ fn paint_icon(p: &egui::Painter, r: Rect, tool: ToolId, c: Color32) {
             p.line_segment([at(0., 0.25), at(0.75, 0.25)], s);
             p.line_segment([at(0.75, 0.25), at(0.75, 1.)], s);
         }
+        // Not in the strip.
+        ToolId::Inset => {}
     }
 }

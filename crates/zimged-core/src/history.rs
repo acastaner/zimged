@@ -4,24 +4,51 @@
 //! make every edit undoable without per-edit undo code: a new Annotation type, a new property or
 //! a new kind of edit gets undo and redo for free.
 //!
-//! Image operations (#32, #33) add the pre-operation pixels to [`Snapshot`] (behind an `Arc`, so
-//! steps that don't change pixels share them) and enforce the ~512 MB cap on stored pixels by
-//! dropping the oldest steps.
+//! Image-operation steps also carry the Image ([`ImageState`]: pixels behind an `Arc`, shared
+//! between one step's `after` and the next one's `before`) in both snapshots. Other steps carry
+//! `None`: the History is linear, so the Image when undoing or redoing them is the one they had.
+//! The pixels held by steps are capped ([`HISTORY_PIXEL_CAP`]); beyond it the oldest steps are
+//! dropped.
+
+use std::sync::Arc;
 
 use crate::annotation::{Annotation, AnnotationId};
+use crate::document::Pixels;
 use crate::style::PropertyKind;
+
+/// §4.8: pixels stored in the History are capped at about 512 MB.
+pub const HISTORY_PIXEL_CAP: usize = 512 * 1024 * 1024;
+
+/// The Image as an Image operation found or left it.
+#[derive(Clone, Debug)]
+pub(crate) struct ImageState {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Arc<Pixels>,
+    /// Identifies these pixels within the Document; 0 is the decoded file.
+    pub generation: u64,
+}
+
+impl PartialEq for ImageState {
+    fn eq(&self, other: &Self) -> bool {
+        self.generation == other.generation
+    }
+}
 
 /// The Document's editable state, as stored in a step.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Snapshot {
     pub annotations: Vec<Annotation>,
     pub selection: Vec<AnnotationId>,
+    /// Only in Image-operation steps.
+    pub image: Option<ImageState>,
 }
 
 /// What a step was, for merging property changes made in one widget interaction.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum StepKind {
     Gesture,
+    ImageOperation,
     Property {
         kind: PropertyKind,
         targets: Vec<AnnotationId>,
@@ -110,5 +137,36 @@ impl History {
 
     pub fn mark_saved(&mut self) {
         self.saved_at = Some(self.position);
+    }
+
+    /// Drop the oldest steps until the pixels they hold, other than `current` (the Document's own),
+    /// fit in `cap` bytes. Only done steps are dropped.
+    pub fn enforce_pixel_cap(&mut self, cap: usize, current: Option<&Arc<Pixels>>) {
+        while self.position > 0 && self.stored_pixel_bytes(current) > cap {
+            self.steps.remove(0);
+            self.position -= 1;
+            self.saved_at = match self.saved_at {
+                Some(0) | None => None,
+                Some(n) => Some(n - 1),
+            };
+        }
+    }
+
+    /// Bytes of the distinct pixel buffers held by steps, except `current`.
+    fn stored_pixel_bytes(&self, current: Option<&Arc<Pixels>>) -> usize {
+        let mut seen: Vec<&Arc<Pixels>> = Vec::new();
+        let images = self
+            .steps
+            .iter()
+            .flat_map(|s| [&s.before.image, &s.after.image])
+            .flatten();
+        for image in images {
+            let p = &image.pixels;
+            let counted = seen.iter().any(|s| Arc::ptr_eq(s, p));
+            if !counted && !current.is_some_and(|c| Arc::ptr_eq(c, p)) {
+                seen.push(p);
+            }
+        }
+        seen.iter().map(|p| p.byte_len()).sum()
     }
 }

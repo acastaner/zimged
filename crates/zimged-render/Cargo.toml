@@ -11,3 +11,4 @@ publish.workspace = true
 [dependencies]
 zimged-core.workspace = true
 skia-safe.workspace = true
+epaint_default_fonts.workspace = true

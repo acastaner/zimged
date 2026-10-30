@@ -37,7 +37,7 @@ fn rect_of(app: &TestApp, index: usize) -> [i32; 4] {
 // ---- Tool strip ----
 
 #[test]
-fn tool_strip_lists_every_tool_in_order_with_select_and_rectangle_enabled() {
+fn tool_strip_lists_every_tool_in_order_with_the_built_ones_enabled() {
     let app = app_with_image();
     let names = [
         "Select",
@@ -62,7 +62,7 @@ fn tool_strip_lists_every_tool_in_order_with_select_and_rectangle_enabled() {
     let shown: Vec<&str> = buttons.iter().map(|(l, _)| l.as_str()).collect();
     assert_eq!(shown, names);
     for (label, enabled) in &buttons {
-        let expected = label == "Select" || label == "Rectangle";
+        let expected = !matches!(label.as_str(), "Obfuscate");
         assert_eq!(*enabled, expected, "{label} enabled");
     }
 }
@@ -343,6 +343,9 @@ fn opening_another_image_clears_the_history() {
     let mut app = app_with_rectangle();
     let other = app.add_fixtures(&["large-2400x1600.jpg"]);
     app.open(other);
+    // The unsaved-changes prompt (#35): drop the edits.
+    app.control("Discard").click();
+    app.settle();
 
     assert!(app.doc().annotations().is_empty());
     assert!(!app.doc().can_undo());
@@ -360,6 +363,9 @@ fn moving_to_another_sibling_clears_the_history() {
     assert!(app.doc().can_undo());
 
     app.press(Key::ArrowLeft);
+    // The unsaved-changes prompt (#35): drop the edits.
+    app.control("Discard").click();
+    app.settle();
     assert_eq!(app.status("File name"), "large-2400x1600.jpg");
     assert!(app.doc().annotations().is_empty());
     assert!(!app.doc().can_undo());

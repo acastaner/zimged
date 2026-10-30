@@ -9,7 +9,12 @@
 //! resolution, so the screen and the file match.
 
 mod effects;
+mod resample;
+mod scene;
 mod shapes;
+pub mod text;
+
+pub use resample::resample;
 
 use skia_safe as sk;
 use zimged_core::{Document, Rect};
@@ -90,23 +95,24 @@ impl Renderer {
             ));
             canvas.translate((-view.region.min.x, -view.region.min.y));
 
-            let image_rect = sk::Rect::from_wh(doc.width() as f32, doc.height() as f32);
-            canvas.draw_image_rect_with_sampling_options(
-                image,
-                None,
-                image_rect,
-                sk::SamplingOptions::new(sk::FilterMode::Linear, sk::MipmapMode::Linear),
-                &sk::Paint::default(),
-            );
-            for annotation in doc.annotations() {
-                shapes::draw(canvas, annotation);
-            }
+            scene::Scene::new(image, doc).draw(canvas);
         }
         Composite {
             width,
             height,
             rgba_premultiplied: pixels,
         }
+    }
+
+    /// Flatten (§7.2): the whole Image plus every Annotation at full resolution, with the same
+    /// drawing code as the screen. `source` is the full-resolution pixels.
+    pub fn flatten(&mut self, doc: &Document, source: &Source<'_>) -> Composite {
+        let view = View {
+            region: doc.bounds(),
+            width: doc.width(),
+            height: doc.height(),
+        };
+        self.composite(doc, source, view)
     }
 
     fn source_image(&mut self, source: &Source<'_>) -> &sk::Image {
@@ -151,6 +157,10 @@ fn to_skia_image(source: &Source<'_>) -> sk::Image {
 
 pub(crate) fn color(c: zimged_core::Rgba) -> sk::Color {
     sk::Color::from_argb(c.a, c.r, c.g, c.b)
+}
+
+pub(crate) fn point(p: zimged_core::Point) -> sk::Point {
+    sk::Point::new(p.x, p.y)
 }
 
 pub(crate) fn rect(r: Rect) -> sk::Rect {
