@@ -469,16 +469,20 @@ impl ZimgedApp {
         if self.unsaved_prompt.is_some() || self.after_save.is_some() {
             return;
         }
-        let asks = self.is_modified()
-            && match &then {
-                // Only when the move would leave this Image (not at an end of the list).
-                Proceed::Go(direction) => self
-                    .path
-                    .as_deref()
-                    .is_some_and(|from| self.navigation.would_move(from, *direction)),
-                Proceed::Open(_) | Proceed::Close => true,
-            };
-        if !asks {
+        let leaves = match &then {
+            // Only when the move would leave this Image (not at an end of the list).
+            Proceed::Go(direction) => self
+                .path
+                .as_deref()
+                .is_some_and(|from| self.navigation.would_move(from, *direction)),
+            Proceed::Open(_) | Proceed::Close => true,
+        };
+        // A text box being edited is finished first (#28): its step only counts as an unsaved
+        // change once finished, and an empty box is discarded, leaving nothing to ask about.
+        if leaves {
+            self.editor.finish_text_editing();
+        }
+        if !(leaves && self.is_modified()) {
             return self.proceed(then);
         }
         let file_name = self

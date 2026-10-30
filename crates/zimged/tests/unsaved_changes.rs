@@ -208,6 +208,66 @@ fn cancelling_save_as_stays_put() {
     assert_eq!(app.status("File name"), "a.gif •");
 }
 
+// ---- While editing text (#28) ----
+
+/// The text tool, a click at (50, 60): a text box being edited.
+fn start_text(app: &mut TestApp) {
+    app.press(Key::T);
+    app.click_px((50.0, 60.0));
+    assert!(app.harness.state().editing_text());
+}
+
+fn type_text(app: &mut TestApp, text: &str) {
+    app.harness.event(egui::Event::Text(text.to_owned()));
+    app.settle();
+}
+
+#[test]
+fn moving_to_a_sibling_while_editing_text_finishes_it_first_then_asks() {
+    let (mut app, _) = folder(&["a.jpg", "b.jpg"], "a.jpg");
+    start_text(&mut app);
+    type_text(&mut app, "Hi");
+
+    // The wheel moves through the Siblings even while the text box has the keyboard.
+    app.wheel(-1.0);
+
+    assert!(!app.harness.state().editing_text(), "the text was finished");
+    assert!(prompt_shown(&app));
+    answer(&mut app, "Cancel");
+    assert_eq!(app.status("File name"), "a.jpg •");
+    assert_eq!(app.doc().annotations().len(), 1);
+    assert_eq!(app.doc().undo_len(), 1);
+}
+
+#[test]
+fn moving_to_a_sibling_from_an_empty_text_box_does_not_ask() {
+    // Finishing discards the empty box, which leaves nothing unsaved: nothing to ask.
+    let (mut app, _) = folder(&["a.jpg", "b.jpg"], "a.jpg");
+    start_text(&mut app);
+
+    app.wheel(-1.0);
+
+    assert!(!prompt_shown(&app));
+    assert_eq!(app.status("File name"), "b.jpg");
+}
+
+#[test]
+fn esc_in_the_prompt_reached_while_editing_text_only_cancels() {
+    let (mut app, _) = folder(&["a.jpg", "b.jpg"], "a.jpg");
+    start_text(&mut app);
+    type_text(&mut app, "Hi");
+    app.wheel(-1.0);
+    assert!(prompt_shown(&app));
+
+    app.press(Key::Escape);
+
+    assert!(!prompt_shown(&app));
+    assert_eq!(app.status("File name"), "a.jpg •");
+    // Esc answered the dialog only: the text tool stays (a second Esc would pick Select).
+    assert_eq!(app.harness.state().tool(), zimged::tools::ToolId::Text);
+    assert_eq!(app.doc().annotations().len(), 1);
+}
+
 // ---- Opening and dropping ----
 
 #[test]
