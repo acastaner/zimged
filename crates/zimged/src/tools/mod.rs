@@ -9,10 +9,15 @@
 //! Tools work in Image pixels ([`zimged_core::Point`]); the canvas maps the pointer for them.
 
 mod drag_box;
+mod drag_segment;
+mod ellipse;
+mod freehand;
 mod rectangle;
 pub mod select;
 
-use zimged_core::{Document, Point, PropertyKind, Rectangle, Style};
+use zimged_core::{
+    Arrow, Document, Ellipse, Freehand, Line, Point, PropertyKind, Rectangle, Style,
+};
 
 /// Every tool, in tool-strip order (§4.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -86,6 +91,10 @@ impl ToolId {
         match self {
             ToolId::Select => Some(Box::new(select::Select::default())),
             ToolId::Rectangle => Some(Box::new(rectangle::new())),
+            ToolId::Ellipse => Some(Box::new(ellipse::new())),
+            ToolId::Line => Some(Box::new(drag_segment::line())),
+            ToolId::Arrow => Some(Box::new(drag_segment::arrow())),
+            ToolId::Freehand => Some(Box::new(freehand::FreehandTool::default())),
             _ => None,
         }
     }
@@ -98,6 +107,10 @@ impl ToolId {
     pub fn properties(self) -> &'static [PropertyKind] {
         match self {
             ToolId::Rectangle => Rectangle::PROPERTIES,
+            ToolId::Ellipse => Ellipse::PROPERTIES,
+            ToolId::Line => Line::PROPERTIES,
+            ToolId::Arrow => Arrow::PROPERTIES,
+            ToolId::Freehand => Freehand::PROPERTIES,
             _ => &[],
         }
     }

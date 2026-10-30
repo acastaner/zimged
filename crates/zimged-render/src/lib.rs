@@ -153,6 +153,10 @@ pub(crate) fn color(c: zimged_core::Rgba) -> sk::Color {
     sk::Color::from_argb(c.a, c.r, c.g, c.b)
 }
 
+pub(crate) fn point(p: zimged_core::Point) -> sk::Point {
+    sk::Point::new(p.x, p.y)
+}
+
 pub(crate) fn rect(r: Rect) -> sk::Rect {
     sk::Rect::from_ltrb(r.min.x, r.min.y, r.max.x, r.max.y)
 }
