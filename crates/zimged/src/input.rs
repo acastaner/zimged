@@ -10,6 +10,9 @@ use crate::Command;
 use crate::tools::ToolId;
 
 const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
+const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
+const SAVE_AS: KeyboardShortcut =
+    KeyboardShortcut::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), Key::S);
 
 /// Points of smooth (touchpad) scrolling that count as one wheel notch.
 const POINTS_PER_STEP: f32 = 50.0;
@@ -23,6 +26,13 @@ pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>) -> Vec<Command>
     ctx.input_mut(|input| {
         if input.consume_shortcut(&OPEN) {
             commands.push(Command::OpenDialog);
+        }
+        // Save As first: egui ignores an extra Shift when matching Ctrl+S.
+        if input.consume_shortcut(&SAVE_AS) {
+            commands.push(Command::SaveAs);
+        }
+        if input.consume_shortcut(&SAVE) {
+            commands.push(Command::Save);
         }
         if plain_keys {
             // `+` is Shift+= on many layouts; `=` alone also zooms in, as in most viewers.

@@ -18,8 +18,9 @@ use zimged_siblings::{Decoded, Direction};
 use crate::Command;
 use crate::config_save::ConfigSaver;
 use crate::decode::PendingDecode;
-use crate::editor::{DisplayPixels, Editor, MAX_EDIT_PIXELS, VIEW_ONLY_MESSAGE};
+use crate::editor::{DisplayPixels, Editor, MAX_EDIT_PIXELS, SaveStamp, VIEW_ONLY_MESSAGE};
 use crate::pan::PanGesture;
+use crate::save::{PendingSave, SaveJob};
 use crate::siblings::{Navigation, Step};
 use crate::tools::ToolId;
 use crate::ui::{canvas, menu_bar, property_bar, status_bar, tool_strip};
@@ -118,6 +119,12 @@ struct Upgrade {
     pixels: Pixels,
 }
 
+/// A save running on the worker thread (#34).
+struct Saving {
+    pending: PendingSave,
+    stamp: SaveStamp,
+}
+
 /// Where the app is on the way to its first painted image (§1.3 steps 4 and 5).
 #[derive(Clone, Copy, PartialEq)]
 enum FirstPaint {
@@ -159,10 +166,13 @@ pub struct ZimgedApp {
     open_dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
     navigation: Navigation,
     /// The transient status-bar message and when it was posted.
-    message: Option<(&'static str, Instant)>,
+    message: Option<(String, Instant)>,
     /// Benchmark driver for Sibling switching (`tools/bench switch`).
     bench_nav: Option<crate::bench::NavBench>,
     editor: Editor,
+    /// The Save As dialog while it is up (#34).
+    save_dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
+    saving: Option<Saving>,
 }
 
 impl ZimgedApp {
@@ -194,6 +204,8 @@ impl ZimgedApp {
             message: None,
             bench_nav: crate::bench::NavBench::from_env(),
             editor: Editor::new(),
+            save_dialog: None,
+            saving: None,
         }
     }
 
@@ -222,6 +234,8 @@ impl ZimgedApp {
                 self.editor.delete_selection();
             }
             Command::SetProperty { property, merge } => self.editor.set_property(property, merge),
+            Command::Save => self.save(),
+            Command::SaveAs => self.show_save_dialog(),
         }
     }
 
@@ -270,6 +284,8 @@ impl ZimgedApp {
             || self.config_saver.is_busy()
             || self.editor.is_busy()
             || self.navigation.is_busy()
+            || self.save_dialog.is_some()
+            || self.saving.is_some()
     }
 
     /// The files in the display-size cache (§3.3) and their total size in bytes.
@@ -410,9 +426,123 @@ impl ZimgedApp {
                 self.show_decoded(&ctx, path, decoded);
             }
             Step::Pending => self.pending = None,
-            Step::End(message) => self.message = Some((message, Instant::now())),
+            Step::End(message) => self.post_message(message),
             Step::NotReady => {}
         }
+    }
+
+    fn post_message(&mut self, message: impl Into<String>) {
+        self.message = Some((message.into(), Instant::now()));
+    }
+
+    // ---- Save (#34, §5.1, §5.3) ----
+
+    /// Ctrl+S: write the Image back in its own format; Save As (defaulting to PNG) for a read-only
+    /// one (§5.1). A clipboard Image (no file) will go to Save As too (§6.1).
+    fn save(&mut self) {
+        let Some(path) = self.path.clone().filter(|_| self.shown.is_some()) else {
+            return;
+        };
+        match crate::save::in_place_format(&path) {
+            Some(format) => self.save_to(path, format),
+            None => self.show_save_dialog(),
+        }
+    }
+
+    /// Ctrl+Shift+S, or Ctrl+S on a read-only format. One save (or dialog) at a time.
+    fn show_save_dialog(&mut self) {
+        if self.save_dialog.is_some() || self.saving.is_some() || self.shown.is_none() {
+            return;
+        }
+        let Some(path) = &self.path else {
+            return;
+        };
+        let (tx, rx) = mpsc::channel();
+        self.save_dialog = Some(rx);
+        let ctx = self.ctx.clone();
+        self.platform.dialogs.save_image(
+            &crate::save::suggestion(path),
+            Box::new(move |chosen| {
+                let _ = tx.send(chosen);
+                ctx.request_repaint();
+            }),
+        );
+    }
+
+    fn poll_save_dialog(&mut self) {
+        let Some(rx) = &self.save_dialog else {
+            return;
+        };
+        let chosen = match rx.try_recv() {
+            Ok(chosen) => chosen,
+            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Disconnected) => None,
+        };
+        self.save_dialog = None;
+        if let Some(chosen) = chosen {
+            let (target, format) = crate::save::chosen_target(chosen);
+            self.save_to(target, format);
+        }
+    }
+
+    /// Flatten and write the Image to `target` on the worker thread (§7.3).
+    fn save_to(&mut self, target: PathBuf, format: zimged_codec::SaveFormat) {
+        if self.saving.is_some() {
+            return;
+        }
+        // #38: when the Image is an edited animation and `target` is its own file, ask "Overwrite
+        // animated image?" (Cancel, Save As..., Overwrite; §6.4) here, before anything is written.
+        let Some(source) = self.editor.save_source() else {
+            return;
+        };
+        let job = SaveJob {
+            drawing: source.drawing,
+            source: Some(source.path),
+            target,
+            format,
+            jpeg_quality: self.config.jpeg_quality,
+        };
+        let pending = PendingSave::spawn_save(job);
+        pending.wake(&self.ctx);
+        self.saving = Some(Saving {
+            pending,
+            stamp: source.stamp,
+        });
+    }
+
+    fn poll_save(&mut self, ctx: &egui::Context) {
+        let Some(saving) = &self.saving else {
+            return;
+        };
+        saving.pending.wake(ctx);
+        let Some(result) = saving.pending.take() else {
+            return;
+        };
+        let saving = self.saving.take().expect("checked above");
+        let target = saving.pending.path().to_owned();
+        match result {
+            Ok(saved) => {
+                self.editor.saved(saving.stamp, &target, saved.decoded);
+                self.saved_as(ctx, &target);
+            }
+            Err(reason) => {
+                self.post_message(format!("Can't save {}: {reason}", file_name(&target)));
+            }
+        }
+    }
+
+    /// After Save As to another file, the window shows that file: its name, and its folder's
+    /// Siblings.
+    fn saved_as(&mut self, ctx: &egui::Context, target: &Path) {
+        let Some(shown) = self.shown.as_mut().filter(|s| s.path != target) else {
+            return;
+        };
+        shown.path = target.to_owned();
+        shown.file_name = file_name(target);
+        // A zoom upgrade in flight belongs to the old path: drop it.
+        self.upgrade = None;
+        self.path = Some(target.to_owned());
+        self.navigation.start(ctx, target);
     }
 
     fn poll_decode(&mut self, ctx: &egui::Context) {
@@ -636,7 +766,8 @@ impl ZimgedApp {
             // The view-only notice stays until another Image; transient messages win.
             message: self
                 .message
-                .map(|(text, _)| text)
+                .as_ref()
+                .map(|(text, _)| text.as_str())
                 .or(self.is_view_only().then_some(VIEW_ONLY_MESSAGE)),
         }
     }
@@ -685,6 +816,8 @@ impl eframe::App for ZimgedApp {
             self.execute(command);
         }
         self.poll_open_dialog();
+        self.poll_save_dialog();
+        self.poll_save(&ctx);
         self.poll_decode(&ctx);
         self.poll_upgrade(&ctx);
         self.editor.poll(&ctx);

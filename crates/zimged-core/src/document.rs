@@ -97,6 +97,17 @@ impl Document {
         self.full_resolution = Some(pixels);
     }
 
+    /// A copy of what is drawn (the size, the pixels and the Annotations), with no Selection and
+    /// no History: what a worker thread Flattens (§7.2) while editing goes on.
+    pub fn drawing(&self) -> Document {
+        Document {
+            full_resolution: self.full_resolution.clone(),
+            annotations: self.annotations.clone(),
+            revision: self.revision,
+            ..Document::new(self.width, self.height)
+        }
+    }
+
     // ---- Reading ----
 
     /// Bottom to top.

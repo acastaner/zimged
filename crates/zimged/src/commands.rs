@@ -46,6 +46,11 @@ pub enum Command {
     ZoomFit,
     /// Enter or leave fullscreen (F11, §2).
     ToggleFullscreen,
+    /// Ctrl+S (§6.1): write the Image back in its own format, or Save As (defaulting to PNG) for a
+    /// read-only format (§5.1).
+    Save,
+    /// Ctrl+Shift+S: the native Save As dialog, offering PNG, JPEG and WebP.
+    SaveAs,
     /// View → *Allow multiple instances* (§8.3, §8.4). Persisted; takes effect at the next start.
     SetAllowMultipleInstances(bool),
 }

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use zimged_codec::Size;
-use zimged_core::{Document, PixelData, Property, PropertyKind, Shape, Style};
+use zimged_core::{Document, PixelData, Pixels, Property, PropertyKind, Shape, Style};
 use zimged_render::{Composite, Renderer, Source, SourcePixels, View};
 
 use crate::decode::PendingFullDecode;
@@ -37,6 +37,8 @@ struct Edited {
     path: PathBuf,
     view_only: bool,
     full_decode: Option<PendingFullDecode>,
+    /// Which open this is: a save finishing after another Image was opened leaves it alone.
+    generation: u64,
     /// The last composite, its texture, and what it was rendered for.
     composite: Option<CompositeTexture>,
 }
@@ -69,6 +71,25 @@ pub struct Editor {
     property_session: Option<PropertySession>,
     /// The selection box as painted last frame, in points.
     selection_box: Option<egui::Rect>,
+    /// How many Images have been opened (each one's [`Edited::generation`]).
+    opened: u64,
+}
+
+/// What a save (#34) needs from the editor when it starts.
+pub struct SaveSource {
+    /// What is drawn, for the worker to Flatten.
+    pub drawing: Document,
+    /// The file the Document came from.
+    pub path: PathBuf,
+    /// Identifies the Document and its state, for [`Editor::saved`].
+    pub stamp: SaveStamp,
+}
+
+/// Which Document, in which state, a save wrote.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SaveStamp {
+    generation: u64,
+    revision: u64,
 }
 
 impl Default for Editor {
@@ -88,6 +109,7 @@ impl Editor {
             pointer_down: false,
             property_session: None,
             selection_box: None,
+            opened: 0,
         }
     }
 
@@ -98,11 +120,13 @@ impl Editor {
         self.behaviour = self.tool.create().expect("an available tool");
         self.pointer_down = false;
         self.property_session = None;
+        self.opened += 1;
         self.edited = Some(Edited {
             doc: Document::new(size.width, size.height),
             path: path.to_owned(),
             view_only,
             full_decode: None,
+            generation: self.opened,
             composite: None,
         });
         if view_only {
@@ -158,6 +182,46 @@ impl Editor {
         self.edited
             .as_ref()
             .is_some_and(|e| e.full_decode.is_some())
+    }
+
+    // ---- Saving (#34) ----
+
+    /// The Document to save, as it is now. `None` without an Image, or mid-gesture.
+    pub fn save_source(&self) -> Option<SaveSource> {
+        let e = self.edited.as_ref().filter(|e| !e.doc.in_gesture())?;
+        Some(SaveSource {
+            drawing: e.doc.drawing(),
+            path: e.path.clone(),
+            stamp: SaveStamp {
+                generation: e.generation,
+                revision: e.doc.revision(),
+            },
+        })
+    }
+
+    /// A save of `stamp` was written to `target`. The Document now belongs to `target`; it is
+    /// marked saved (§4.8: the History stays) unless it changed while the save ran. `decoded`: the
+    /// full-resolution pixels the save had to decode, kept so later saves and zooms don't decode
+    /// the Flattened file.
+    pub fn saved(&mut self, stamp: SaveStamp, target: &Path, decoded: Option<Arc<Pixels>>) {
+        let Some(e) = self
+            .edited
+            .as_mut()
+            .filter(|e| e.generation == stamp.generation)
+        else {
+            return;
+        };
+        e.path = target.to_owned();
+        if let Some(pixels) = decoded
+            && e.doc.full_resolution().is_none()
+        {
+            // A full decode still running could read the Flattened file: these pixels win.
+            e.full_decode = None;
+            e.doc.set_full_resolution(pixels);
+        }
+        if e.doc.revision() == stamp.revision {
+            e.doc.mark_saved();
+        }
     }
 
     // ---- Commands ----

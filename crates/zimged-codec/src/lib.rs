@@ -1,8 +1,8 @@
 //! Decoding and encoding (spec §5, §7.1).
 //!
-//! Today: display-size decode (§5.2) of every v1 read format (§5.1), with the EXIF orientation and
-//! the conversion of non-sRGB ICC profiles to sRGB applied. Full-resolution decode, animation
-//! frames, encoding and the safe atomic save land here with their tickets.
+//! Display-size decode (§5.2) of every v1 read format (§5.1), with the EXIF orientation and the
+//! conversion of non-sRGB ICC profiles to sRGB applied; encoding with EXIF/ICC write-back and the
+//! safe atomic save (§5.3, [`save()`]).
 //!
 //! The display-size path reduces first, then orients and converts colour, so the extra work is
 //! done on the small buffer.
@@ -17,6 +17,9 @@ use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
 #[cfg(feature = "avif")]
 mod avif;
 mod colour;
+mod save;
+
+pub use save::{SaveError, SaveFormat, SourceInfo, WEBP_QUALITY, save, source_info};
 
 /// Pixel dimensions, width × height.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
