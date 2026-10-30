@@ -220,6 +220,11 @@ impl Editor {
         self.styles.entry(tool).or_default().set(property);
     }
 
+    /// Set a tool's default for its next Annotations, whatever is selected (settings seed them).
+    pub fn set_tool_default(&mut self, tool: ToolId, property: Property) {
+        self.styles.entry(tool).or_default().set(property);
+    }
+
     /// The edited Image, when no pointer gesture is in progress.
     fn edited_idle(&mut self) -> Option<&mut Edited> {
         self.edited.as_mut().filter(|e| !e.doc.in_gesture())

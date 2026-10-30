@@ -4,7 +4,7 @@
 //! accessibility label constant). Controls report changes as [`Property`] values; the app turns
 //! them into commands.
 
-use zimged_core::{Property, PropertyKind, Rgba, Style};
+use zimged_core::{HighlightMode, Property, PropertyKind, Rgba, Style};
 
 pub const LABEL_LINE_COLOUR: &str = "Line colour";
 pub const LABEL_FILL_COLOUR: &str = "Fill colour";
@@ -12,6 +12,13 @@ pub const LABEL_NO_FILL: &str = "No fill";
 pub const LABEL_THICKNESS: &str = "Thickness";
 pub const LABEL_SHADOW: &str = "Shadow";
 pub const LABEL_DELETE: &str = "Delete";
+pub const LABEL_HIGHLIGHT_COLOUR: &str = "Highlight colour";
+pub const LABEL_MAGNIFICATION: &str = "Magnification";
+
+/// The accessibility label of a highlight mode's button: "Text highlight", "Magnify highlight", …
+pub fn highlight_mode_label(mode: HighlightMode) -> String {
+    format!("{} highlight", mode.name())
+}
 
 /// What the property bar shows this frame.
 pub struct PropertyBar<'a> {
@@ -100,6 +107,45 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, style: &Style, out: &mut Outpu
                 .changed()
             {
                 out.changes.push(Property::Shadow(on));
+            }
+        }
+        PropertyKind::HighlightMode => {
+            ui.label("Mode");
+            for mode in HighlightMode::ALL {
+                let on = style.highlight_mode == mode;
+                if ui
+                    .add(egui::Button::selectable(on, mode.name()))
+                    .accessible_name(highlight_mode_label(mode))
+                    .clicked()
+                    && !on
+                {
+                    out.changes.push(Property::HighlightMode(mode));
+                }
+            }
+        }
+        // §4.3: the colour applies to text mode only, the magnification to magnify mode only.
+        PropertyKind::HighlightColour => {
+            if style.highlight_mode == HighlightMode::Text {
+                ui.label("Colour");
+                if let Some(c) = colour(ui, style.highlight, LABEL_HIGHLIGHT_COLOUR, kind, out) {
+                    out.changes.push(Property::HighlightColour(c));
+                }
+            }
+        }
+        PropertyKind::Magnification => {
+            if style.highlight_mode == HighlightMode::Magnify {
+                ui.label("Magnification");
+                let mut value = style.magnification;
+                let range = zimged_core::style::MAGNIFICATION_RANGE;
+                let response = ui
+                    .add(egui::DragValue::new(&mut value).range(range).speed(0.05))
+                    .accessible_name(LABEL_MAGNIFICATION);
+                if response.dragged() || response.has_focus() {
+                    out.active = Some(kind);
+                }
+                if response.changed() && value != style.magnification {
+                    out.changes.push(Property::Magnification(value));
+                }
             }
         }
     }

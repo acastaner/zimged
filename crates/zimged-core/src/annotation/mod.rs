@@ -6,8 +6,10 @@
 //! 3. its drawing in `zimged-render` (`shapes/<type>.rs` plus one arm in `shapes::draw`),
 //! 4. a tool that creates it in the `zimged` crate (`tools/`).
 
+mod highlight;
 mod rectangle;
 
+pub use highlight::Highlight;
 pub use rectangle::Rectangle;
 
 use crate::geometry::{Affine, Point, Rect};
@@ -75,6 +77,7 @@ macro_rules! shapes {
 
 shapes! {
     Rectangle(Rectangle),
+    Highlight(Highlight),
 }
 
 /// Identifies an Annotation within its Document. Never reused, so it survives undo and redo.

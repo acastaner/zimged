@@ -10,7 +10,7 @@ use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use zimged_codec::{DisplayImage, Size, fit_within};
-use zimged_core::Document;
+use zimged_core::{Document, Property};
 use zimged_platform::{Config, Platform};
 use zimged_render::Composite;
 use zimged_siblings::{Decoded, Direction};
@@ -172,6 +172,12 @@ impl ZimgedApp {
         }
         // Ctrl+plus / minus / 0 would scale the whole UI; the image zoom is on plain +, - and 0.
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        let mut editor = Editor::new();
+        // §8.3: the highlight tool's magnification is the `magnify_factor` setting.
+        editor.set_tool_default(
+            ToolId::Highlight,
+            Property::Magnification(launch.config.magnify_factor),
+        );
         Self {
             ctx: cc.egui_ctx.clone(),
             config_saver: ConfigSaver::new(launch.platform.config.clone()),
@@ -193,7 +199,7 @@ impl ZimgedApp {
             navigation: Navigation::new(launch.cache_cap),
             message: None,
             bench_nav: crate::bench::NavBench::from_env(),
-            editor: Editor::new(),
+            editor,
         }
     }
 
@@ -221,7 +227,12 @@ impl ZimgedApp {
                 // With nothing selected, Delete trashes the file (#22).
                 self.editor.delete_selection();
             }
-            Command::SetProperty { property, merge } => self.editor.set_property(property, merge),
+            Command::SetProperty { property, merge } => {
+                if let Property::Magnification(factor) = property {
+                    self.set_magnify_factor(factor);
+                }
+                self.editor.set_property(property, merge);
+            }
         }
     }
 
@@ -318,6 +329,17 @@ impl ZimgedApp {
     /// (Space and the middle button take precedence over tools).
     pub fn pan_owns_pointer(&self) -> bool {
         self.pan.owns_pointer(&self.ctx)
+    }
+
+    /// A magnification chosen in the property bar (for the selection or the tool) is persisted as
+    /// `magnify_factor` and becomes the highlight tool's default (§4.3, §8.3).
+    fn set_magnify_factor(&mut self, factor: f32) {
+        let mut style = zimged_core::Style::default();
+        style.set(Property::Magnification(factor));
+        let factor = style.magnification;
+        self.editor
+            .set_tool_default(ToolId::Highlight, Property::Magnification(factor));
+        self.update_config(|config| config.magnify_factor = factor);
     }
 
     /// Change the settings and schedule a (debounced) write of `config.toml`.

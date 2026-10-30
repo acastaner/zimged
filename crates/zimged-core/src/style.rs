@@ -30,6 +30,39 @@ impl Rgba {
     pub const RED: Rgba = Rgba::rgb(255, 0, 0);
     pub const WHITE: Rgba = Rgba::rgb(255, 255, 255);
     pub const BLACK: Rgba = Rgba::rgb(0, 0, 0);
+    pub const YELLOW: Rgba = Rgba::rgb(255, 255, 0);
+}
+
+/// The highlight's modes (§4.2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum HighlightMode {
+    /// A translucent colour multiplied over the region.
+    #[default]
+    Text,
+    /// Everything outside the region is dimmed.
+    Area,
+    /// Everything outside the region is shown in grayscale.
+    Grayscale,
+    /// The region shows what's under it, enlarged.
+    Magnify,
+}
+
+impl HighlightMode {
+    pub const ALL: [HighlightMode; 4] = [
+        HighlightMode::Text,
+        HighlightMode::Area,
+        HighlightMode::Grayscale,
+        HighlightMode::Magnify,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            HighlightMode::Text => "Text",
+            HighlightMode::Area => "Area",
+            HighlightMode::Grayscale => "Grayscale",
+            HighlightMode::Magnify => "Magnify",
+        }
+    }
 }
 
 /// Every style property an Annotation can have. Types ignore the ones they don't list.
@@ -41,6 +74,12 @@ pub struct Style {
     /// Line thickness in Image pixels.
     pub thickness: f32,
     pub shadow: bool,
+    pub highlight_mode: HighlightMode,
+    /// The text highlight's colour (multiplied over the region).
+    pub highlight: Rgba,
+    /// The magnify highlight's factor. The app seeds the highlight tool's default from the
+    /// `magnify_factor` setting (§8.3).
+    pub magnification: f32,
 }
 
 impl Default for Style {
@@ -51,6 +90,9 @@ impl Default for Style {
             fill: None,
             thickness: 3.0,
             shadow: true,
+            highlight_mode: HighlightMode::Text,
+            highlight: Rgba::YELLOW,
+            magnification: 2.0,
         }
     }
 }
@@ -62,6 +104,9 @@ pub enum PropertyKind {
     FillColour,
     Thickness,
     Shadow,
+    HighlightMode,
+    HighlightColour,
+    Magnification,
 }
 
 /// A style property with its value: one change in the property bar.
@@ -71,6 +116,9 @@ pub enum Property {
     FillColour(Option<Rgba>),
     Thickness(f32),
     Shadow(bool),
+    HighlightMode(HighlightMode),
+    HighlightColour(Rgba),
+    Magnification(f32),
 }
 
 impl Property {
@@ -80,12 +128,18 @@ impl Property {
             Property::FillColour(_) => PropertyKind::FillColour,
             Property::Thickness(_) => PropertyKind::Thickness,
             Property::Shadow(_) => PropertyKind::Shadow,
+            Property::HighlightMode(_) => PropertyKind::HighlightMode,
+            Property::HighlightColour(_) => PropertyKind::HighlightColour,
+            Property::Magnification(_) => PropertyKind::Magnification,
         }
     }
 }
 
 /// Thickness limits of the property bar.
 pub const THICKNESS_RANGE: std::ops::RangeInclusive<f32> = 1.0..=40.0;
+
+/// Magnification limits of the property bar.
+pub const MAGNIFICATION_RANGE: std::ops::RangeInclusive<f32> = 1.0..=10.0;
 
 impl Style {
     pub fn get(&self, kind: PropertyKind) -> Property {
@@ -94,6 +148,9 @@ impl Style {
             PropertyKind::FillColour => Property::FillColour(self.fill),
             PropertyKind::Thickness => Property::Thickness(self.thickness),
             PropertyKind::Shadow => Property::Shadow(self.shadow),
+            PropertyKind::HighlightMode => Property::HighlightMode(self.highlight_mode),
+            PropertyKind::HighlightColour => Property::HighlightColour(self.highlight),
+            PropertyKind::Magnification => Property::Magnification(self.magnification),
         }
     }
 
@@ -105,6 +162,14 @@ impl Style {
                 self.thickness = t.clamp(*THICKNESS_RANGE.start(), *THICKNESS_RANGE.end())
             }
             Property::Shadow(s) => self.shadow = s,
+            Property::HighlightMode(m) => self.highlight_mode = m,
+            Property::HighlightColour(c) => self.highlight = c,
+            Property::Magnification(f) => {
+                self.magnification = f.clamp(
+                    *MAGNIFICATION_RANGE.start(),
+                    *MAGNIFICATION_RANGE.end(),
+                )
+            }
         }
     }
 }
