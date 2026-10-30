@@ -146,9 +146,18 @@ impl TestApp {
     /// Like [`Self::launch`], on a HiDPI screen of `pixels_per_point` physical pixels per point. The
     /// window is still [`WINDOW`] points.
     pub fn launch_scaled(names: &[&str], pixels_per_point: f32) -> Self {
+        Self::launch_scaled_on(Platform::in_memory(), names, pixels_per_point)
+    }
+
+    /// Like [`Self::launch`], with these platform adapters.
+    pub fn launch_on(platform: Platform, names: &[&str]) -> Self {
+        Self::launch_scaled_on(platform, names, 1.0)
+    }
+
+    fn launch_scaled_on(platform: Platform, names: &[&str], pixels_per_point: f32) -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = copy_fixtures(dir.path(), names);
-        let mut launch = Launch::new(Platform::in_memory());
+        let mut launch = Launch::new(platform);
         let display_box = zimged::app::startup_display_box(&launch.config);
         launch.first_image = Some(PendingDecode::spawn(path, move || display_box));
         let harness = Harness::builder()
@@ -162,9 +171,17 @@ impl TestApp {
     /// sends (or is dropped), so a test can step frame by frame from the first image on. (Building
     /// the harness runs frames until the app is idle, which would otherwise race the decode.)
     pub fn launch_held(names: &[&str]) -> (Self, std::sync::mpsc::Sender<()>) {
+        Self::launch_held_on(Platform::in_memory(), names)
+    }
+
+    /// Like [`Self::launch_held`], with these platform adapters.
+    pub fn launch_held_on(
+        platform: Platform,
+        names: &[&str],
+    ) -> (Self, std::sync::mpsc::Sender<()>) {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = copy_fixtures(dir.path(), names);
-        let mut launch = Launch::new(Platform::in_memory());
+        let mut launch = Launch::new(platform);
         let display_box = zimged::app::startup_display_box(&launch.config);
         let (release, held) = std::sync::mpsc::channel::<()>();
         launch.first_image = Some(PendingDecode::spawn(path, move || {
@@ -193,7 +210,18 @@ impl TestApp {
     /// A headless App whose temporary directory holds a copy of `fixture` under each of `names`,
     /// with `open` opened and the Sibling scan finished.
     pub fn open_in_folder(fixture: &str, names: &[&str], open: &str) -> Self {
-        let mut app = Self::new();
+        Self::open_in_folder_on(Platform::in_memory(), fixture, names, open)
+    }
+
+    /// Like [`Self::open_in_folder`], with these platform adapters (fakes the test keeps a handle
+    /// on, such as a `MemoryTrash`).
+    pub fn open_in_folder_on(
+        platform: Platform,
+        fixture: &str,
+        names: &[&str],
+        open: &str,
+    ) -> Self {
+        let mut app = Self::with_platform(platform);
         for name in names {
             app.add_fixture_as(fixture, name);
         }
@@ -237,12 +265,44 @@ impl TestApp {
             // than `max_steps` frames are fine here; the final `run` checks the app settles.
             let _ = self.harness.try_run();
             if !self.harness.state().is_busy() {
-                self.harness.run();
+                if self.harness.state().animation_frames() > 1 {
+                    // A playing animation (§3.4) repaints for ever: its frames are shorter than
+                    // kittest's 250 ms step, so egui never settles. One more frame will do.
+                    self.harness.step();
+                } else {
+                    self.harness.run();
+                }
                 return;
             }
             assert!(Instant::now() < deadline, "app still busy after 10 s");
             std::thread::sleep(Duration::from_millis(2));
         }
+    }
+
+    /// Run frames until `done` holds (something outside the app, like the directory watcher, has to
+    /// catch up), then settle. Panics after 10 s, naming `what`.
+    pub fn wait_until(&mut self, what: &str, done: impl Fn(&Self) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let _ = self.harness.try_run();
+            if done(self) {
+                self.settle();
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "still waiting for {what} after 10 s"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// Wait until the status bar's `label` field reads `text`.
+    pub fn wait_for_status(&mut self, label: &str, text: &str) {
+        let what = format!("{label:?} to read {text:?}");
+        self.wait_until(&what, |app| {
+            app.status_field(label).as_deref() == Some(text)
+        });
     }
 
     /// Press and release a key (no modifiers), then settle.
@@ -312,7 +372,8 @@ impl TestApp {
             source: egui::MouseWheelSource::Wheel,
             modifiers,
         });
-        self.harness.run();
+        // `try_run`: a prefetch decode landing mid-run asks for more frames than `max_steps`.
+        let _ = self.harness.try_run();
         self.harness
             .event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
         self.settle();
@@ -412,6 +473,31 @@ impl TestApp {
             modifiers,
         });
         h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.remove_cursor();
+        self.settle();
+    }
+
+    /// Drag (left button) along a path of Image pixels, one pointer move per point, then settle.
+    pub fn drag_path_px(&mut self, path: &[(f32, f32)]) {
+        let points: Vec<egui::Pos2> = path.iter().map(|&(x, y)| self.screen(x, y)).collect();
+        let (first, last) = (points[0], points[points.len() - 1]);
+        let h = &self.harness;
+        h.hover_at(first);
+        h.event(egui::Event::PointerButton {
+            pos: first,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        for p in &points[1..] {
+            h.hover_at(*p);
+        }
+        h.event(egui::Event::PointerButton {
+            pos: last,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
         h.remove_cursor();
         self.settle();
     }

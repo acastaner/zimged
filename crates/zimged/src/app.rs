@@ -16,6 +16,7 @@ use zimged_render::Composite;
 use zimged_siblings::{Decoded, Direction};
 
 use crate::Command;
+use crate::animation::Animation;
 use crate::config_save::ConfigSaver;
 use crate::decode::PendingDecode;
 use crate::editor::{DisplayPixels, Editor, MAX_EDIT_PIXELS, VIEW_ONLY_MESSAGE};
@@ -28,6 +29,9 @@ use crate::view::{View, ZOOM_STEP, Zoom};
 /// The largest Image whose full-resolution pixels are decoded (§4.7). Larger ones are view-only and
 /// zoom in on their display-size pixels.
 const FULL_RESOLUTION_LIMIT: u64 = MAX_EDIT_PIXELS;
+
+/// The status-bar message after Delete trashed the file (§2, §3.1).
+pub const MOVED_TO_TRASH: &str = "Moved to trash";
 
 /// How long a transient status-bar message stays up.
 const MESSAGE_DURATION: Duration = Duration::from_secs(3);
@@ -85,6 +89,13 @@ pub(crate) struct ShownImage {
     full: Option<egui::TextureHandle>,
     /// The largest decode asked for so far, so a size that can't be bettered isn't asked for again.
     requested: Size,
+    /// A GIF or WebP whose frames haven't been looked at yet (§3.4): they are, after the first paint.
+    may_animate: bool,
+    /// Its frames, playing (or still decoding), until it turns out to be a still image.
+    animation: Option<Animation>,
+    /// The file was deleted from outside zimged while on screen (§3.2): the Image stays open and is
+    /// treated as unsaved, since its pixels now exist only here.
+    deleted_from_disk: bool,
 }
 
 impl ShownImage {
@@ -103,6 +114,14 @@ impl ShownImage {
     fn best_size(&self) -> Size {
         texture_size(self.full.as_ref().unwrap_or(&self.display))
     }
+}
+
+/// A file Delete moved to the trash, until the Sibling replacing it is on screen.
+#[derive(Clone)]
+struct Trashed {
+    path: PathBuf,
+    /// The Sibling scan hadn't finished: the move happens when it does.
+    waits_for_scan: bool,
 }
 
 /// Which pixels a background decode of the shown Image brings.
@@ -159,7 +178,9 @@ pub struct ZimgedApp {
     open_dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
     navigation: Navigation,
     /// The transient status-bar message and when it was posted.
-    message: Option<(&'static str, Instant)>,
+    message: Option<(String, Instant)>,
+    /// The file just trashed, while the Sibling replacing it isn't on screen yet.
+    trashed: Option<Trashed>,
     /// Benchmark driver for Sibling switching (`tools/bench switch`).
     bench_nav: Option<crate::bench::NavBench>,
     editor: Editor,
@@ -193,6 +214,7 @@ impl ZimgedApp {
             open_dialog: None,
             navigation: Navigation::new(launch.cache_cap),
             message: None,
+            trashed: None,
             bench_nav: crate::bench::NavBench::from_env(),
             editor,
         }
@@ -218,10 +240,7 @@ impl ZimgedApp {
             Command::SelectTool(tool) => self.editor.select_tool(tool),
             Command::Undo => self.editor.undo(),
             Command::Redo => self.editor.redo(),
-            Command::Delete => {
-                // With nothing selected, Delete trashes the file (#22).
-                self.editor.delete_selection();
-            }
+            Command::Delete => self.delete(),
             Command::SetProperty { property, merge } => {
                 self.editor.set_property(property, merge);
                 // §4.3, §8.3: the tools' defaults persist between runs.
@@ -281,8 +300,26 @@ impl ZimgedApp {
             || self.upgrade.is_some()
             || self.open_dialog.is_some()
             || self.config_saver.is_busy()
+            || self
+                .shown
+                .as_ref()
+                .is_some_and(|s| s.animation.as_ref().is_some_and(Animation::is_decoding))
             || self.editor.is_busy()
             || self.navigation.is_busy()
+            || self.trashed.as_ref().is_some_and(|t| t.waits_for_scan)
+    }
+
+    /// Does the Image have unsaved changes (` •` after the file name)? Edits to the Document, or a
+    /// file deleted from outside zimged (§3.2). #35's Save / Discard / Cancel prompt asks whenever
+    /// this is true, and saving writes the file back.
+    pub fn is_modified(&self) -> bool {
+        self.document().is_some_and(|d| d.is_modified())
+            || self.shown.as_ref().is_some_and(|s| s.deleted_from_disk)
+    }
+
+    /// Is the Image's directory being watched for changes (§3.2)?
+    pub fn is_watching_directory(&self) -> bool {
+        self.navigation.is_watching()
     }
 
     /// The files in the display-size cache (§3.3) and their total size in bytes.
@@ -404,6 +441,8 @@ impl ZimgedApp {
     fn open(&mut self, path: &Path) {
         let display_box = self.display_box();
         self.navigation.cancel();
+        // The file opened replaces a trashed one; no move off it any more.
+        self.trashed = None;
         self.message = None;
         // The previous Image stays on screen until the new one is decoded (§3.3).
         self.pending = Some(PendingDecode::spawn(path.to_owned(), move || display_box));
@@ -417,15 +456,118 @@ impl ZimgedApp {
         };
         self.message = None;
         match self.navigation.go(&from, direction, self.display_box()) {
+            Step::End(message) => self.post_message(message),
+            step => self.take_step(step),
+        }
+    }
+
+    /// Show the Sibling a move landed on (now, or once its decode arrives).
+    fn take_step(&mut self, step: Step) {
+        match step {
             Step::Show(path, decoded) => {
                 self.pending = None;
                 let ctx = self.ctx.clone();
                 self.show_decoded(&ctx, path, decoded);
             }
             Step::Pending => self.pending = None,
-            Step::End(message) => self.message = Some((message, Instant::now())),
-            Step::NotReady => {}
+            Step::End(_) | Step::NotReady => {}
         }
+    }
+
+    /// Follow changes to the Image's folder made from outside zimged (§3.2).
+    fn follow_directory(&mut self, ctx: &egui::Context) {
+        let display_box = self.display_box();
+        let deleted = self
+            .navigation
+            .follow_changes(ctx, self.path.as_deref(), display_box);
+        if deleted && let Some(shown) = &mut self.shown {
+            shown.deleted_from_disk = true;
+        }
+    }
+
+    fn post_message(&mut self, message: impl Into<String>) {
+        self.message = Some((message.into(), Instant::now()));
+    }
+
+    /// Delete (§3.1, §4.2): the selected Annotations go and the file stays; with nothing selected,
+    /// the file goes to the trash. Never in the middle of a drawing gesture.
+    fn delete(&mut self) {
+        if self.editor.in_gesture() || self.editor.delete_selection() {
+            return;
+        }
+        self.trash_file();
+    }
+
+    /// Move the file on screen (or that failed to open) to the system trash and show the next
+    /// Sibling, or the previous one at the end of the list (§3.1). It is taken out of the Sibling
+    /// list right away, so #21's watcher seeing it vanish has nothing left to do for it.
+    /// #35: with unsaved changes, ask Save / Discard / Cancel first (§6.4), as moving to a Sibling
+    /// does.
+    fn trash_file(&mut self) {
+        let Some(path) = self.path.clone() else {
+            return;
+        };
+        // Already trashed: the Sibling replacing it is on its way.
+        if self.trashed.as_ref().is_some_and(|t| t.path == path) {
+            return;
+        }
+        if let Err(reason) = self.platform.trash.trash(&path) {
+            let name = file_name(&path);
+            self.post_message(format!("Can't move {name} to trash: {reason}"));
+            return;
+        }
+        self.navigation.forget(&path);
+        self.trashed = Some(Trashed {
+            path,
+            waits_for_scan: false,
+        });
+        self.leave_trashed();
+        self.post_message(MOVED_TO_TRASH);
+    }
+
+    /// Move off the trashed file: to the Sibling after it, else the one before it, else to the
+    /// empty window. Waits for the scan when the Siblings aren't known yet.
+    fn leave_trashed(&mut self) {
+        let Some(trashed) = self.trashed.clone() else {
+            return;
+        };
+        let display_box = self.display_box();
+        let step = match self
+            .navigation
+            .go(&trashed.path, Direction::Forward, display_box)
+        {
+            Step::End(_) => self
+                .navigation
+                .go(&trashed.path, Direction::Backward, display_box),
+            step => step,
+        };
+        match step {
+            Step::NotReady if !self.navigation.is_scanned() => {
+                let ctx = self.ctx.clone();
+                self.navigation.ensure_started(&ctx, &trashed.path);
+                self.trashed = Some(Trashed {
+                    waits_for_scan: true,
+                    ..trashed
+                });
+            }
+            Step::End(_) | Step::NotReady => self.show_nothing(),
+            step => {
+                if let Some(trashed) = &mut self.trashed {
+                    trashed.waits_for_scan = false;
+                }
+                self.take_step(step);
+            }
+        }
+    }
+
+    /// Back to the empty window (the folder's last file was trashed).
+    fn show_nothing(&mut self) {
+        self.path = None;
+        self.shown = None;
+        self.error = None;
+        self.upgrade = None;
+        self.trashed = None;
+        self.view = View::fit();
     }
 
     fn poll_decode(&mut self, ctx: &egui::Context) {
@@ -434,6 +576,9 @@ impl ZimgedApp {
             .poll(self.path.as_deref(), self.display_box())
         {
             self.show_decoded(ctx, path, decoded);
+        }
+        if self.trashed.as_ref().is_some_and(|t| t.waits_for_scan) && self.navigation.is_scanned() {
+            self.leave_trashed();
         }
         let Some(pending) = &self.pending else {
             return;
@@ -454,6 +599,7 @@ impl ZimgedApp {
     fn show_decoded(&mut self, ctx: &egui::Context, path: PathBuf, decoded: Decoded) {
         let file_name = file_name(&path);
         self.path = Some(path.clone());
+        self.trashed = None;
         match decoded {
             Ok(image) => {
                 self.editor.open(&path, image.original_size);
@@ -467,6 +613,9 @@ impl ZimgedApp {
                     display_key: next_display_key(),
                     full: None,
                     requested: image.size,
+                    may_animate: image.may_animate,
+                    animation: None,
+                    deleted_from_disk: false,
                 });
                 self.upgrade = None;
                 self.error = None;
@@ -496,6 +645,10 @@ impl ZimgedApp {
         if upgrade.pending.path() != shown.path || image.original_size != shown.original_size {
             return;
         }
+        if shown.animation.is_some() {
+            // The animation's frames are drawn instead.
+            return;
+        }
         let (texture, pixels) = upload(ctx, &image, upgrade.pixels);
         match upgrade.pixels {
             Pixels::Display => {
@@ -519,6 +672,10 @@ impl ZimgedApp {
         let (Some(layout), Some(shown)) = (self.canvas, self.shown.as_mut()) else {
             return;
         };
+        if shown.may_animate || shown.animation.is_some() {
+            // An animation's frames are decoded at the display size only.
+            return;
+        }
         let Some(on_screen) = layout.image_px() else {
             return;
         };
@@ -548,6 +705,51 @@ impl ZimgedApp {
         self.upgrade = Some(Upgrade { pending, pixels });
     }
 
+    /// Start decoding the frames of a GIF or WebP, after the first paint (§1.3).
+    fn start_animation(&mut self, ctx: &egui::Context) {
+        if self.first_paint != FirstPaint::Done {
+            return;
+        }
+        let (Some(layout), Some(shown)) = (self.canvas, self.shown.as_mut()) else {
+            return;
+        };
+        if !shown.may_animate {
+            return;
+        }
+        shown.may_animate = false;
+        shown.full = None;
+        shown.animation = Some(Animation::spawn(shown.path.clone(), layout.area_px(), ctx));
+    }
+
+    /// How many frames of an animation are held (decoded, CPU pixels): 0 without one (§3.4).
+    pub fn animation_frames(&self) -> usize {
+        self.shown
+            .as_ref()
+            .and_then(|s| s.animation.as_ref())
+            .map_or(0, Animation::frame_count)
+    }
+
+    /// Move the animation on to the frame due now (§3.4); forget it once it turns out to be a still.
+    fn play_animation(&mut self, ctx: &egui::Context) {
+        let Some(shown) = self.shown.as_mut() else {
+            return;
+        };
+        let Some(animation) = shown.animation.as_mut() else {
+            return;
+        };
+        let now = ctx.input(|i| i.time);
+        if let Some(frame) = animation.tick(now, ctx) {
+            shown
+                .display
+                .set(frame.clone(), egui::TextureOptions::LINEAR);
+            shown.display_pixels = frame;
+            shown.display_key = next_display_key();
+        }
+        if animation.is_still() {
+            shown.animation = None;
+        }
+    }
+
     /// Follow F11, and adopt a fullscreen change made by the window manager.
     fn sync_fullscreen(&mut self, ctx: &egui::Context) {
         let seen = ctx.input(|i| i.viewport().fullscreen);
@@ -570,8 +772,8 @@ impl ZimgedApp {
         }
     }
 
-    /// §1.3 step 5: runs once, on the frame after the first image was painted. The Sibling scan,
-    /// directory watcher, prefetch, and UI font loading start from here, never before.
+    /// §1.3 step 5: runs once, on the frame after the first image was painted. The Sibling scan and
+    /// directory watcher (both in `navigation.start`), prefetch, and UI font loading start from here, never before.
     fn after_first_paint(&mut self, ctx: &egui::Context) {
         if let Some(path) = self.path.clone() {
             self.navigation.start(ctx, &path);
@@ -642,14 +844,22 @@ impl ZimgedApp {
     fn status_bar(&self) -> status_bar::StatusBar<'_> {
         status_bar::StatusBar {
             file_name: self.shown.as_ref().map(|s| s.file_name.as_str()),
-            modified: self.document().is_some_and(|d| d.is_modified()),
+            modified: self.is_modified(),
             position: self.path.as_deref().map(|p| self.navigation.position(p)),
             pixel_size: self.shown.as_ref().map(|s| s.original_size),
             zoom: self.shown.as_ref().map(|_| self.view.zoom),
+            // #38 adds the frozen state.
+            animation: self
+                .shown
+                .as_ref()
+                .and_then(|s| s.animation.as_ref())
+                .filter(|a| a.is_animated())
+                .map(|_| status_bar::AnimationState::Playing),
             // The view-only notice stays until another Image; transient messages win.
             message: self
                 .message
-                .map(|(text, _)| text)
+                .as_ref()
+                .map(|(text, _)| text.as_str())
                 .or(self.is_view_only().then_some(VIEW_ONLY_MESSAGE)),
         }
     }
@@ -701,8 +911,10 @@ impl eframe::App for ZimgedApp {
             self.execute(command);
         }
         self.poll_open_dialog();
+        self.follow_directory(&ctx);
         self.poll_decode(&ctx);
         self.poll_upgrade(&ctx);
+        self.play_animation(&ctx);
         self.editor.poll(&ctx);
         self.expire_message(&ctx);
         self.drive_bench(&ctx);
@@ -745,6 +957,7 @@ impl eframe::App for ZimgedApp {
             },
         ));
         self.view = view;
+        self.start_animation(&ctx);
         self.request_pixels(&ctx);
 
         if self.first_paint == FirstPaint::Waiting && self.shown.is_some() {
@@ -785,11 +998,7 @@ fn upload(
     image: &DisplayImage,
     kind: Pixels,
 ) -> (egui::TextureHandle, Arc<egui::ColorImage>) {
-    let size = [image.size.width as usize, image.size.height as usize];
-    let pixels = Arc::new(match &image.pixels {
-        zimged_codec::Pixels::Rgb(rgb) => egui::ColorImage::from_rgb(size, rgb),
-        zimged_codec::Pixels::Rgba(rgba) => egui::ColorImage::from_rgba_unmultiplied(size, rgba),
-    });
+    let pixels = Arc::new(color_image(image));
     let (name, options) = match kind {
         Pixels::Display => ("image", egui::TextureOptions::LINEAR),
         // Drawn anywhere from just above the display size down: mipmaps keep it from aliasing.
@@ -802,6 +1011,14 @@ fn upload(
         ),
     };
     (ctx.load_texture(name, pixels.clone(), options), pixels)
+}
+
+pub(crate) fn color_image(image: &DisplayImage) -> egui::ColorImage {
+    let size = [image.size.width as usize, image.size.height as usize];
+    match &image.pixels {
+        zimged_codec::Pixels::Rgb(rgb) => egui::ColorImage::from_rgb(size, rgb),
+        zimged_codec::Pixels::Rgba(rgba) => egui::ColorImage::from_rgba_unmultiplied(size, rgba),
+    }
 }
 
 /// A fresh cache key for a display-size decode's pixels (see [`DisplayPixels`]).

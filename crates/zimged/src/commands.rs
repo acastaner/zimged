@@ -19,8 +19,8 @@ pub enum Command {
     Undo,
     /// Ctrl+Shift+Z or Ctrl+Y.
     Redo,
-    /// Delete (§4.2): remove the selected Annotations. With nothing selected it trashes the file
-    /// (#22).
+    /// Delete (§3.1, §4.2): remove the selected Annotations; with nothing selected, move the file
+    /// to the system trash and show the next Sibling (#22).
     Delete,
     /// A property-bar change (§4.3): restyles the selection, or sets the active tool's default
     /// when nothing is selected. `merge` folds it into the previous step when that changed the same

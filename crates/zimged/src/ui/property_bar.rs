@@ -4,13 +4,14 @@
 //! accessibility label constant). Controls report changes as [`Property`] values; the app turns
 //! them into commands.
 
-use zimged_core::{Property, PropertyKind, Restack, Rgba, Style};
+use zimged_core::{Arrowheads, Property, PropertyKind, Restack, Rgba, Style};
 
 pub const LABEL_LINE_COLOUR: &str = "Line colour";
 pub const LABEL_FILL_COLOUR: &str = "Fill colour";
 pub const LABEL_NO_FILL: &str = "No fill";
 pub const LABEL_THICKNESS: &str = "Thickness";
 pub const LABEL_SHADOW: &str = "Shadow";
+pub const LABEL_ARROWHEADS: &str = "Arrowheads";
 pub const LABEL_DELETE: &str = "Delete";
 pub const LABEL_BRING_TO_FRONT: &str = "Bring to front";
 pub const LABEL_SEND_TO_BACK: &str = "Send to back";
@@ -113,6 +114,22 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, style: &Style, out: &mut Outpu
                 .changed()
             {
                 out.changes.push(Property::Shadow(on));
+            }
+        }
+        PropertyKind::Arrowheads => {
+            ui.label("Arrowheads");
+            let mut value = style.arrowheads;
+            let _ = egui::ComboBox::from_id_salt(LABEL_ARROWHEADS)
+                .selected_text(value.name())
+                .show_ui(ui, |ui| {
+                    for option in Arrowheads::ALL {
+                        ui.selectable_value(&mut value, option, option.name());
+                    }
+                })
+                .response
+                .accessible_name(LABEL_ARROWHEADS);
+            if value != style.arrowheads {
+                out.changes.push(Property::Arrowheads(value));
             }
         }
     }
