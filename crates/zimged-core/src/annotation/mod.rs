@@ -7,8 +7,10 @@
 //! 4. a tool that creates it in the `zimged` crate (`tools/`).
 
 mod rectangle;
+pub mod text;
 
 pub use rectangle::Rectangle;
+pub use text::Text;
 
 use crate::geometry::{Affine, Point, Rect};
 use crate::style::{PropertyKind, Style};
@@ -75,6 +77,7 @@ macro_rules! shapes {
 
 shapes! {
     Rectangle(Rectangle),
+    Text(Text),
 }
 
 /// Identifies an Annotation within its Document. Never reused, so it survives undo and redo.
@@ -96,5 +99,13 @@ impl Annotation {
 
     pub fn hit(&self, p: Point, tolerance: f32) -> bool {
         self.shape.hit(p, &self.style, tolerance)
+    }
+
+    /// Bring geometry that depends on the style up to date after a style change (a text box's
+    /// layout, #28).
+    pub fn relayout(&mut self) {
+        if let AnnotationShape::Text(t) = &mut self.shape {
+            t.restyle(&self.style);
+        }
     }
 }

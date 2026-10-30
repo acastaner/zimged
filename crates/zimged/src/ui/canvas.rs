@@ -28,6 +28,8 @@ pub struct EditorPaint {
     pub composite: Option<(egui::TextureId, egui::Rect)>,
     /// The selection's bounds, in points: drawn as a dashed box with 8 handles.
     pub selection: Option<egui::Rect>,
+    /// Painted last, on top of everything (the text caret, #28).
+    pub overlay: Vec<egui::Shape>,
 }
 
 impl Layout {
@@ -142,6 +144,7 @@ pub fn show(
             if let Some(selection) = paint.selection {
                 paint_selection(&painter, selection);
             }
+            painter.extend(paint.overlay);
             layout
         })
         .inner

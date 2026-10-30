@@ -236,6 +236,21 @@ impl ZimgedApp {
         self.editor.tool()
     }
 
+    /// A tool's current style: its defaults for the next Annotation (§4.3).
+    pub fn tool_style(&self, tool: ToolId) -> zimged_core::Style {
+        self.editor.tool_style(tool)
+    }
+
+    /// Is a text box being edited (§4.4)?
+    pub fn editing_text(&self) -> bool {
+        self.editor.editing_text()
+    }
+
+    /// The installed font families, once listed (on first use of the text tool, §7.2).
+    pub fn font_families(&self) -> Option<&[String]> {
+        self.editor.font_families()
+    }
+
     /// Has Skia been initialised (§1.3: only on the first Annotation)?
     pub fn skia_initialised(&self) -> bool {
         self.editor.skia_initialised()
@@ -654,6 +669,7 @@ impl ZimgedApp {
                 },
                 selection,
                 hint: self.editor.tool().hint(),
+                fonts: self.editor.font_families().unwrap_or_default(),
             },
         );
         for property in out.changes {

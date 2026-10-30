@@ -37,7 +37,7 @@ fn rect_of(app: &TestApp, index: usize) -> [i32; 4] {
 // ---- Tool strip ----
 
 #[test]
-fn tool_strip_lists_every_tool_in_order_with_select_and_rectangle_enabled() {
+fn tool_strip_lists_every_tool_in_order_with_the_built_tools_enabled() {
     let app = app_with_image();
     let names = [
         "Select",
@@ -62,7 +62,7 @@ fn tool_strip_lists_every_tool_in_order_with_select_and_rectangle_enabled() {
     let shown: Vec<&str> = buttons.iter().map(|(l, _)| l.as_str()).collect();
     assert_eq!(shown, names);
     for (label, enabled) in &buttons {
-        let expected = label == "Select" || label == "Rectangle";
+        let expected = ["Select", "Rectangle", "Text"].contains(&label.as_str());
         assert_eq!(*enabled, expected, "{label} enabled");
     }
 }

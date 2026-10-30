@@ -41,6 +41,10 @@ pub struct Style {
     /// Line thickness in Image pixels.
     pub thickness: f32,
     pub shadow: bool,
+    /// The text font's family name (§4.4).
+    pub font: String,
+    /// The text size in Image pixels.
+    pub font_size: f32,
 }
 
 impl Default for Style {
@@ -51,6 +55,8 @@ impl Default for Style {
             fill: None,
             thickness: 3.0,
             shadow: true,
+            font: DEFAULT_FONT.to_owned(),
+            font_size: 20.0,
         }
     }
 }
@@ -62,6 +68,10 @@ pub enum PropertyKind {
     FillColour,
     Thickness,
     Shadow,
+    /// The text colour: the same field as the line colour (`Style::line`).
+    TextColour,
+    Font,
+    FontSize,
 }
 
 /// A style property with its value: one change in the property bar.
@@ -71,6 +81,9 @@ pub enum Property {
     FillColour(Option<Rgba>),
     Thickness(f32),
     Shadow(bool),
+    TextColour(Rgba),
+    Font(String),
+    FontSize(f32),
 }
 
 impl Property {
@@ -80,12 +93,22 @@ impl Property {
             Property::FillColour(_) => PropertyKind::FillColour,
             Property::Thickness(_) => PropertyKind::Thickness,
             Property::Shadow(_) => PropertyKind::Shadow,
+            Property::TextColour(_) => PropertyKind::TextColour,
+            Property::Font(_) => PropertyKind::Font,
+            Property::FontSize(_) => PropertyKind::FontSize,
         }
     }
 }
 
 /// Thickness limits of the property bar.
 pub const THICKNESS_RANGE: std::ops::RangeInclusive<f32> = 1.0..=40.0;
+
+/// Font size limits of the property bar, in Image pixels.
+pub const FONT_SIZE_RANGE: std::ops::RangeInclusive<f32> = 6.0..=400.0;
+
+/// The text tool's default font: the platform's sans-serif (fontconfig resolves the alias; where
+/// nothing matches, Skia falls back to the system's default font).
+pub const DEFAULT_FONT: &str = "sans-serif";
 
 impl Style {
     pub fn get(&self, kind: PropertyKind) -> Property {
@@ -94,6 +117,9 @@ impl Style {
             PropertyKind::FillColour => Property::FillColour(self.fill),
             PropertyKind::Thickness => Property::Thickness(self.thickness),
             PropertyKind::Shadow => Property::Shadow(self.shadow),
+            PropertyKind::TextColour => Property::TextColour(self.line),
+            PropertyKind::Font => Property::Font(self.font.clone()),
+            PropertyKind::FontSize => Property::FontSize(self.font_size),
         }
     }
 
@@ -105,6 +131,11 @@ impl Style {
                 self.thickness = t.clamp(*THICKNESS_RANGE.start(), *THICKNESS_RANGE.end())
             }
             Property::Shadow(s) => self.shadow = s,
+            Property::TextColour(c) => self.line = c,
+            Property::Font(f) => self.font = f,
+            Property::FontSize(s) => {
+                self.font_size = s.clamp(*FONT_SIZE_RANGE.start(), *FONT_SIZE_RANGE.end())
+            }
         }
     }
 }

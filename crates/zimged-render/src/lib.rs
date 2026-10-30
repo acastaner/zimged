@@ -10,6 +10,7 @@
 
 mod effects;
 mod shapes;
+pub mod text;
 
 use skia_safe as sk;
 use zimged_core::{Document, Rect};

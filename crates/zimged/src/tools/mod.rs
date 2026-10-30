@@ -11,8 +11,9 @@
 mod drag_box;
 mod rectangle;
 pub mod select;
+pub mod text;
 
-use zimged_core::{Document, Point, PropertyKind, Rectangle, Style};
+use zimged_core::{Document, Point, PropertyKind, Rectangle, Style, Text};
 
 /// Every tool, in tool-strip order (§4.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -86,6 +87,7 @@ impl ToolId {
         match self {
             ToolId::Select => Some(Box::new(select::Select::default())),
             ToolId::Rectangle => Some(Box::new(rectangle::new())),
+            ToolId::Text => Some(Box::new(text::TextTool)),
             _ => None,
         }
     }
@@ -98,6 +100,7 @@ impl ToolId {
     pub fn properties(self) -> &'static [PropertyKind] {
         match self {
             ToolId::Rectangle => Rectangle::PROPERTIES,
+            ToolId::Text => Text::PROPERTIES,
             _ => &[],
         }
     }
