@@ -781,10 +781,18 @@ impl ZimgedApp {
         let (tx, rx) = mpsc::channel();
         self.open_dialog = Some(rx);
         let ctx = self.ctx.clone();
-        self.platform.dialogs.pick_image(Box::new(move |chosen| {
-            let _ = tx.send(chosen);
-            ctx.request_repaint();
-        }));
+        let text = zimged_platform::OpenDialogText {
+            title: strings::OPEN_DIALOG_TITLE.to_owned(),
+            images: strings::IMAGES_FILTER.to_owned(),
+            all_files: strings::ALL_FILES_FILTER.to_owned(),
+        };
+        self.platform.dialogs.pick_image(
+            &text,
+            Box::new(move |chosen| {
+                let _ = tx.send(chosen);
+                ctx.request_repaint();
+            }),
+        );
     }
 
     fn poll_open_dialog(&mut self) {
@@ -884,6 +892,7 @@ impl ZimgedApp {
         self.save_dialog = Some(rx);
         let ctx = self.ctx.clone();
         self.platform.dialogs.save_image(
+            strings::SAVE_AS_DIALOG_TITLE,
             &suggested,
             Box::new(move |chosen| {
                 let _ = tx.send(chosen);

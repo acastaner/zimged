@@ -64,7 +64,7 @@ fn run(job: SaveJob) -> SaveResult {
         &info,
         job.jpeg_quality,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| strings::save_reason(&e))?;
     Ok(Saved { decoded })
 }
 
@@ -88,7 +88,8 @@ impl PendingCopy {
 fn copy(job: CopyJob) -> SaveResult {
     let (flattened, decoded) = flatten_document(job.doc, job.source.as_deref(), &job.fallback)?;
     let (pixels, size) = straight(&flattened);
-    let png = zimged_codec::encode_png_plain(&pixels, size).map_err(|e| e.to_string())?;
+    let png =
+        zimged_codec::encode_png_plain(&pixels, size).map_err(|e| strings::save_reason(&e))?;
     job.clipboard
         .write(vec![zimged_platform::ClipboardItem::new(
             zimged_platform::clipboard::IMAGE_PNG,
@@ -177,7 +178,7 @@ fn annotations_png(doc: &Document, annotations: &[&Annotation]) -> Result<Option
     let (pixels, size) = straight(&trimmed);
     zimged_codec::encode_png_plain(&pixels, size)
         .map(Some)
-        .map_err(|e| e.to_string())
+        .map_err(|e| strings::save_reason(&e))
 }
 
 /// The composite cropped to its pixels that aren't fully transparent; `None` when all are.

@@ -63,6 +63,21 @@ fn cancelling_the_open_dialog_keeps_the_empty_window() {
 }
 
 #[test]
+fn the_open_dialog_shows_the_apps_title_and_filter_names() {
+    let (mut app, dialogs) = app_with_dialogs();
+    dialogs.answer_next(None);
+    app.settle();
+
+    app.press_ctrl(egui::Key::O);
+    app.settle();
+
+    let text = dialogs.last_open_text().expect("the open dialog was shown");
+    assert_eq!(text.title, zimged::strings::OPEN_DIALOG_TITLE);
+    assert_eq!(text.images, zimged::strings::IMAGES_FILTER);
+    assert_eq!(text.all_files, zimged::strings::ALL_FILES_FILTER);
+}
+
+#[test]
 fn cancelling_the_open_dialog_keeps_the_current_image() {
     let (mut app, dialogs) = app_with_dialogs();
     let path = app.add_fixtures(&["small-320x240.jpg"]);

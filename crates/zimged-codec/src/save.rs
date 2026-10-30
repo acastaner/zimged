@@ -104,19 +104,27 @@ fn avif_icc(_path: &Path) -> Option<Vec<u8>> {
     None
 }
 
-/// Why a save failed: the `<reason>` of "Can't save <name>: <reason>".
+/// Why a save failed: the `<reason>` of "Can't save <name>: <reason>". Its `Display` is the
+/// library's (or the OS's) own reason; the app words the cases it names itself (§8.6).
 #[derive(Debug)]
-pub struct SaveError(String);
+pub enum SaveError {
+    /// An encoder or the file system failed: its own reason, passed through.
+    Library(String),
+    /// libwebp refused the pixels: its error code.
+    WebPEncoding(String),
+}
 
 impl SaveError {
     fn new(reason: impl fmt::Display) -> Self {
-        Self(reason.to_string())
+        Self::Library(reason.to_string())
     }
 }
 
 impl fmt::Display for SaveError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        match self {
+            Self::Library(reason) | Self::WebPEncoding(reason) => f.write_str(reason),
+        }
     }
 }
 
@@ -233,7 +241,7 @@ fn encode_webp(
     };
     let encoded = encoder
         .encode_simple(lossless, WEBP_QUALITY)
-        .map_err(|e| SaveError::new(format!("WebP encoding failed ({e:?})")))?;
+        .map_err(|e| SaveError::WebPEncoding(format!("{e:?}")))?;
     Ok(webp_container(
         &encoded,
         size,

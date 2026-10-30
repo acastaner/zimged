@@ -245,6 +245,10 @@ fn save_as_suggests_the_current_file_and_adds_png_to_a_name_without_a_known_exte
     dialogs.answer_next(Some(path.with_file_name("plain")));
     save_as(&mut app);
     assert_eq!(dialogs.last_suggested(), Some(path.clone()));
+    assert_eq!(
+        dialogs.last_title().as_deref(),
+        Some(zimged::strings::SAVE_AS_DIALOG_TITLE)
+    );
     let written = path.with_file_name("plain.png");
     assert_eq!(format_of(&written), image::ImageFormat::Png);
 }
@@ -412,6 +416,24 @@ fn a_failed_save_says_why_and_keeps_the_marker() {
     assert_eq!(file_name_field(&app), "small-320x240.jpg •");
     let message = app.status("Message");
     assert!(message.starts_with("Can't save out.png: "), "{message}");
+}
+
+#[test]
+fn a_webp_the_encoder_refuses_says_so_with_its_code() {
+    // WebP is limited to 16383 px a side: libwebp refuses a wider Image.
+    let (mut app, dialogs) = app_with(None);
+    let path = app.dir.path().join("wide.png");
+    image::RgbImage::new(16_400, 1).save(&path).unwrap();
+    app.open(path.clone());
+    let target = path.with_file_name("wide.webp");
+    dialogs.answer_next(Some(target.clone()));
+    save_as(&mut app);
+    assert!(!target.exists());
+    let message = app.status("Message");
+    assert!(
+        message.starts_with("Can't save wide.webp: WebP encoding failed (VP8_ENC_ERROR_"),
+        "{message}"
+    );
 }
 
 // ---- With other features ----

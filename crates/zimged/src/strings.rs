@@ -251,6 +251,14 @@ pub fn cant_save(name: &str, reason: &str) -> String {
     format!("Can't save {name}: {reason}")
 }
 
+/// The `<reason>` of [`cant_save`]: a library's own reason as is, zimged's wording around a code.
+pub fn save_reason(error: &zimged_codec::SaveError) -> String {
+    match error {
+        zimged_codec::SaveError::Library(reason) => reason.clone(),
+        zimged_codec::SaveError::WebPEncoding(code) => format!("WebP encoding failed ({code})"),
+    }
+}
+
 pub fn cant_copy_image(reason: &str) -> String {
     format!("Can't copy the image: {reason}")
 }
@@ -281,6 +289,14 @@ pub const FILE_CHANGED: &str = "the file changed on disk";
 pub const CLIPBOARD_IMAGE: &str = "Clipboard image";
 
 // ---- Dialogs (§6.4) ----
+
+// The native file dialogs (§8.2).
+pub const OPEN_DIALOG_TITLE: &str = "Open";
+/// The open dialog's filter for the formats zimged reads.
+pub const IMAGES_FILTER: &str = "Images";
+/// The open dialog's filter that shows every file.
+pub const ALL_FILES_FILTER: &str = "All files";
+pub const SAVE_AS_DIALOG_TITLE: &str = "Save As";
 
 pub const SAVE_CHANGES_TITLE: &str = "Save changes?";
 

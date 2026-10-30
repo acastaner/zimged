@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 pub use clipboard::{Clipboard, ClipboardItem, MemoryClipboard, OsClipboard};
 pub use config::{Config, ConfigStore, MemoryConfigStore, OsConfigStore};
-pub use dialogs::{DialogReply, FileDialogs, MemoryFileDialogs, OsFileDialogs};
+pub use dialogs::{DialogReply, FileDialogs, MemoryFileDialogs, OpenDialogText, OsFileDialogs};
 pub use instance::{Arrival, HandOff, LocalSocketInstance, MemoryInstance, SingleInstance};
 pub use launcher::{Launcher, MemoryLauncher, OsLauncher};
 pub use trash::{MemoryTrash, OsTrash, Trash};
