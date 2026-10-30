@@ -10,6 +10,7 @@
 mod ellipse;
 mod freehand;
 mod highlight;
+mod inset;
 mod line;
 mod rectangle;
 mod step_counter;
@@ -18,6 +19,7 @@ pub mod text;
 pub use ellipse::Ellipse;
 pub use freehand::Freehand;
 pub use highlight::Highlight;
+pub use inset::Inset;
 pub use line::{Arrow, Line};
 pub use rectangle::Rectangle;
 pub use step_counter::StepCounter;
@@ -114,6 +116,7 @@ shapes! {
     Arrow(Arrow),
     Freehand(Freehand),
     Highlight(Highlight),
+    Inset(Inset),
 }
 
 /// Identifies an Annotation within its Document. Never reused, so it survives undo and redo.

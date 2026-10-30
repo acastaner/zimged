@@ -13,6 +13,8 @@ pub const LABEL_THICKNESS: &str = "Thickness";
 pub const LABEL_SHADOW: &str = "Shadow";
 pub const LABEL_COUNTER_SIZE: &str = "Size";
 pub const LABEL_ARROWHEADS: &str = "Arrowheads";
+pub const LABEL_BORDER_COLOUR: &str = "Border colour";
+pub const LABEL_NO_BORDER: &str = "No border";
 pub const LABEL_DELETE: &str = "Delete";
 pub const LABEL_TEXT_COLOUR: &str = "Text colour";
 pub const LABEL_FONT: &str = "Font";
@@ -127,6 +129,26 @@ fn control(ui: &mut egui::Ui, kind: PropertyKind, bar: &PropertyBar<'_>, out: &m
             {
                 out.changes
                     .push(Property::FillColour(if none { Some(shown) } else { None }));
+            }
+        }
+        PropertyKind::BorderColour => {
+            ui.label("Border");
+            let shown = style.border.unwrap_or(Rgba::BLACK);
+            if let Some(c) = colour(ui, shown, LABEL_BORDER_COLOUR, kind, out) {
+                out.changes.push(Property::BorderColour(Some(c)));
+            }
+            let none = style.border.is_none();
+            if ui
+                .add(egui::Button::selectable(none, "None"))
+                .on_hover_text("No border")
+                .accessible_name(LABEL_NO_BORDER)
+                .clicked()
+            {
+                out.changes.push(Property::BorderColour(if none {
+                    Some(shown)
+                } else {
+                    None
+                }));
             }
         }
         PropertyKind::Thickness => {

@@ -73,7 +73,7 @@ impl<'de> serde::Deserialize<'de> for Rgba {
     }
 }
 
-/// A fill colour in `config.toml`: a colour, or `"none"`.
+/// A fill or border colour in `config.toml`: a colour, or `"none"`.
 mod fill_serde {
     use super::Rgba;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -117,6 +117,9 @@ pub struct Style {
     pub font_size: f32,
     /// Which ends of an arrow carry a head.
     pub arrowheads: Arrowheads,
+    /// An Inset's border (§4.6): `None` is no border; its width is `thickness`.
+    #[serde(with = "fill_serde")]
+    pub border: Option<Rgba>,
     pub highlight_mode: HighlightMode,
     /// The text highlight's colour (multiplied over the region).
     pub highlight: Rgba,
@@ -214,6 +217,7 @@ impl Default for Style {
             font: DEFAULT_FONT.to_owned(),
             font_size: 20.0,
             arrowheads: Arrowheads::End,
+            border: None,
             highlight_mode: HighlightMode::Text,
             highlight: Rgba::YELLOW,
             magnification: 2.0,
@@ -234,6 +238,7 @@ pub enum PropertyKind {
     Font,
     FontSize,
     Arrowheads,
+    BorderColour,
     HighlightMode,
     HighlightColour,
     Magnification,
@@ -251,6 +256,8 @@ pub enum Property {
     Font(String),
     FontSize(f32),
     Arrowheads(Arrowheads),
+    /// `None` is no border.
+    BorderColour(Option<Rgba>),
     HighlightMode(HighlightMode),
     HighlightColour(Rgba),
     Magnification(f32),
@@ -268,6 +275,7 @@ impl Property {
             Property::Font(_) => PropertyKind::Font,
             Property::FontSize(_) => PropertyKind::FontSize,
             Property::Arrowheads(_) => PropertyKind::Arrowheads,
+            Property::BorderColour(_) => PropertyKind::BorderColour,
             Property::HighlightMode(_) => PropertyKind::HighlightMode,
             Property::HighlightColour(_) => PropertyKind::HighlightColour,
             Property::Magnification(_) => PropertyKind::Magnification,
@@ -301,6 +309,7 @@ impl Style {
             PropertyKind::Font => Property::Font(self.font.clone()),
             PropertyKind::FontSize => Property::FontSize(self.font_size),
             PropertyKind::Arrowheads => Property::Arrowheads(self.arrowheads),
+            PropertyKind::BorderColour => Property::BorderColour(self.border),
             PropertyKind::HighlightMode => Property::HighlightMode(self.highlight_mode),
             PropertyKind::HighlightColour => Property::HighlightColour(self.highlight),
             PropertyKind::Magnification => Property::Magnification(self.magnification),
@@ -344,6 +353,7 @@ impl Style {
                 self.font_size = s.clamp(*FONT_SIZE_RANGE.start(), *FONT_SIZE_RANGE.end())
             }
             Property::Arrowheads(a) => self.arrowheads = a,
+            Property::BorderColour(c) => self.border = c,
             Property::HighlightMode(m) => self.highlight_mode = m,
             Property::HighlightColour(c) => self.highlight = c,
             Property::Magnification(f) => {

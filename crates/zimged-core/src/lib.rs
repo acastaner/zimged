@@ -12,7 +12,7 @@ pub mod image_op;
 pub mod style;
 
 pub use annotation::{
-    Annotation, AnnotationId, AnnotationShape, Arrow, Ellipse, Freehand, Highlight, Line,
+    Annotation, AnnotationId, AnnotationShape, Arrow, Ellipse, Freehand, Highlight, Inset, Line,
     Rectangle, Shape, StepCounter, Text,
 };
 pub use document::{Document, PixelData, Pixels, Restack};

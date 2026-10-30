@@ -7,6 +7,7 @@ mod arrow;
 mod ellipse;
 mod freehand;
 mod highlight;
+mod inset;
 mod line;
 mod rectangle;
 mod step_counter;
@@ -33,6 +34,7 @@ pub fn draw(canvas: &sk::Canvas, annotation: &Annotation, below: &Scene<'_>) {
         AnnotationShape::Arrow(s) => arrow::draw(canvas, s, style),
         AnnotationShape::Freehand(s) => freehand::draw(canvas, s, style),
         AnnotationShape::Highlight(s) => highlight::draw(canvas, s, style, below),
+        AnnotationShape::Inset(s) => inset::draw(canvas, s, style),
     }
 }
 
