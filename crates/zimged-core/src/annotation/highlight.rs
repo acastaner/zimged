@@ -48,4 +48,9 @@ impl Shape for Highlight {
     fn properties(&self) -> &'static [PropertyKind] {
         Self::PROPERTIES
     }
+
+    fn needs_pixels_below(&self) -> bool {
+        // An effect on what's beneath: nothing to show without the Image.
+        true
+    }
 }

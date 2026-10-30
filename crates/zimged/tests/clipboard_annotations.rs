@@ -106,6 +106,49 @@ fn the_png_holds_just_the_selected_annotations_on_transparency() {
 }
 
 #[test]
+fn a_copied_highlight_is_in_the_json_but_not_in_the_png() {
+    let clipboard = Arc::new(MemoryClipboard::default());
+    let mut app = app_with("small-320x240.jpg", &clipboard);
+    rectangle(&mut app, (20.0, 20.0), (60.0, 50.0));
+    app.press(Key::H);
+    app.drag_px((120.0, 100.0), (200.0, 160.0));
+    // Select both (rubber band).
+    app.press(Key::Escape);
+    app.drag_px((5.0, 5.0), (250.0, 200.0));
+    assert_eq!(app.doc().selection().len(), 2);
+
+    ctrl(&mut app, Key::C);
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&clipboard.get(ANNOTATIONS).expect("the JSON")).unwrap();
+    let types: Vec<_> = json["annotations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["shape"]["type"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(types, ["rectangle", "highlight"]);
+    // The PNG is just the rectangle: the highlight (80×60, far from it) would widen it.
+    let png = decode_png(&clipboard.get(PNG).expect("an image/png"));
+    let (w, h) = png.dimensions();
+    assert!((43..=60).contains(&w) && (33..=50).contains(&h), "{w}×{h}");
+}
+
+#[test]
+fn a_highlight_alone_publishes_only_the_json() {
+    let clipboard = Arc::new(MemoryClipboard::default());
+    let mut app = app_with("small-320x240.jpg", &clipboard);
+    app.press(Key::H);
+    app.drag_px((120.0, 100.0), (200.0, 160.0));
+    assert_eq!(app.doc().selection().len(), 1);
+
+    ctrl(&mut app, Key::C);
+
+    assert!(clipboard.get(ANNOTATIONS).is_some());
+    assert!(clipboard.get(PNG).is_none(), "no PNG of nothing");
+}
+
+#[test]
 fn ctrl_v_on_the_same_image_adds_and_selects_copies_offset_by_10_px() {
     let clipboard = Arc::new(MemoryClipboard::default());
     let mut app = app_with("small-320x240.jpg", &clipboard);
