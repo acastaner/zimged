@@ -346,6 +346,9 @@ fn opening_another_image_clears_the_history() {
     let mut app = app_with_rectangle();
     let other = app.add_fixtures(&["large-2400x1600.jpg"]);
     app.open(other);
+    // The unsaved-changes prompt (#35): drop the edits.
+    app.control("Discard").click();
+    app.settle();
 
     assert!(app.doc().annotations().is_empty());
     assert!(!app.doc().can_undo());
@@ -363,6 +366,9 @@ fn moving_to_another_sibling_clears_the_history() {
     assert!(app.doc().can_undo());
 
     app.press(Key::ArrowLeft);
+    // The unsaved-changes prompt (#35): drop the edits.
+    app.control("Discard").click();
+    app.settle();
     assert_eq!(app.status("File name"), "large-2400x1600.jpg");
     assert!(app.doc().annotations().is_empty());
     assert!(!app.doc().can_undo());
