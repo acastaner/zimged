@@ -153,12 +153,12 @@ const SMALL_BYTES: usize = 320 * 240 * 3;
 
 #[test]
 fn cache_stays_under_its_cap_evicting_least_recently_shown_first() {
-    let cap = SMALL_BYTES * 5 / 2;
-    let mut app = seven_with_cache_cap(cap);
+    // Room for two and a half of the Siblings: two are kept.
+    let mut app = seven_with_cache_cap(SMALL_BYTES * 5 / 2);
     for _ in 0..4 {
         app.press(Key::ArrowRight);
-        let (_, bytes) = app.harness.state().cached_siblings();
-        assert!(bytes <= cap, "{bytes} bytes cached, cap {cap}");
+        let cached = cached_names(&app);
+        assert!(cached.len() <= 2, "{cached:?}");
         let name = app.status("File name");
         assert!(cached_names(&app).contains(&name), "{name} was evicted");
     }
@@ -178,7 +178,7 @@ fn current_image_is_never_evicted_even_over_the_cap() {
 }
 
 fn cached_names(app: &TestApp) -> Vec<String> {
-    let (paths, _) = app.harness.state().cached_siblings();
+    let paths = app.harness.state().cached_siblings();
     let mut names: Vec<String> = paths
         .iter()
         .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())

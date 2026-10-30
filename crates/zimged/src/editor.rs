@@ -277,10 +277,6 @@ impl Editor {
         self.rubber_band
     }
 
-    pub fn skia_initialised(&self) -> bool {
-        self.renderer.is_some()
-    }
-
     pub fn composite(&self) -> Option<&Composite> {
         let edited = self.edited.as_ref()?;
         edited.composite.as_ref().map(|c| &c.pixels)

@@ -9,12 +9,12 @@
 //!
 //! Nothing else may run here. Check every addition against the budget with `tools/bench`.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
 use zimged_codec::Size;
-use zimged_platform::{Config, HandOff, Platform};
+use zimged_platform::{Config, Platform};
 
 use crate::app::{Launch, ZimgedApp, startup_display_box};
 use crate::decode::PendingDecode;
@@ -22,28 +22,6 @@ use crate::decode::PendingDecode;
 /// How long the first frame waits for the first-image decode once the window is ready. A 12 MP
 /// JPEG decodes in well under this on the reference machine.
 const FIRST_FRAME_WAIT: Duration = Duration::from_millis(400);
-
-/// What startup does after [`single_instance`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StartupStep {
-    /// Go on: create the window.
-    OpenWindow,
-    /// A running instance took the path: exit without a window.
-    Exit,
-}
-
-/// §1.3 step 2 / §8.4. With *Allow multiple instances* on (the default) the socket isn't touched.
-/// Off: hand `path` to a running instance and exit if it answers; if nothing answers, this
-/// process becomes the listener (the running app picks up arrivals each frame).
-pub fn single_instance(platform: &Platform, config: &Config, path: Option<&Path>) -> StartupStep {
-    if config.allow_multiple_instances {
-        return StartupStep::OpenWindow;
-    }
-    match platform.instance.hand_off_or_listen(path) {
-        HandOff::Answered => StartupStep::Exit,
-        HandOff::Listening | HandOff::Alone => StartupStep::OpenWindow,
-    }
-}
 
 pub fn run() -> eframe::Result {
     crate::bench::mark("main");
@@ -75,11 +53,20 @@ pub fn run() -> eframe::Result {
     };
     let config = config_read.join().unwrap_or_default();
     let _ = box_tx.send(startup_display_box(&config));
+    let window_size = [config.window.width, config.window.height];
+    let maximised = config.window.maximised;
+    let launch = Launch {
+        platform,
+        config,
+        first_image,
+        cache_cap: zimged_siblings::prefetch::CACHE_CAP_BYTES,
+        history_pixel_cap: zimged_core::HISTORY_PIXEL_CAP,
+        from_clipboard,
+    };
 
     // 2. Single instance: only when multiple instances aren't allowed. *New from clipboard* asked
     //    for a new window explicitly (§6.1), so it never hands off.
-    if !from_clipboard && single_instance(&platform, &config, path.as_deref()) == StartupStep::Exit
-    {
+    if !from_clipboard && launch.handed_off(path.as_deref()) {
         return Ok(());
     }
 
@@ -100,20 +87,12 @@ pub fn run() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_app_id("zimged")
             .with_title(title)
-            .with_inner_size([config.window.width, config.window.height])
-            .with_maximized(config.window.maximised),
+            .with_inner_size(window_size)
+            .with_maximized(maximised),
         renderer: eframe::Renderer::Glow,
         // Ctrl+C / Ctrl+V reach the app as keys: zimged talks to the clipboard itself (§8.1).
         clipboard_shortcuts: false,
         ..Default::default()
-    };
-    let launch = Launch {
-        platform,
-        config,
-        first_image,
-        cache_cap: zimged_siblings::prefetch::CACHE_CAP_BYTES,
-        history_pixel_cap: zimged_core::HISTORY_PIXEL_CAP,
-        from_clipboard,
     };
     eframe::run_native(
         "zimged",

@@ -210,7 +210,7 @@ fn an_animations_frames_leave_less_room_for_prefetched_siblings() {
     app.open(gif);
     app.harness.step();
 
-    let (cached, _) = app.harness.state().cached_siblings();
+    let cached = app.harness.state().cached_siblings();
     let siblings = cached
         .iter()
         .filter(|p| p.extension().is_some_and(|e| e == "png"))

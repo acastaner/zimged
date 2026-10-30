@@ -300,11 +300,11 @@ impl Navigation {
         }
     }
 
-    /// The files in the display-size cache and their total size in bytes.
-    pub fn cached(&self) -> (Vec<PathBuf>, usize) {
+    /// The files in the display-size cache.
+    pub fn cached(&self) -> Vec<PathBuf> {
         self.prefetch
             .as_ref()
-            .map_or_else(Default::default, Prefetcher::cached)
+            .map_or_else(Vec::new, |p| p.cached().0)
     }
 }
 

@@ -10,8 +10,8 @@ use std::sync::Arc;
 use egui::{Key, ViewportCommand, ViewportId};
 use egui_kittest::kittest::Queryable;
 use support::TestApp;
-use zimged::startup::{StartupStep, single_instance};
-use zimged_platform::{Config, MemoryInstance, Platform};
+use zimged::Launch;
+use zimged_platform::{MemoryConfigStore, MemoryInstance, Platform};
 
 const SMALL: &str = "small-320x240.jpg";
 const LARGE: &str = "large-2400x1600.jpg";
@@ -20,11 +20,12 @@ fn platform_with(instance: &Arc<MemoryInstance>) -> Platform {
     Platform::in_memory().with_instance(instance.clone())
 }
 
-fn config(allow_multiple_instances: bool) -> Config {
-    Config {
-        allow_multiple_instances,
-        ..Config::default()
-    }
+/// What startup hands the app with this `config.toml` setting and this instance socket.
+fn launch(allow_multiple_instances: bool, instance: &Arc<MemoryInstance>) -> Launch {
+    let config = format!("version = 1\nallow_multiple_instances = {allow_multiple_instances}\n");
+    let platform =
+        platform_with(instance).with_config(Arc::new(MemoryConfigStore::with_text(config)));
+    Launch::new(platform)
 }
 
 fn sent(app: &TestApp, wanted: &ViewportCommand) -> bool {
@@ -41,13 +42,9 @@ fn sent(app: &TestApp, wanted: &ViewportCommand) -> bool {
 fn with_multiple_instances_allowed_startup_never_touches_the_socket() {
     let instance = Arc::new(MemoryInstance::with_running_instance());
 
-    let step = single_instance(
-        &platform_with(&instance),
-        &config(true),
-        Some(Path::new("/a.png")),
-    );
+    let exits = launch(true, &instance).handed_off(Some(Path::new("/a.png")));
 
-    assert_eq!(step, StartupStep::OpenWindow);
+    assert!(!exits);
     assert!(instance.offered().is_empty());
 }
 
@@ -55,13 +52,9 @@ fn with_multiple_instances_allowed_startup_never_touches_the_socket() {
 fn with_multiple_instances_off_a_running_instance_takes_the_path_and_this_process_exits() {
     let instance = Arc::new(MemoryInstance::with_running_instance());
 
-    let step = single_instance(
-        &platform_with(&instance),
-        &config(false),
-        Some(Path::new("/a.png")),
-    );
+    let exits = launch(false, &instance).handed_off(Some(Path::new("/a.png")));
 
-    assert_eq!(step, StartupStep::Exit);
+    assert!(exits);
     assert_eq!(instance.offered(), vec![Some(PathBuf::from("/a.png"))]);
 }
 
@@ -69,13 +62,9 @@ fn with_multiple_instances_off_a_running_instance_takes_the_path_and_this_proces
 fn with_multiple_instances_off_and_nothing_running_this_process_opens_its_window() {
     let instance = Arc::new(MemoryInstance::default());
 
-    let step = single_instance(
-        &platform_with(&instance),
-        &config(false),
-        Some(Path::new("/a.png")),
-    );
+    let exits = launch(false, &instance).handed_off(Some(Path::new("/a.png")));
 
-    assert_eq!(step, StartupStep::OpenWindow);
+    assert!(!exits);
     assert_eq!(instance.offered().len(), 1);
 }
 

@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use zimged_codec::{DisplayImage, Size, fit_within};
 use zimged_core::{Document, Property};
-use zimged_platform::{Arrival, Config, Platform};
+use zimged_platform::{Arrival, Config, HandOff, Platform};
 use zimged_render::Composite;
 use zimged_siblings::{Decoded, Direction};
 
@@ -49,7 +49,7 @@ pub struct Launch {
     pub platform: Platform,
     pub config: Config,
     /// The first-image decode started at `main()` (§1.3), if a path was given.
-    pub first_image: Option<PendingDecode>,
+    pub(crate) first_image: Option<PendingDecode>,
     /// The display-size cache cap in bytes (§3.3). Tests lower it to watch eviction.
     pub cache_cap: usize,
     /// The cap on pixels the History holds, in bytes (§4.8). Tests lower it.
@@ -69,6 +69,40 @@ impl Launch {
             cache_cap: zimged_siblings::prefetch::CACHE_CAP_BYTES,
             history_pixel_cap: zimged_core::HISTORY_PIXEL_CAP,
             from_clipboard: false,
+        }
+    }
+
+    /// Start decoding `path` for the first window, as `zimged <path>` does (§1.3 step 1), sized
+    /// for the window `config.window` describes.
+    pub fn decode_first_image(&mut self, path: PathBuf) {
+        self.decode_first_image_after(path, || ());
+    }
+
+    /// Like [`Self::decode_first_image`], but the decode doesn't finish before `ready` returns (a
+    /// test steps the app frame by frame from the first image on).
+    pub fn decode_first_image_after(
+        &mut self,
+        path: PathBuf,
+        ready: impl FnOnce() + Send + 'static,
+    ) {
+        let display_box = startup_display_box(&self.config);
+        self.first_image = Some(PendingDecode::spawn(path, move || {
+            ready();
+            display_box
+        }));
+    }
+
+    /// §1.3 step 2 / §8.4: should this process exit, a running zimged having taken `path`? With
+    /// *Allow multiple instances* on (the default) the socket isn't touched. Off: `path` is
+    /// offered to a running instance, and if nothing answers this process becomes the listener
+    /// (the app picks up arrivals each frame).
+    pub fn handed_off(&self, path: Option<&Path>) -> bool {
+        if self.config.allow_multiple_instances {
+            return false;
+        }
+        match self.platform.instance.hand_off_or_listen(path) {
+            HandOff::Answered => true,
+            HandOff::Listening | HandOff::Alone => false,
         }
     }
 }
@@ -422,11 +456,6 @@ impl ZimgedApp {
         self.editor.font_families()
     }
 
-    /// Has Skia been initialised (§1.3: only on the first Annotation)?
-    pub fn skia_initialised(&self) -> bool {
-        self.editor.skia_initialised()
-    }
-
     /// The last Skia composite of the canvas, while there are Annotations (§7.2).
     pub fn composite(&self) -> Option<&Composite> {
         self.editor.composite()
@@ -684,8 +713,8 @@ impl ZimgedApp {
         self.navigation.is_watching()
     }
 
-    /// The files in the display-size cache (§3.3) and their total size in bytes.
-    pub fn cached_siblings(&self) -> (Vec<PathBuf>, usize) {
+    /// The files kept ready in the display-size cache (§3.3: what's kept).
+    pub fn cached_siblings(&self) -> Vec<PathBuf> {
         self.navigation.cached()
     }
 
@@ -1797,7 +1826,7 @@ impl eframe::App for ZimgedApp {
 
 /// The display box to decode into before the window exists: the configured window size, at a
 /// scale factor of 1 (the real one is unknown until the window is created).
-pub fn startup_display_box(config: &Config) -> Size {
+pub(crate) fn startup_display_box(config: &Config) -> Size {
     Size::new(
         config.window.width.round() as u32,
         config.window.height.round() as u32,
