@@ -7,15 +7,20 @@ mod ellipse;
 mod freehand;
 mod line;
 mod rectangle;
+mod step_counter;
 mod text;
 
 use skia_safe as sk;
-use zimged_core::{Annotation, AnnotationShape};
+use zimged_core::{Annotation, AnnotationShape, Document};
 
-pub fn draw(canvas: &sk::Canvas, annotation: &Annotation) {
+pub fn draw(canvas: &sk::Canvas, annotation: &Annotation, doc: &Document) {
     let style = &annotation.style;
     match &annotation.shape {
         AnnotationShape::Rectangle(s) => rectangle::draw(canvas, s, style),
+        AnnotationShape::StepCounter(s) => {
+            let number = doc.step_number(annotation.id).unwrap_or_default();
+            step_counter::draw(canvas, s, style, number)
+        }
         AnnotationShape::Text(s) => text::draw(canvas, s, style),
         AnnotationShape::Ellipse(s) => ellipse::draw(canvas, s, style),
         AnnotationShape::Line(s) => line::draw(canvas, s, style),

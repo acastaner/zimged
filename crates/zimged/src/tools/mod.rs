@@ -16,11 +16,12 @@ mod ellipse;
 mod freehand;
 mod rectangle;
 pub mod select;
+mod step_counter;
 pub mod text;
 
 use zimged_core::{
     AnnotationShape, Arrow, Document, Ellipse, Freehand, Line, Point, PropertyKind, Rect,
-    Rectangle, Style, Text,
+    Rectangle, StepCounter, Style, Text,
 };
 
 /// Every tool, in tool-strip order (§4.1).
@@ -99,6 +100,7 @@ impl ToolId {
             AnnotationShape::Arrow(_) => ToolId::Arrow,
             AnnotationShape::Freehand(_) => ToolId::Freehand,
             AnnotationShape::Text(_) => ToolId::Text,
+            AnnotationShape::StepCounter(_) => ToolId::StepCounter,
         }
     }
 
@@ -125,6 +127,7 @@ impl ToolId {
         match self {
             ToolId::Select => Some(Box::new(select::Select::default())),
             ToolId::Rectangle => Some(Box::new(rectangle::new())),
+            ToolId::StepCounter => Some(Box::new(step_counter::PlaceCounter::default())),
             ToolId::Text => Some(Box::new(text::TextTool)),
             ToolId::Ellipse => Some(Box::new(ellipse::new())),
             ToolId::Line => Some(Box::new(drag_segment::line())),
@@ -143,12 +146,21 @@ impl ToolId {
     pub fn properties(self) -> &'static [PropertyKind] {
         match self {
             ToolId::Rectangle => Rectangle::PROPERTIES,
+            ToolId::StepCounter => StepCounter::PROPERTIES,
             ToolId::Text => Text::PROPERTIES,
             ToolId::Ellipse => Ellipse::PROPERTIES,
             ToolId::Line => Line::PROPERTIES,
             ToolId::Arrow => Arrow::PROPERTIES,
             ToolId::Freehand => Freehand::PROPERTIES,
             _ => &[],
+        }
+    }
+
+    /// The tool's style before the user changes any of its properties (§4.3, §8.3).
+    pub fn default_style(self) -> Style {
+        match self {
+            ToolId::StepCounter => step_counter::default_style(),
+            _ => Style::default(),
         }
     }
 

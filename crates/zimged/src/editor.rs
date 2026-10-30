@@ -162,7 +162,10 @@ impl Editor {
             let Some(table) = saved.get(tool.config_key()) else {
                 continue;
             };
-            match toml::Value::Table(table.clone()).try_into::<Style>() {
+            // Keys missing from the table keep the tool's own defaults (a Step counter's fill).
+            let mut merged = toml::Table::try_from(tool.default_style()).unwrap_or_default();
+            merged.extend(table.clone());
+            match toml::Value::Table(merged).try_into::<Style>() {
                 Ok(style) => {
                     editor.styles.insert(tool, style.sanitised());
                 }
@@ -277,7 +280,10 @@ impl Editor {
 
     /// The style the property bar shows when nothing is selected: the active tool's.
     pub fn tool_style(&self, tool: ToolId) -> Style {
-        self.styles.get(&tool).cloned().unwrap_or_default()
+        self.styles
+            .get(&tool)
+            .cloned()
+            .unwrap_or_else(|| tool.default_style())
     }
 
     /// Is the full-resolution decode still running?
@@ -361,7 +367,11 @@ impl Editor {
     fn set_tool(&mut self, tool: ToolId) {
         self.finish_text();
         if let Some(e) = &mut self.edited {
-            let style = self.styles.get(&self.tool).cloned().unwrap_or_default();
+            let style = self
+                .styles
+                .get(&self.tool)
+                .cloned()
+                .unwrap_or_else(|| self.tool.default_style());
             let mut cx = ToolContext {
                 doc: &mut e.doc,
                 style: &style,
@@ -474,7 +484,10 @@ impl Editor {
         let kind = property.kind();
         for tool in tools {
             if tool.properties().contains(&kind) {
-                self.styles.entry(tool).or_default().set(property.clone());
+                self.styles
+                    .entry(tool)
+                    .or_insert_with(|| tool.default_style())
+                    .set(property.clone());
             }
         }
     }
@@ -826,7 +839,11 @@ impl Editor {
         let Some(e) = &mut self.edited else {
             return;
         };
-        let style = self.styles.get(&self.tool).cloned().unwrap_or_default();
+        let style = self
+            .styles
+            .get(&self.tool)
+            .cloned()
+            .unwrap_or_else(|| self.tool.default_style());
         let mut cx = ToolContext {
             doc: &mut e.doc,
             style: &style,

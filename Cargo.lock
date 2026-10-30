@@ -4545,6 +4545,7 @@ dependencies = [
 name = "zimged-render"
 version = "0.1.0"
 dependencies = [
+ "epaint_default_fonts",
  "skia-safe",
  "zimged-core",
 ]

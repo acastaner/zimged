@@ -282,6 +282,20 @@ impl Document {
             .map(|a| a.id)
     }
 
+    /// A Step counter's number (§4.5): its rank, from 1, among the Step counters in creation
+    /// order. Ids grow with creation and are never reused, so this is derived, not stored: deleting
+    /// one renumbers the rest, and undo restores the old numbering. `None` for other Annotations.
+    pub fn step_number(&self, id: AnnotationId) -> Option<u32> {
+        let is_counter = |a: &Annotation| matches!(a.shape, AnnotationShape::StepCounter(_));
+        self.annotation(id).filter(|a| is_counter(a))?;
+        let earlier = self
+            .annotations
+            .iter()
+            .filter(|a| is_counter(a) && a.id <= id)
+            .count();
+        Some(earlier as u32)
+    }
+
     pub fn revision(&self) -> u64 {
         self.revision
     }
