@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use zimged_codec::{DisplayImage, Size, fit_within};
 use zimged_core::Document;
-use zimged_platform::{Config, Platform};
+use zimged_platform::{Arrival, Config, Platform};
 use zimged_render::Composite;
 use zimged_siblings::{Decoded, Direction};
 
@@ -248,6 +248,8 @@ pub struct ZimgedApp {
     closing: bool,
     /// The Resize dialog while it is up (modal, §6.4).
     resize_dialog: Option<ResizeDialog>,
+    /// A path another zimged process handed over (§8.4), waiting for a modal dialog to close.
+    handed_over: Option<PathBuf>,
     /// A copy running on the worker thread (§6.2), the Document it copies, and its message.
     copying: Option<(PendingCopy, SaveStamp, &'static str)>,
     /// A copy asked for while the Document waits for its pixels (a queued Image operation).
@@ -263,6 +265,11 @@ impl ZimgedApp {
         }
         // Ctrl+plus / minus / 0 would scale the whole UI; the image zoom is on plain +, - and 0.
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        let ctx = cc.egui_ctx.clone();
+        launch
+            .platform
+            .instance
+            .set_wake(Box::new(move || ctx.request_repaint()));
         let mut editor = Editor::with_tool_styles(&launch.config.tools);
         editor.set_history_pixel_cap(launch.history_pixel_cap);
         let from_clipboard = launch.from_clipboard;
@@ -296,6 +303,7 @@ impl ZimgedApp {
             after_save: None,
             closing: false,
             resize_dialog: None,
+            handed_over: None,
             copying: None,
             queued_copy: false,
             incoming: None,
@@ -549,6 +557,29 @@ impl ZimgedApp {
                 self.closing = true;
                 self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
+        }
+    }
+
+    // ---- Single instance (#39, §8.4) ----
+
+    /// Another zimged process reached this one: raise the window and open its path (the latest, if
+    /// several), through `Command::Open` so unsaved changes are asked about first. While a modal
+    /// dialog is up the open waits for it to close.
+    fn poll_instance(&mut self, ctx: &egui::Context) {
+        let arrivals = self.platform.instance.take_arrivals();
+        if !arrivals.is_empty() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+        for arrival in arrivals {
+            if let Arrival::Open(path) = arrival {
+                self.handed_over = Some(path);
+            }
+        }
+        if !self.dialog_up()
+            && let Some(path) = self.handed_over.take()
+        {
+            self.execute(Command::Open(path));
         }
     }
 
@@ -1535,6 +1566,7 @@ impl eframe::App for ZimgedApp {
             self.after_first_paint(&ctx);
         }
         self.on_close_requested(&ctx);
+        self.poll_instance(&ctx);
         let canvas_area = self.canvas.map(|c| c.area);
         // A modal dialog has the keyboard and the pointer to itself (§6.4); Esc is its Cancel.
         if !self.dialog_up() {
