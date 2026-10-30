@@ -96,7 +96,7 @@ pub struct Editor {
 /// What a save (#34) needs from the editor when it starts.
 pub struct SaveSource {
     /// What is drawn, for the worker to Flatten.
-    pub drawing: Document,
+    pub doc: Document,
     /// The file the Document came from (`None`: a clipboard image).
     pub path: Option<PathBuf>,
     /// Identifies the Document and its state, for [`Editor::saved`].
@@ -308,7 +308,7 @@ impl Editor {
     pub fn save_source(&self) -> Option<SaveSource> {
         let e = self.edited.as_ref().filter(|e| !e.doc.in_gesture())?;
         Some(SaveSource {
-            drawing: e.doc.drawing(),
+            doc: e.doc.to_flatten(),
             path: e.path.clone(),
             stamp: SaveStamp {
                 generation: e.generation,

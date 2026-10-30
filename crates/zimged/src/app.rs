@@ -962,7 +962,7 @@ impl ZimgedApp {
             return;
         };
         let job = SaveJob {
-            drawing: source.drawing,
+            doc: source.doc,
             source: source.path,
             fallback: self.full_size_display_pixels(),
             target,
@@ -1041,7 +1041,7 @@ impl ZimgedApp {
             .unwrap_or_default();
         let (pending, message) = if selection.is_empty() {
             let job = CopyJob {
-                drawing: source.drawing,
+                doc: source.doc,
                 source: source.path,
                 fallback: self.full_size_display_pixels(),
                 clipboard: self.platform.clipboard.clone(),
@@ -1049,7 +1049,7 @@ impl ZimgedApp {
             (PendingCopy::spawn_copy(job), strings::IMAGE_COPIED)
         } else {
             let job = AnnotationsCopyJob {
-                drawing: source.drawing,
+                doc: source.doc,
                 ids: selection,
                 clipboard: self.platform.clipboard.clone(),
             };

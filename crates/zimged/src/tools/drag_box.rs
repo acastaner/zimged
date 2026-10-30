@@ -8,10 +8,10 @@ use super::{Pointer, Tool, ToolContext};
 pub struct DragBox {
     /// Builds the Annotation's shape from the dragged box.
     make: fn(Rect) -> AnnotationShape,
-    drawing: Option<Drawing>,
+    drag: Option<Drag>,
 }
 
-struct Drawing {
+struct Drag {
     start: Point,
     id: AnnotationId,
     moved: bool,
@@ -19,10 +19,7 @@ struct Drawing {
 
 impl DragBox {
     pub fn new(make: fn(Rect) -> AnnotationShape) -> Self {
-        Self {
-            make,
-            drawing: None,
-        }
+        Self { make, drag: None }
     }
 }
 
@@ -48,7 +45,7 @@ impl Tool for DragBox {
         let shape = (self.make)(Rect::from_corners(pointer.pos, pointer.pos));
         let id = cx.doc.add(shape, cx.style.clone());
         cx.doc.select([id]);
-        self.drawing = Some(Drawing {
+        self.drag = Some(Drag {
             start: pointer.pos,
             id,
             moved: false,
@@ -56,34 +53,34 @@ impl Tool for DragBox {
     }
 
     fn drag(&mut self, cx: &mut ToolContext<'_>, pointer: Pointer) {
-        let Some(drawing) = &mut self.drawing else {
+        let Some(drag) = &mut self.drag else {
             return;
         };
-        drawing.moved = true;
-        let shape = (self.make)(dragged_box(drawing.start, pointer));
-        if let Some(a) = cx.doc.annotation_mut(drawing.id) {
+        drag.moved = true;
+        let shape = (self.make)(dragged_box(drag.start, pointer));
+        if let Some(a) = cx.doc.annotation_mut(drag.id) {
             a.shape = shape;
         }
     }
 
     fn release(&mut self, cx: &mut ToolContext<'_>, pointer: Pointer) {
-        let Some(drawing) = self.drawing.take() else {
+        let Some(drag) = self.drag.take() else {
             return;
         };
-        let rect = dragged_box(drawing.start, pointer);
-        if !drawing.moved || (rect.width() < 1.0 && rect.height() < 1.0) {
+        let rect = dragged_box(drag.start, pointer);
+        if !drag.moved || (rect.width() < 1.0 && rect.height() < 1.0) {
             // A click draws nothing.
             cx.doc.cancel_gesture();
             return;
         }
-        if let Some(a) = cx.doc.annotation_mut(drawing.id) {
+        if let Some(a) = cx.doc.annotation_mut(drag.id) {
             a.shape = (self.make)(rect);
         }
         cx.doc.commit_gesture();
     }
 
     fn cancel(&mut self, cx: &mut ToolContext<'_>) {
-        if self.drawing.take().is_some() && cx.doc.in_gesture() {
+        if self.drag.take().is_some() && cx.doc.in_gesture() {
             cx.doc.cancel_gesture();
         }
     }

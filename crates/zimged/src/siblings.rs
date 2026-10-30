@@ -189,7 +189,7 @@ impl Navigation {
             return false;
         };
         let from = self.target.as_deref().unwrap_or(shown);
-        neighbour(list, from, direction).is_some()
+        sibling_towards(list, from, direction).is_some()
     }
 
     /// Move one Sibling forward or back from the Image on screen (or from the pending target).
@@ -198,7 +198,7 @@ impl Navigation {
             return Step::NotReady;
         };
         let from = self.target.as_deref().unwrap_or(shown);
-        let Some(index) = neighbour(list, from, direction) else {
+        let Some(index) = sibling_towards(list, from, direction) else {
             return Step::End(match direction {
                 Direction::Forward => crate::strings::LAST_IMAGE,
                 Direction::Backward => crate::strings::FIRST_IMAGE,
@@ -288,7 +288,7 @@ impl Navigation {
 
 /// The index of the Sibling after (or before) `from`, which may have left the list: `None` at an
 /// end of it.
-fn neighbour(list: &SiblingList, from: &Path, direction: Direction) -> Option<usize> {
+fn sibling_towards(list: &SiblingList, from: &Path, direction: Direction) -> Option<usize> {
     let len = list.len();
     match (list.locate(from), direction) {
         (Ok(i), Direction::Forward) => Some(i + 1).filter(|&i| i < len),
