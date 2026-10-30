@@ -22,7 +22,13 @@ pub fn draw(canvas: &sk::Canvas, shape: &StepCounter, style: &Style, number: u32
         if let Some(fill) = super::fill_paint(style) {
             canvas.draw_circle(centre, radius, &fill);
         }
-        draw_number(canvas, centre, disc.width(), number, number_colour(style.fill));
+        draw_number(
+            canvas,
+            centre,
+            disc.width(),
+            number,
+            number_colour(style.fill),
+        );
     });
 }
 
@@ -31,7 +37,11 @@ fn number_colour(fill: Option<Rgba>) -> Rgba {
     match fill {
         Some(c) if c.a >= 128 => {
             let luma = 0.299 * f32::from(c.r) + 0.587 * f32::from(c.g) + 0.114 * f32::from(c.b);
-            if luma < 160.0 { Rgba::WHITE } else { Rgba::BLACK }
+            if luma < 160.0 {
+                Rgba::WHITE
+            } else {
+                Rgba::BLACK
+            }
         }
         _ => Rgba::BLACK,
     }
@@ -52,10 +62,7 @@ fn draw_number(canvas: &sk::Canvas, centre: (f32, f32), diameter: f32, number: u
     }
     // Centre the digits' ink, not their advance box.
     let (_, ink) = font.measure_str(&text, None);
-    let origin = (
-        centre.0 - ink.center_x(),
-        centre.1 - ink.center_y(),
-    );
+    let origin = (centre.0 - ink.center_x(), centre.1 - ink.center_y());
     let mut paint = sk::Paint::default();
     paint.set_anti_alias(true);
     paint.set_color(crate::color(colour));
@@ -73,9 +80,6 @@ fn typeface() -> Option<sk::Typeface> {
 fn load_typeface() -> Option<sk::Typeface> {
     // The custom empty manager reads font data without scanning system fonts; it needs FreeType,
     // which Skia lacks on Windows, where the system manager loads data just as well.
-    let manager = sk::FontMgr::custom_empty().unwrap_or_else(sk::FontMgr::new);
-    manager.new_from_data(
-        sk::Data::new_copy(epaint_default_fonts::UBUNTU_LIGHT),
-        None,
-    )
+    let manager = sk::FontMgr::custom_empty().unwrap_or_default();
+    manager.new_from_data(sk::Data::new_copy(epaint_default_fonts::UBUNTU_LIGHT), None)
 }

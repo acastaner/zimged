@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use zimged_core::Property;
+use zimged_core::{Property, Restack};
 
 use crate::tools::ToolId;
 
@@ -19,13 +19,31 @@ pub enum Command {
     Undo,
     /// Ctrl+Shift+Z or Ctrl+Y.
     Redo,
-    /// Delete (§4.2): remove the selected Annotations. With nothing selected it trashes the file
-    /// (#22).
+    /// Delete (§3.1, §4.2): remove the selected Annotations; with nothing selected, move the file
+    /// to the system trash and show the next Sibling (#22).
     Delete,
     /// A property-bar change (§4.3): restyles the selection, or sets the active tool's default
     /// when nothing is selected. `merge` folds it into the previous step when that changed the same
     /// property on the same Annotations (one widget interaction is one step).
     SetProperty { property: Property, merge: bool },
+    /// Enter or Apply with the crop tool: crop the Image to the region (§4.7).
+    ApplyCrop,
+    /// Cancel with the crop tool: drop the region and go back to the select tool (Esc does the
+    /// same through `SelectTool`).
+    CancelCrop,
+    /// Image › Rotate left / Rotate right (§4.7): turn the Image a quarter.
+    Rotate { clockwise: bool },
+    /// Image › Flip horizontal / Flip vertical (§4.7).
+    Flip { horizontal: bool },
+    /// Image › Resize…: open the Resize dialog (§6.4).
+    ShowResizeDialog,
+    /// Resize the Image to this many pixels (the Resize dialog's **Resize**, §4.7).
+    Resize { width: u32, height: u32 },
+    /// Ctrl+D (§4.2): duplicate the selected Annotations, offset by 10 px, without touching the
+    /// clipboard.
+    Duplicate,
+    /// Bring to front / Send to back (property bar), Ctrl+] / Ctrl+[ (§4.2).
+    Restack(Restack),
     /// Show the next Sibling (§3.1: wheel down, →).
     NextSibling,
     /// Show the previous Sibling (§3.1: wheel up, ←).
@@ -46,6 +64,11 @@ pub enum Command {
     ZoomFit,
     /// Enter or leave fullscreen (F11, §2).
     ToggleFullscreen,
+    /// Ctrl+S (§6.1): write the Image back in its own format, or Save As (defaulting to PNG) for a
+    /// read-only format (§5.1).
+    Save,
+    /// Ctrl+Shift+S: the native Save As dialog, offering PNG, JPEG and WebP.
+    SaveAs,
     /// View → *Allow multiple instances* (§8.3, §8.4). Persisted; takes effect at the next start.
     SetAllowMultipleInstances(bool),
 }

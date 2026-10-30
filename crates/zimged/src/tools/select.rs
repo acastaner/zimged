@@ -1,6 +1,9 @@
-//! Select (Esc): click selects, drag moves the selection, the handles resize it.
+//! Select (Esc): click selects, Shift+click adds to the selection (or takes a selected Annotation
+//! out of it), drag moves the selection, the handles resize it, and a drag on empty space draws a
+//! rubber band that selects the Annotations entirely inside it (with Shift, in addition to the
+//! selection).
 //!
-//! Shift+click and the rubber band (#27) and double-click to edit text (#28) go in `press`.
+//! Double-click to edit text (#28) goes in `press`.
 
 use zimged_core::{Affine, AnnotationId, AnnotationShape, Handle, Point, Rect, Shape};
 
@@ -22,11 +25,22 @@ enum Action {
     Move {
         start: Point,
         originals: Vec<(AnnotationId, AnnotationShape)>,
+        /// Shift+press on an already selected Annotation: a click (no movement) takes it out of
+        /// the selection instead of moving anything.
+        deselect_on_click: Option<AnnotationId>,
+        moved: bool,
     },
     Resize {
         handle: Handle,
         bounds: Rect,
         originals: Vec<(AnnotationId, AnnotationShape)>,
+    },
+    /// A drag on empty space. `base` stays selected besides the enclosed Annotations (the
+    /// previous selection with Shift, nothing without).
+    RubberBand {
+        start: Point,
+        to: Point,
+        base: Vec<AnnotationId>,
     },
 }
 
@@ -50,9 +64,16 @@ fn apply(cx: &mut ToolContext<'_>, originals: &[(AnnotationId, AnnotationShape)]
     }
 }
 
+/// Is `inner` entirely inside the rubber band?
+fn encloses(band: Rect, inner: Rect) -> bool {
+    band.contains(inner.min) && band.contains(inner.max)
+}
+
 impl Tool for Select {
     fn press(&mut self, cx: &mut ToolContext<'_>, pointer: Pointer) {
         let p = pointer.pos;
+        let shift = pointer.modifiers.shift;
+        // Handles win even with Shift (Shift+corner handle unlocks an Inset's aspect ratio, §4.6).
         if let Some(bounds) = cx.doc.selection_bounds()
             && let Some(handle) = handle_at(bounds, p, cx.image_per_point)
         {
@@ -66,25 +87,47 @@ impl Tool for Select {
         }
         match cx.doc.hit_test(p, HIT_SLOP * cx.image_per_point) {
             Some(id) => {
-                if !cx.doc.is_selected(id) {
+                let already = cx.doc.is_selected(id);
+                if shift && !already {
+                    let mut ids = cx.doc.selection().to_vec();
+                    ids.push(id);
+                    cx.doc.select(ids);
+                } else if !already {
                     cx.doc.select([id]);
                 }
                 self.action = Some(Action::Move {
                     start: p,
                     originals: selected_shapes(cx),
+                    deselect_on_click: (shift && already).then_some(id),
+                    moved: false,
                 });
                 cx.doc.begin_gesture();
             }
             None => {
-                cx.doc.clear_selection();
-                self.action = None;
+                let base = if shift {
+                    cx.doc.selection().to_vec()
+                } else {
+                    cx.doc.clear_selection();
+                    Vec::new()
+                };
+                self.action = Some(Action::RubberBand {
+                    start: p,
+                    to: p,
+                    base,
+                });
             }
         }
     }
 
     fn drag(&mut self, cx: &mut ToolContext<'_>, pointer: Pointer) {
-        match &self.action {
-            Some(Action::Move { start, originals }) => {
+        match &mut self.action {
+            Some(Action::Move {
+                start,
+                originals,
+                moved,
+                ..
+            }) => {
+                *moved |= pointer.pos != *start;
                 let t = Affine::translate(pointer.pos - *start);
                 apply(cx, originals, &t);
             }
@@ -97,15 +140,54 @@ impl Tool for Select {
                 let t = Affine::rect_to_rect(*bounds, to);
                 apply(cx, originals, &t);
             }
+            Some(Action::RubberBand { start, to, base }) => {
+                *to = pointer.pos;
+                let band = Rect::from_corners(*start, *to);
+                let enclosed: Vec<AnnotationId> = cx
+                    .doc
+                    .annotations()
+                    .iter()
+                    .filter(|a| !base.contains(&a.id) && encloses(band, a.bounds()))
+                    .map(|a| a.id)
+                    .collect();
+                cx.doc.select(base.iter().copied().chain(enclosed));
+            }
             None => {}
         }
     }
 
     fn release(&mut self, cx: &mut ToolContext<'_>, pointer: Pointer) {
-        if self.action.is_some() {
-            self.drag(cx, pointer);
-            self.action = None;
-            cx.doc.commit_gesture();
+        if self.action.is_none() {
+            return;
+        }
+        self.drag(cx, pointer);
+        match self.action.take() {
+            Some(Action::RubberBand { .. }) | None => {}
+            Some(Action::Move {
+                deselect_on_click: Some(id),
+                moved: false,
+                ..
+            }) => {
+                cx.doc.cancel_gesture();
+                let rest: Vec<AnnotationId> = cx
+                    .doc
+                    .selection()
+                    .iter()
+                    .copied()
+                    .filter(|s| *s != id)
+                    .collect();
+                cx.doc.select(rest);
+            }
+            Some(Action::Move { .. } | Action::Resize { .. }) => {
+                cx.doc.commit_gesture();
+            }
+        }
+    }
+
+    fn rubber_band(&self) -> Option<Rect> {
+        match &self.action {
+            Some(Action::RubberBand { start, to, .. }) => Some(Rect::from_corners(*start, *to)),
+            _ => None,
         }
     }
 

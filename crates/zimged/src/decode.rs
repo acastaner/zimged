@@ -36,7 +36,7 @@ pub struct Pending<T> {
 
 impl<T: Send + 'static> Pending<T> {
     /// Run `job` on `path` on a new thread.
-    fn spawn_job(
+    pub(crate) fn spawn_job(
         path: PathBuf,
         thread_name: &str,
         job: impl FnOnce(&Path) -> T + Send + 'static,
@@ -112,20 +112,23 @@ impl PendingDecode {
 impl PendingFullDecode {
     /// Start decoding `path` at full resolution.
     pub fn spawn_full(path: PathBuf) -> Self {
-        Self::spawn_job(path, "full-decode", |path| {
-            zimged_codec::decode(path).map(|d| {
-                // Oriented and colour-converted like the display decode, but not reduced.
-                let size = d.size();
-                let image = d.into_display(size);
-                Pixels {
-                    width: image.size.width,
-                    height: image.size.height,
-                    data: match image.pixels {
-                        zimged_codec::Pixels::Rgb(rgb) => PixelData::Rgb(rgb),
-                        zimged_codec::Pixels::Rgba(rgba) => PixelData::Rgba(rgba),
-                    },
-                }
-            })
-        })
+        Self::spawn_job(path, "full-decode", decode_full)
     }
+}
+
+/// Decode `path` at full resolution: oriented and colour-converted like the display decode, but
+/// not reduced.
+pub(crate) fn decode_full(path: &Path) -> FullDecodeResult {
+    zimged_codec::decode(path).map(|d| {
+        let size = d.size();
+        let image = d.into_display(size);
+        Pixels {
+            width: image.size.width,
+            height: image.size.height,
+            data: match image.pixels {
+                zimged_codec::Pixels::Rgb(rgb) => PixelData::Rgb(rgb),
+                zimged_codec::Pixels::Rgba(rgba) => PixelData::Rgba(rgba),
+            },
+        }
+    })
 }

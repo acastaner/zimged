@@ -107,6 +107,13 @@ impl Rect {
         }
     }
 
+    /// The overlap of two rectangles, `None` when they don't overlap (touching edges don't).
+    pub fn intersect(&self, other: &Rect) -> Option<Self> {
+        let min = Point::new(self.min.x.max(other.min.x), self.min.y.max(other.min.y));
+        let max = Point::new(self.max.x.min(other.max.x), self.max.y.min(other.max.y));
+        (min.x < max.x && min.y < max.y).then_some(Self { min, max })
+    }
+
     /// Where a handle sits on this rectangle.
     pub fn handle_position(&self, handle: Handle) -> Point {
         let (u, v) = handle.anchor();

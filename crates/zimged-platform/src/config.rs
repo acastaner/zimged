@@ -5,6 +5,7 @@
 //! is set aside as `config.toml.bad` and zimged starts with the defaults. Writes go through
 //! [`ConfigStore::write`], which replaces the file atomically; the app debounces them.
 
+use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -179,6 +180,10 @@ pub struct Config {
     pub magnify_factor: f32,
     // Tables come after the plain keys in TOML.
     pub window: WindowConfig,
+    /// `tools.<tool>`: each tool's last style (§4.3), keyed by the tool's config name
+    /// (`rectangle`, `step_counter`, …). Kept as raw tables: the editor reads them as styles, and
+    /// one it can't read falls back to that tool's defaults without making the file corrupt.
+    pub tools: BTreeMap<String, toml::Table>,
 }
 
 impl Default for Config {
@@ -188,6 +193,7 @@ impl Default for Config {
             jpeg_quality: 92,
             magnify_factor: 2.0,
             window: WindowConfig::default(),
+            tools: BTreeMap::new(),
         }
     }
 }

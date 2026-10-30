@@ -71,6 +71,20 @@ fn is_srgb(profile: &Profile, srgb: &Profile) -> bool {
             })
 }
 
+/// The ICC profile a save writes for pixels decoded from a file tagged `icc` (§5.3): the original
+/// when the decode left the pixels in it (sRGB already), sRGB when they were converted, or when
+/// the profile isn't an RGB one (the decoder turned those pixels into RGB, shown as sRGB). An
+/// unreadable profile is dropped: the pixels were shown as sRGB.
+pub(crate) fn output_profile(icc: Option<&[u8]>) -> Option<Vec<u8>> {
+    let icc = icc?;
+    let profile = Profile::new_icc(icc).ok()?;
+    let srgb = Profile::new_srgb();
+    if profile.color_space() == lcms2::ColorSpaceSignature::RgbData && is_srgb(&profile, &srgb) {
+        return Some(icc.to_vec());
+    }
+    srgb.icc().ok()
+}
+
 fn xyz(tag: Tag<'_>) -> Option<CIEXYZ> {
     match tag {
         Tag::CIEXYZ(xyz) => Some(*xyz),

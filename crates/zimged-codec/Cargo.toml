@@ -17,4 +17,6 @@ avif = ["dep:libavif-sys"]
 image.workspace = true
 fast_image_resize.workspace = true
 lcms2.workspace = true
+webp.workspace = true
+tempfile.workspace = true
 libavif-sys = { workspace = true, optional = true }

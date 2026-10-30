@@ -199,6 +199,44 @@ fn a_size_set_with_nothing_selected_applies_to_the_next_counter() {
 }
 
 #[test]
+fn duplicating_counters_numbers_the_copies_next_in_order() {
+    let mut app = app_with_three();
+    app.press(Key::Escape);
+    app.click_px((60.0, 50.0));
+    app.harness.state_mut().execute(Command::Duplicate);
+    app.settle();
+    assert_eq!(numbers(&app), [1, 2, 3, 4]);
+    assert_eq!(centres(&app)[3], (70, 60));
+
+    app.key_with(Modifiers::COMMAND, Key::Z);
+    assert_eq!(numbers(&app), [1, 2, 3]);
+}
+
+// ---- Image operations (§4.7) ----
+
+#[test]
+fn counters_follow_rotate_upright_and_scale_with_resize() {
+    let mut app = app_with_tool();
+    app.click_px((60.0, 50.0));
+    app.harness
+        .state_mut()
+        .execute(Command::Rotate { clockwise: true });
+    app.settle();
+    // 320×240 turned clockwise: (x, y) → (240 − y, x) in continuous Image coordinates.
+    assert_eq!(centres(&app), [(190, 60)]);
+    assert_eq!(app.selection_bounds(), Some([175, 45, 205, 75]));
+
+    app.harness.state_mut().execute(Command::Resize {
+        width: 480,
+        height: 640,
+    });
+    app.settle();
+    assert_eq!(centres(&app), [(380, 120)]);
+    assert_eq!(app.doc().annotations()[0].style.counter_size, 60.0);
+    assert_eq!(numbers(&app), [1]);
+}
+
+#[test]
 fn a_rectangle_does_not_take_a_number_and_counters_skip_it() {
     let mut app = app_with_tool();
     app.click_px((60.0, 50.0));
