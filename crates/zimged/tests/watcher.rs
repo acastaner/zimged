@@ -79,7 +79,11 @@ fn the_current_file_deleted_from_outside_stays_open_and_unsaved() {
     // No longer a Sibling, but it keeps its place between a.jpg and c.jpg.
     assert_eq!(app.status("Sibling position"), "– / 2");
 
+    // Treated as unsaved: moving on asks first (#35, §6.4); Discard lets it go.
     app.press(Key::ArrowRight);
+    assert_eq!(app.status("File name"), "b.jpg •");
+    app.control("Discard").click();
+    app.settle();
     assert_eq!(app.status("File name"), "c.jpg");
     assert_eq!(app.status("Sibling position"), "2 / 2");
 }
