@@ -1,0 +1,140 @@
+//! The directory scan (§3.2): the Image's Siblings, in the file manager's order.
+
+use std::cmp::Ordering;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use crate::order::NameOrder;
+
+/// One Sibling: its path and the name it's ordered by.
+#[derive(Clone, Debug)]
+pub struct Sibling {
+    pub path: PathBuf,
+    /// The file name as the file manager shows it (lossily decoded).
+    pub name: String,
+}
+
+/// The Siblings of a directory, in order.
+pub struct SiblingList {
+    dir: PathBuf,
+    siblings: Vec<Sibling>,
+    order: Arc<dyn NameOrder>,
+}
+
+impl SiblingList {
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    pub fn len(&self) -> usize {
+        self.siblings.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.siblings.is_empty()
+    }
+
+    pub fn get(&self, index: usize) -> Option<&Sibling> {
+        self.siblings.get(index)
+    }
+
+    /// Where `path` is in the list: `Ok(index)`, or `Err(index)` where it would be if it were a
+    /// Sibling (a hidden file, an unsupported extension, a file from another directory).
+    pub fn locate(&self, path: &Path) -> Result<usize, usize> {
+        if let Some(index) = self.siblings.iter().position(|s| s.path == path) {
+            return Ok(index);
+        }
+        let name = display_name(path);
+        let index = self
+            .siblings
+            .partition_point(|s| self.order.compare(&s.name, &name) != Ordering::Greater);
+        Err(index)
+    }
+}
+
+fn display_name(path: &Path) -> String {
+    path.file_name()
+        .unwrap_or(path.as_os_str())
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Is this file a Sibling candidate: not hidden, with a supported extension (§3.2)?
+fn is_candidate(name: &str, path: &Path) -> bool {
+    !name.starts_with('.') && zimged_codec::has_read_extension(path)
+}
+
+/// Scan `dir` for Siblings and sort them with `order`.
+pub fn scan(dir: &Path, order: Arc<dyn NameOrder>) -> io::Result<SiblingList> {
+    let mut found: Vec<Sibling> = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        let Ok(entry) = entry else { continue };
+        let path = entry.path();
+        let name = display_name(&path);
+        if !is_candidate(&name, &path) {
+            continue;
+        }
+        // The file type comes from the directory listing itself; only symlinks cost a stat.
+        let is_file = match entry.file_type() {
+            Ok(t) if t.is_symlink() => path.is_file(),
+            Ok(t) => t.is_file(),
+            Err(_) => false,
+        };
+        if is_file {
+            found.push(Sibling { path, name });
+        }
+    }
+    let names: Vec<String> = found.iter().map(|s| s.name.clone()).collect();
+    let mut taken: Vec<Option<Sibling>> = found.into_iter().map(Some).collect();
+    let siblings = order
+        .sorted_indices(&names)
+        .into_iter()
+        .filter_map(|i| taken[i].take())
+        .collect();
+    Ok(SiblingList {
+        dir: dir.to_owned(),
+        siblings,
+        order,
+    })
+}
+
+type ScanResult = io::Result<SiblingList>;
+
+/// A scan on the directory thread (§7.3), polled by the UI.
+pub struct PendingScan {
+    dir: PathBuf,
+    slot: Arc<Mutex<Option<ScanResult>>>,
+}
+
+impl PendingScan {
+    /// Scan `dir` on a new thread; `order` is built on that thread (opening a locale isn't free).
+    /// `wake` is called when the result is ready.
+    pub fn spawn(
+        dir: PathBuf,
+        order: impl FnOnce() -> Box<dyn NameOrder> + Send + 'static,
+        wake: impl FnOnce() + Send + 'static,
+    ) -> Self {
+        let slot = Arc::new(Mutex::new(None));
+        let thread_slot = Arc::clone(&slot);
+        let thread_dir = dir.clone();
+        std::thread::Builder::new()
+            .name("directory".into())
+            .spawn(move || {
+                let result = scan(&thread_dir, Arc::from(order()));
+                *thread_slot.lock().unwrap() = Some(result);
+                wake();
+            })
+            .expect("spawn directory thread");
+        Self { dir, slot }
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// The result, once the scan has finished.
+    pub fn take(&self) -> Option<ScanResult> {
+        self.slot.lock().unwrap().take()
+    }
+}

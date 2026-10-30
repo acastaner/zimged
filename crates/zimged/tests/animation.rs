@@ -95,6 +95,28 @@ fn an_animated_webp_plays_at_its_own_timing() {
 }
 
 #[test]
+fn moving_to_a_sibling_stops_the_animation_and_frees_its_frames() {
+    let mut app = TestApp::new();
+    app.add_fixture_as("anim-partial-64x48.gif", "a.gif");
+    app.add_fixture_as("png-64x48.png", "b.png");
+    app.open(app.dir.path().join("a.gif"));
+    assert_eq!(app.harness.state().animation_frames(), 2);
+
+    app.press(egui::Key::ArrowRight);
+    assert_eq!(app.status("File name"), "b.png");
+    assert_eq!(app.status_field("Animation"), None);
+    assert_eq!(app.harness.state().animation_frames(), 0);
+    let changes = watch(&mut app, 0.5, (8, 24), (56, 24), COLOUR);
+    assert!(changes.is_empty(), "{changes:?}");
+
+    // Back again: it plays from the start.
+    app.press(egui::Key::ArrowLeft);
+    assert_eq!(app.status_field("Animation").as_deref(), Some(ANIMATED));
+    let changes = watch(&mut app, 2.0, (8, 24), (56, 24), COLOUR);
+    assert_plays_its_own_timing(&changes);
+}
+
+#[test]
 fn a_still_webp_has_no_animation_state_and_stays_still() {
     let mut app = TestApp::open_fixture("webp-64x48.webp");
     assert_eq!(app.status_field("Animation"), None);

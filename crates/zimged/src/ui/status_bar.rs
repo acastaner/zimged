@@ -35,13 +35,19 @@ impl AnimationState {
         }
     }
 }
+pub const LABEL_POSITION: &str = "Sibling position";
+pub const LABEL_MESSAGE: &str = "Message";
 
 /// What the status bar shows this frame. `None` fields are left out.
 pub struct StatusBar<'a> {
     pub file_name: Option<&'a str>,
+    /// `n / N`, or `? / ?` while the Siblings are being scanned.
+    pub position: Option<String>,
     pub pixel_size: Option<Size>,
     pub zoom: Option<Zoom>,
     pub animation: Option<AnimationState>,
+    /// The transient message slot ("Last image in folder", …).
+    pub message: Option<&'a str>,
 }
 
 pub fn show(ui: &mut egui::Ui, bar: &StatusBar<'_>) {
@@ -54,7 +60,9 @@ pub fn show(ui: &mut egui::Ui, bar: &StatusBar<'_>) {
             if let Some(name) = bar.file_name {
                 field(ui, LABEL_FILE_NAME, name);
             }
-            // The Sibling position `n / N` goes here (#15).
+            if let Some(position) = &bar.position {
+                field(ui, LABEL_POSITION, position);
+            }
             if let Some(size) = bar.pixel_size {
                 field(ui, LABEL_PIXEL_SIZE, &size.to_string());
             }
@@ -64,7 +72,9 @@ pub fn show(ui: &mut egui::Ui, bar: &StatusBar<'_>) {
             if let Some(animation) = bar.animation {
                 animation_field(ui, animation);
             }
-            // Then the transient message slot.
+            if let Some(message) = bar.message {
+                field(ui, LABEL_MESSAGE, message);
+            }
         });
     });
 }
@@ -83,11 +93,16 @@ fn animation_field(ui: &mut egui::Ui, state: AnimationState) {
         match state {
             AnimationState::Playing => {
                 let points = vec![rect.left_top(), rect.right_center(), rect.left_bottom()];
-                ui.painter()
-                    .add(egui::Shape::convex_polygon(points, colour, egui::Stroke::NONE));
+                ui.painter().add(egui::Shape::convex_polygon(
+                    points,
+                    colour,
+                    egui::Stroke::NONE,
+                ));
             }
         }
-        let response = ui.label(state.drawn_text()).accessible_name(LABEL_ANIMATION);
+        let response = ui
+            .label(state.drawn_text())
+            .accessible_name(LABEL_ANIMATION);
         ui.ctx().accesskit_node_builder(response.id, |node| {
             node.set_value(state.text());
         });

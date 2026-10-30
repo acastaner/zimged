@@ -82,8 +82,16 @@ impl Animation {
         !self.decoding && !self.is_animated()
     }
 
+    /// How many frames have been decoded so far.
+    pub fn frame_count(&self) -> usize {
+        self.frames.len()
+    }
+
     /// Frame 1's pixels, once decoded.
-    #[expect(dead_code, reason = "#38 puts frame 1 back on screen when an edit freezes")]
+    #[expect(
+        dead_code,
+        reason = "#38 puts frame 1 back on screen when an edit freezes"
+    )]
     pub fn first_frame(&self) -> Option<&Arc<egui::ColorImage>> {
         self.frames.first().map(|(pixels, _)| pixels)
     }

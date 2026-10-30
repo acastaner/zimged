@@ -1,14 +1,17 @@
-//! Input → commands: the keyboard shortcuts (§6.1), zoom (§3.1) and files dropped onto the window
-//! (§3.5).
+//! Input → commands: the keyboard shortcuts (§6.1), Sibling navigation and zoom (§3.1) and files
+//! dropped onto the window (§3.5).
 //!
 //! Each frame, [`commands`] turns this frame's input into [`Command`]s for
 //! [`crate::ZimgedApp::execute`]. Widgets don't act on keys or drops themselves.
 
-use egui::{Key, KeyboardShortcut, Modifiers};
+use egui::{Event, Key, KeyboardShortcut, Modifiers, MouseWheelUnit};
 
 use crate::Command;
 
 const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
+
+/// Points of smooth (touchpad) scrolling that count as one wheel notch.
+const POINTS_PER_STEP: f32 = 50.0;
 
 /// The commands this frame's input asks for, in order. `canvas` is the canvas as of the last frame:
 /// Ctrl+wheel only zooms while the pointer is over it.
@@ -36,6 +39,13 @@ pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>) -> Vec<Command>
             if input.consume_key(Modifiers::NONE, Key::F11) {
                 commands.push(Command::ToggleFullscreen);
             }
+            // → / ← move through the Siblings.
+            if input.consume_key(Modifiers::NONE, Key::ArrowRight) {
+                commands.push(Command::NextSibling);
+            }
+            if input.consume_key(Modifiers::NONE, Key::ArrowLeft) {
+                commands.push(Command::PreviousSibling);
+            }
         }
         // Ctrl+wheel (egui's zoom modifier) and touchpad pinch.
         let factor = input.zoom_delta();
@@ -53,5 +63,46 @@ pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>) -> Vec<Command>
             commands.push(Command::Open(path));
         }
     });
+    wheel(ctx, &mut commands);
     commands
+}
+
+/// §3.1: wheel down is the next Sibling, wheel up the previous one. Ctrl+wheel zooms instead
+/// (above) and Shift+wheel pans ([`crate::pan`], #43).
+fn wheel(ctx: &egui::Context, commands: &mut Vec<Command>) {
+    let id = egui::Id::unique("zimged_wheel_points");
+    let mut points: f32 = ctx.data(|d| d.get_temp(id)).unwrap_or(0.0);
+    ctx.input(|input| {
+        for event in &input.events {
+            let Event::MouseWheel {
+                unit,
+                delta,
+                modifiers,
+                ..
+            } = event
+            else {
+                continue;
+            };
+            if modifiers.ctrl || modifiers.command || modifiers.shift || delta.y == 0.0 {
+                continue;
+            }
+            // A positive y moves the content down: the wheel turned up.
+            let steps = match unit {
+                MouseWheelUnit::Line | MouseWheelUnit::Page => -delta.y.signum() as i32,
+                MouseWheelUnit::Point => {
+                    points += delta.y;
+                    let steps = -(points / POINTS_PER_STEP).trunc() as i32;
+                    points %= POINTS_PER_STEP;
+                    steps
+                }
+            };
+            let command = if steps > 0 {
+                Command::NextSibling
+            } else {
+                Command::PreviousSibling
+            };
+            commands.extend(std::iter::repeat_n(command, steps.unsigned_abs() as usize));
+        }
+    });
+    ctx.data_mut(|d| d.insert_temp(id, points));
 }
