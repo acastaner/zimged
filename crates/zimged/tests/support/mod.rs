@@ -86,6 +86,15 @@ pub fn assert_golden_image(actual: &image::RgbaImage, name: &str) {
             )
         })
         .into_rgba8();
+    assert_similar(actual, &expected, name);
+}
+
+/// Compare two images within the golden tolerance (see [`assert_golden_image`]).
+pub fn assert_golden_image_against(actual: &image::RgbaImage, expected: &image::RgbaImage) {
+    assert_similar(actual, expected, "comparison");
+}
+
+fn assert_similar(actual: &image::RgbaImage, expected: &image::RgbaImage, name: &str) {
     assert_eq!(
         expected.dimensions(),
         actual.dimensions(),
@@ -551,18 +560,22 @@ impl TestApp {
     /// Compare the canvas composite (§7.2) with `tests/golden/<name>.png`, within a tolerance.
     /// Set `ZIMGED_UPDATE_GOLDEN=1` to (re)write the golden file instead.
     pub fn assert_golden(&self, name: &str) {
+        assert_golden_image(&self.composite_image(), name);
+    }
+
+    /// The canvas composite (§7.2) as an image (premultiplied; the canvas is opaque).
+    pub fn composite_image(&self) -> image::RgbaImage {
         let composite = self
             .harness
             .state()
             .composite()
             .expect("a Skia composite on the canvas");
-        let actual = image::RgbaImage::from_raw(
+        image::RgbaImage::from_raw(
             composite.width,
             composite.height,
             composite.rgba_premultiplied.clone(),
         )
-        .expect("composite buffer matches its size");
-        assert_golden_image(&actual, name);
+        .expect("composite buffer matches its size")
     }
 
     /// A pixel of the Image on screen, in the display-size decode's coordinates
