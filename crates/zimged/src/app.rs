@@ -10,7 +10,7 @@ use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use zimged_codec::{DisplayImage, Size, fit_within};
-use zimged_core::Document;
+use zimged_core::{Document, Property};
 use zimged_platform::{Arrival, Config, Platform};
 use zimged_render::Composite;
 use zimged_siblings::{Decoded, Direction};
@@ -298,6 +298,11 @@ impl ZimgedApp {
             .set_wake(Box::new(move || ctx.request_repaint()));
         let mut editor = Editor::with_tool_styles(&launch.config.tools);
         editor.set_history_pixel_cap(launch.history_pixel_cap);
+        // §8.3: the highlight tool's magnification is the `magnify_factor` setting.
+        editor.set_tool_default(
+            ToolId::Highlight,
+            Property::Magnification(launch.config.magnify_factor),
+        );
         let from_clipboard = launch.from_clipboard;
         let mut app = Self {
             ctx: cc.egui_ctx.clone(),
@@ -363,6 +368,9 @@ impl ZimgedApp {
             Command::Redo => self.editor.redo(),
             Command::Delete => self.delete(),
             Command::SetProperty { property, merge } => {
+                if let Property::Magnification(factor) = property {
+                    self.set_magnify_factor(factor);
+                }
                 self.editor.set_property(property, merge);
                 // §4.3, §8.3: the tools' defaults persist between runs.
                 let styles = self.editor.tool_styles_config();
@@ -707,6 +715,17 @@ impl ZimgedApp {
     /// (Space and the middle button take precedence over tools).
     pub fn pan_owns_pointer(&self) -> bool {
         self.pan.owns_pointer(&self.ctx)
+    }
+
+    /// A magnification chosen in the property bar (for the selection or the tool) is persisted as
+    /// `magnify_factor` and becomes the highlight tool's default (§4.3, §8.3).
+    fn set_magnify_factor(&mut self, factor: f32) {
+        let mut style = zimged_core::Style::default();
+        style.set(Property::Magnification(factor));
+        let factor = style.magnification;
+        self.editor
+            .set_tool_default(ToolId::Highlight, Property::Magnification(factor));
+        self.update_config(|config| config.magnify_factor = factor);
     }
 
     /// Change the settings and schedule a (debounced) write of `config.toml`.

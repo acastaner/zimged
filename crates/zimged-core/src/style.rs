@@ -30,6 +30,7 @@ impl Rgba {
     pub const RED: Rgba = Rgba::rgb(255, 0, 0);
     pub const WHITE: Rgba = Rgba::rgb(255, 255, 255);
     pub const BLACK: Rgba = Rgba::rgb(0, 0, 0);
+    pub const YELLOW: Rgba = Rgba::rgb(255, 255, 0);
 }
 
 /// `#rrggbb`, or `#rrggbbaa` when not opaque: how colours are written in `config.toml` (§8.3).
@@ -119,6 +120,49 @@ pub struct Style {
     /// An Inset's border (§4.6): `None` is no border; its width is `thickness`.
     #[serde(with = "fill_serde")]
     pub border: Option<Rgba>,
+    pub highlight_mode: HighlightMode,
+    /// The text highlight's colour (multiplied over the region).
+    pub highlight: Rgba,
+    /// The magnify highlight's factor. Not saved with the tool's style: it is the `magnify_factor`
+    /// setting (§8.3), which the app seeds the highlight tool's default from.
+    #[serde(skip)]
+    pub magnification: f32,
+}
+
+/// The highlight's modes (§4.2).
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum HighlightMode {
+    /// A translucent colour multiplied over the region.
+    #[default]
+    Text,
+    /// Everything outside the region is dimmed.
+    Area,
+    /// Everything outside the region is shown in grayscale.
+    Grayscale,
+    /// The region shows what's under it, enlarged.
+    Magnify,
+}
+
+impl HighlightMode {
+    /// In the order the property bar lists them.
+    pub const ALL: [HighlightMode; 4] = [
+        HighlightMode::Text,
+        HighlightMode::Area,
+        HighlightMode::Grayscale,
+        HighlightMode::Magnify,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            HighlightMode::Text => "Text",
+            HighlightMode::Area => "Area",
+            HighlightMode::Grayscale => "Grayscale",
+            HighlightMode::Magnify => "Magnify",
+        }
+    }
 }
 
 /// Which ends of an arrow carry a head (§4.1 A).
@@ -174,6 +218,9 @@ impl Default for Style {
             font_size: 20.0,
             arrowheads: Arrowheads::End,
             border: None,
+            highlight_mode: HighlightMode::Text,
+            highlight: Rgba::YELLOW,
+            magnification: 2.0,
         }
     }
 }
@@ -192,6 +239,9 @@ pub enum PropertyKind {
     FontSize,
     Arrowheads,
     BorderColour,
+    HighlightMode,
+    HighlightColour,
+    Magnification,
 }
 
 /// A style property with its value: one change in the property bar.
@@ -208,6 +258,9 @@ pub enum Property {
     Arrowheads(Arrowheads),
     /// `None` is no border.
     BorderColour(Option<Rgba>),
+    HighlightMode(HighlightMode),
+    HighlightColour(Rgba),
+    Magnification(f32),
 }
 
 impl Property {
@@ -223,6 +276,9 @@ impl Property {
             Property::FontSize(_) => PropertyKind::FontSize,
             Property::Arrowheads(_) => PropertyKind::Arrowheads,
             Property::BorderColour(_) => PropertyKind::BorderColour,
+            Property::HighlightMode(_) => PropertyKind::HighlightMode,
+            Property::HighlightColour(_) => PropertyKind::HighlightColour,
+            Property::Magnification(_) => PropertyKind::Magnification,
         }
     }
 }
@@ -234,6 +290,8 @@ pub const THICKNESS_RANGE: std::ops::RangeInclusive<f32> = 1.0..=40.0;
 pub const COUNTER_SIZE_RANGE: std::ops::RangeInclusive<f32> = 10.0..=200.0;
 /// Font size limits of the property bar, in Image pixels.
 pub const FONT_SIZE_RANGE: std::ops::RangeInclusive<f32> = 6.0..=400.0;
+/// Magnification limits of the property bar.
+pub const MAGNIFICATION_RANGE: std::ops::RangeInclusive<f32> = 1.0..=10.0;
 
 /// The text tool's default font: the platform's sans-serif (fontconfig resolves the alias; where
 /// nothing matches, Skia falls back to the system's default font).
@@ -252,6 +310,9 @@ impl Style {
             PropertyKind::FontSize => Property::FontSize(self.font_size),
             PropertyKind::Arrowheads => Property::Arrowheads(self.arrowheads),
             PropertyKind::BorderColour => Property::BorderColour(self.border),
+            PropertyKind::HighlightMode => Property::HighlightMode(self.highlight_mode),
+            PropertyKind::HighlightColour => Property::HighlightColour(self.highlight),
+            PropertyKind::Magnification => Property::Magnification(self.magnification),
         }
     }
 
@@ -293,6 +354,14 @@ impl Style {
             }
             Property::Arrowheads(a) => self.arrowheads = a,
             Property::BorderColour(c) => self.border = c,
+            Property::HighlightMode(m) => self.highlight_mode = m,
+            Property::HighlightColour(c) => self.highlight = c,
+            Property::Magnification(f) => {
+                if f.is_finite() {
+                    self.magnification =
+                        f.clamp(*MAGNIFICATION_RANGE.start(), *MAGNIFICATION_RANGE.end())
+                }
+            }
         }
     }
 }
