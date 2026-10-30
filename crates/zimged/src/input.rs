@@ -93,6 +93,9 @@ fn editor_keys(input: &mut egui::InputState, commands: &mut Vec<Command>) {
     if input.consume_key(Modifiers::NONE, Key::Delete) {
         commands.push(Command::Delete);
     }
+    if input.consume_key(Modifiers::NONE, Key::Enter) {
+        commands.push(Command::ApplyCrop);
+    }
     for tool in ToolId::ALL {
         if input.consume_key(Modifiers::NONE, tool.key()) {
             commands.push(Command::SelectTool(tool));

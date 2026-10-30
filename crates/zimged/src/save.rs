@@ -20,6 +20,9 @@ pub(crate) struct SaveJob {
     pub drawing: Document,
     /// The file the Image came from: its pixels (when not yet decoded) and metadata.
     pub source: Option<PathBuf>,
+    /// The display-size decode when it is the full resolution: used when the source can't be
+    /// decoded any more (deleted or changed on disk, #21).
+    pub fallback: Option<Arc<egui::ColorImage>>,
     pub target: PathBuf,
     pub format: SaveFormat,
     pub jpeg_quality: u8,
@@ -48,8 +51,18 @@ fn run(job: SaveJob) -> SaveResult {
     let (full, decoded) = match job.drawing.full_resolution() {
         Some(full) => (full.clone(), None),
         None => {
-            let source = job.source.as_deref().ok_or("no pixels to save")?;
-            let full = Arc::new(decode_full(source).map_err(|e| e.to_string())?);
+            let decoded = job
+                .source
+                .as_deref()
+                .ok_or_else(|| "no pixels to save".to_owned())
+                .and_then(|source| decode_full(source).map_err(|e| e.to_string()))
+                .ok()
+                .filter(|p| (p.width, p.height) == (job.drawing.width(), job.drawing.height()));
+            let full = match (decoded, &job.fallback) {
+                (Some(pixels), _) => Arc::new(pixels),
+                (None, Some(fallback)) => Arc::new(from_color_image(fallback)),
+                (None, None) => return Err("the file changed or went away on disk".into()),
+            };
             (full.clone(), Some(full))
         }
     };
@@ -89,6 +102,34 @@ fn flatten(doc: &Document, full: &Pixels) -> Composite {
         },
     };
     Renderer::new().flatten(doc, &source)
+}
+
+/// egui's (premultiplied) pixels as full-resolution Image pixels.
+fn from_color_image(image: &egui::ColorImage) -> Pixels {
+    let [width, height] = image.size;
+    let opaque = image.pixels.iter().all(|p| p.a() == 255);
+    let data = if opaque {
+        PixelData::Rgb(
+            image
+                .pixels
+                .iter()
+                .flat_map(|p| [p.r(), p.g(), p.b()])
+                .collect(),
+        )
+    } else {
+        PixelData::Rgba(
+            image
+                .pixels
+                .iter()
+                .flat_map(|p| p.to_srgba_unmultiplied())
+                .collect(),
+        )
+    };
+    Pixels {
+        width: width as u32,
+        height: height as u32,
+        data,
+    }
 }
 
 /// The composite (premultiplied RGBA) as the encoders take it: RGB when opaque, straight RGBA

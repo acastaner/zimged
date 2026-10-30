@@ -10,6 +10,31 @@ use crate::view::Zoom;
 pub const LABEL_FILE_NAME: &str = "File name";
 pub const LABEL_PIXEL_SIZE: &str = "Pixel size";
 pub const LABEL_ZOOM: &str = "Zoom";
+pub const LABEL_ANIMATION: &str = "Animation";
+
+/// The animation state of an animated Image (§3.4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnimationState {
+    Playing,
+    // #38: `Frozen` ("⏸ frozen at frame 1"), once an edit freezes it.
+}
+
+impl AnimationState {
+    /// The spec's text (§2), which screen readers get.
+    fn text(self) -> &'static str {
+        match self {
+            Self::Playing => "▶ animated",
+        }
+    }
+
+    /// The text drawn beside the painted symbol: the default fonts have no ▶ or ⏸, and egui
+    /// panics on a missing glyph.
+    fn drawn_text(self) -> &'static str {
+        match self {
+            Self::Playing => "animated",
+        }
+    }
+}
 pub const LABEL_POSITION: &str = "Sibling position";
 pub const LABEL_MESSAGE: &str = "Message";
 
@@ -22,6 +47,7 @@ pub struct StatusBar<'a> {
     pub position: Option<String>,
     pub pixel_size: Option<Size>,
     pub zoom: Option<Zoom>,
+    pub animation: Option<AnimationState>,
     /// The transient message slot ("Last image in folder", "View only: …", …).
     pub message: Option<&'a str>,
 }
@@ -46,7 +72,9 @@ pub fn show(ui: &mut egui::Ui, bar: &StatusBar<'_>) {
             if let Some(zoom) = bar.zoom {
                 field(ui, LABEL_ZOOM, &zoom.label());
             }
-            // The animation state goes here.
+            if let Some(animation) = bar.animation {
+                animation_field(ui, animation);
+            }
             if let Some(message) = bar.message {
                 field(ui, LABEL_MESSAGE, message);
             }
@@ -56,4 +84,30 @@ pub fn show(ui: &mut egui::Ui, bar: &StatusBar<'_>) {
 
 fn field(ui: &mut egui::Ui, label: &str, text: &str) {
     ui.label(text).accessible_name(label);
+}
+
+/// The animation state: a painted symbol, then text. Its accessible value is the spec's text.
+fn animation_field(ui: &mut egui::Ui, state: AnimationState) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        let side = ui.text_style_height(&egui::TextStyle::Body) * 0.7;
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
+        let colour = ui.visuals().text_color();
+        match state {
+            AnimationState::Playing => {
+                let points = vec![rect.left_top(), rect.right_center(), rect.left_bottom()];
+                ui.painter().add(egui::Shape::convex_polygon(
+                    points,
+                    colour,
+                    egui::Stroke::NONE,
+                ));
+            }
+        }
+        let response = ui
+            .label(state.drawn_text())
+            .accessible_name(LABEL_ANIMATION);
+        ui.ctx().accesskit_node_builder(response.id, |node| {
+            node.set_value(state.text());
+        });
+    });
 }

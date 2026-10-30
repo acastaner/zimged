@@ -19,13 +19,18 @@ pub enum Command {
     Undo,
     /// Ctrl+Shift+Z or Ctrl+Y.
     Redo,
-    /// Delete (§4.2): remove the selected Annotations. With nothing selected it trashes the file
-    /// (#22).
+    /// Delete (§3.1, §4.2): remove the selected Annotations; with nothing selected, move the file
+    /// to the system trash and show the next Sibling (#22).
     Delete,
     /// A property-bar change (§4.3): restyles the selection, or sets the active tool's default
     /// when nothing is selected. `merge` folds it into the previous step when that changed the same
     /// property on the same Annotations (one widget interaction is one step).
     SetProperty { property: Property, merge: bool },
+    /// Enter or Apply with the crop tool: crop the Image to the region (§4.7).
+    ApplyCrop,
+    /// Cancel with the crop tool: drop the region and go back to the select tool (Esc does the
+    /// same through `SelectTool`).
+    CancelCrop,
     /// Show the next Sibling (§3.1: wheel down, →).
     NextSibling,
     /// Show the previous Sibling (§3.1: wheel up, ←).

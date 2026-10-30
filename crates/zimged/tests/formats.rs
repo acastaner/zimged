@@ -53,9 +53,9 @@ fn webp_opens() {
 }
 
 #[test]
-fn gif_opens_on_its_first_frame() {
-    // The second frame is red; the first is COLOUR.
-    assert_opens_flat("anim-64x48.gif", "64×48");
+fn gif_opens() {
+    // Animated GIFs play (§3.4, tests/animation.rs), so the pixels on screen change.
+    assert_opens_flat("gif-64x48.gif", "64×48");
 }
 
 #[test]

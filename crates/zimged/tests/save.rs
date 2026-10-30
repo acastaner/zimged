@@ -413,3 +413,37 @@ fn a_failed_save_says_why_and_keeps_the_marker() {
     let message = app.status("Message");
     assert!(message.starts_with("Can't save out.png: "), "{message}");
 }
+
+// ---- With other features ----
+
+#[test]
+fn saving_after_a_crop_writes_the_cropped_image() {
+    // After an Image operation the Document's pixels are the Image (#32): Flatten uses them.
+    let (mut app, _) = app_with(None);
+    let path = open(&mut app, "small-320x240.jpg");
+    let original = image::open(&path).unwrap().into_rgb8();
+    app.press(Key::C);
+    app.drag_px((40.0, 30.0), (240.0, 180.0));
+    app.press(Key::Enter);
+    save(&mut app);
+
+    let saved = image::open(&path).unwrap().into_rgb8();
+    assert_eq!(saved.dimensions(), (200, 150));
+    let (a, b) = (saved.get_pixel(100, 75).0, original.get_pixel(140, 105).0);
+    assert!(close(a, b, 12), "{a:?} vs {b:?}");
+    assert_eq!(file_name_field(&app), "small-320x240.jpg");
+}
+
+#[test]
+fn saving_a_file_deleted_from_outside_writes_it_back_and_clears_the_marker() {
+    let mut app = TestApp::open_in_folder("small-320x240.jpg", &["a.jpg", "b.jpg"], "b.jpg");
+    let path = app.dir.path().join("b.jpg");
+    std::fs::remove_file(&path).unwrap();
+    app.wait_for_status("File name", "b.jpg •");
+
+    save(&mut app);
+
+    assert!(path.exists());
+    assert_eq!(file_name_field(&app), "b.jpg");
+    assert!(!app.harness.state().is_modified());
+}

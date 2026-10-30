@@ -41,6 +41,45 @@ pub struct Style {
     /// Line thickness in Image pixels.
     pub thickness: f32,
     pub shadow: bool,
+    /// Which ends of an arrow carry a head.
+    pub arrowheads: Arrowheads,
+}
+
+/// Which ends of an arrow carry a head (§4.1 A).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Arrowheads {
+    #[default]
+    End,
+    Start,
+    Both,
+    None,
+}
+
+impl Arrowheads {
+    /// In the order the property bar lists them.
+    pub const ALL: [Arrowheads; 4] = [
+        Arrowheads::End,
+        Arrowheads::Start,
+        Arrowheads::Both,
+        Arrowheads::None,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Arrowheads::End => "End",
+            Arrowheads::Start => "Start",
+            Arrowheads::Both => "Both",
+            Arrowheads::None => "None",
+        }
+    }
+
+    pub fn at_start(self) -> bool {
+        matches!(self, Arrowheads::Start | Arrowheads::Both)
+    }
+
+    pub fn at_end(self) -> bool {
+        matches!(self, Arrowheads::End | Arrowheads::Both)
+    }
 }
 
 impl Default for Style {
@@ -51,6 +90,7 @@ impl Default for Style {
             fill: None,
             thickness: 3.0,
             shadow: true,
+            arrowheads: Arrowheads::End,
         }
     }
 }
@@ -62,6 +102,7 @@ pub enum PropertyKind {
     FillColour,
     Thickness,
     Shadow,
+    Arrowheads,
 }
 
 /// A style property with its value: one change in the property bar.
@@ -71,6 +112,7 @@ pub enum Property {
     FillColour(Option<Rgba>),
     Thickness(f32),
     Shadow(bool),
+    Arrowheads(Arrowheads),
 }
 
 impl Property {
@@ -80,6 +122,7 @@ impl Property {
             Property::FillColour(_) => PropertyKind::FillColour,
             Property::Thickness(_) => PropertyKind::Thickness,
             Property::Shadow(_) => PropertyKind::Shadow,
+            Property::Arrowheads(_) => PropertyKind::Arrowheads,
         }
     }
 }
@@ -94,6 +137,7 @@ impl Style {
             PropertyKind::FillColour => Property::FillColour(self.fill),
             PropertyKind::Thickness => Property::Thickness(self.thickness),
             PropertyKind::Shadow => Property::Shadow(self.shadow),
+            PropertyKind::Arrowheads => Property::Arrowheads(self.arrowheads),
         }
     }
 
@@ -105,6 +149,7 @@ impl Style {
                 self.thickness = t.clamp(*THICKNESS_RANGE.start(), *THICKNESS_RANGE.end())
             }
             Property::Shadow(s) => self.shadow = s,
+            Property::Arrowheads(a) => self.arrowheads = a,
         }
     }
 }

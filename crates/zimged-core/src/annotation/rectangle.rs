@@ -2,6 +2,7 @@
 
 use super::Shape;
 use crate::geometry::{Affine, Point, Rect};
+use crate::image_op::ImageTransform;
 use crate::style::{PropertyKind, Style};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -40,6 +41,11 @@ impl Shape for Rectangle {
 
     fn transform(&mut self, t: &Affine) {
         self.rect = t.apply_rect(self.rect);
+    }
+
+    fn image_transform(&mut self, t: &ImageTransform) {
+        // Axis-aligned rects stay axis-aligned through crops, 90° rotations, flips and resizes.
+        self.transform(&t.affine());
     }
 
     fn properties(&self) -> &'static [PropertyKind] {

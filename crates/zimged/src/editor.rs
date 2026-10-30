@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use zimged_codec::Size;
-use zimged_core::{Document, PixelData, Pixels, Property, PropertyKind, Shape, Style};
+use zimged_core::{
+    Document, HISTORY_PIXEL_CAP, PixelData, Pixels, Property, PropertyKind, Rect, Shape, Style,
+};
 use zimged_render::{Composite, Renderer, Source, SourcePixels, View};
 
 use crate::decode::PendingFullDecode;
@@ -39,6 +41,8 @@ struct Edited {
     full_decode: Option<PendingFullDecode>,
     /// Which open this is: a save finishing after another Image was opened leaves it alone.
     generation: u64,
+    /// A crop applied before the full-resolution pixels arrived: done when they do.
+    queued_crop: Option<Rect>,
     /// The last composite, its texture, and what it was rendered for.
     composite: Option<CompositeTexture>,
 }
@@ -71,6 +75,10 @@ pub struct Editor {
     property_session: Option<PropertySession>,
     /// The selection box as painted last frame, in points.
     selection_box: Option<egui::Rect>,
+    /// The crop tool's region, in Image pixels (§4.1 C).
+    crop: Option<Rect>,
+    /// The cap on pixels each Document's History holds (§4.8).
+    history_pixel_cap: usize,
     /// How many Images have been opened (each one's [`Edited::generation`]).
     opened: u64,
 }
@@ -110,7 +118,14 @@ impl Editor {
             property_session: None,
             selection_box: None,
             opened: 0,
+            crop: None,
+            history_pixel_cap: HISTORY_PIXEL_CAP,
         }
+    }
+
+    /// Change the History's pixel cap for the Documents opened from now on (tests lower it).
+    pub fn set_history_pixel_cap(&mut self, bytes: usize) {
+        self.history_pixel_cap = bytes;
     }
 
     /// A new Image is on screen: start a fresh Document (and History).
@@ -121,12 +136,16 @@ impl Editor {
         self.pointer_down = false;
         self.property_session = None;
         self.opened += 1;
+        self.crop = None;
+        let mut doc = Document::new(size.width, size.height);
+        doc.set_history_pixel_cap(self.history_pixel_cap);
         self.edited = Some(Edited {
-            doc: Document::new(size.width, size.height),
+            doc,
             path: path.to_owned(),
             view_only,
             full_decode: None,
             generation: self.opened,
+            queued_crop: None,
             composite: None,
         });
         if view_only {
@@ -139,6 +158,7 @@ impl Editor {
         self.edited = None;
         self.behaviour = self.tool.create().expect("an available tool");
         self.pointer_down = false;
+        self.crop = None;
     }
 
     pub fn document(&self) -> Option<&Document> {
@@ -156,6 +176,11 @@ impl Editor {
     /// Can the tools be used? Not without an Image, nor on a view-only one.
     pub fn can_edit(&self) -> bool {
         self.edited.as_ref().is_some_and(|e| !e.view_only)
+    }
+
+    /// The crop tool's region, in Image pixels.
+    pub fn crop_region(&self) -> Option<Rect> {
+        self.crop
     }
 
     /// The selection box (dashed, with 8 handles) as painted last frame, in points.
@@ -212,16 +237,28 @@ impl Editor {
             return;
         };
         e.path = target.to_owned();
-        if let Some(pixels) = decoded
-            && e.doc.full_resolution().is_none()
-        {
-            // A full decode still running could read the Flattened file: these pixels win.
-            e.full_decode = None;
-            e.doc.set_full_resolution(pixels);
-        }
         if e.doc.revision() == stamp.revision {
             e.doc.mark_saved();
         }
+        if let Some(pixels) = decoded
+            && e.doc.full_resolution().is_none()
+        {
+            // A full decode still running could read the Flattened file: these pixels win, and a
+            // crop waiting for that decode is done now.
+            e.full_decode = None;
+            e.doc.set_full_resolution(pixels);
+            if let Some(region) = e.queued_crop.take() {
+                e.doc.crop(region);
+            }
+        }
+    }
+
+    /// Is the Document waiting for its full-resolution pixels before it is what the user sees (a
+    /// crop queued until they arrive)? A save waits too.
+    pub fn save_waits(&self) -> bool {
+        self.edited
+            .as_ref()
+            .is_some_and(|e| e.queued_crop.is_some())
     }
 
     // ---- Commands ----
@@ -248,9 +285,12 @@ impl Editor {
                 doc: &mut e.doc,
                 style: &style,
                 image_per_point: 1.0,
+                crop: &mut self.crop,
             };
             self.behaviour.cancel(&mut cx);
         }
+        // Leaving the crop tool drops its region (Esc cancels the crop, §4.1).
+        self.crop = None;
         self.pointer_down = false;
         self.tool = tool;
         self.behaviour = tool.create().expect("an available tool");
@@ -265,6 +305,30 @@ impl Editor {
     pub fn redo(&mut self) {
         if let Some(e) = self.edited_idle() {
             e.doc.redo();
+        }
+    }
+
+    /// Enter or Apply with the crop tool: crop to its region (§4.7), then back to the select tool.
+    /// Before the full-resolution pixels have arrived, the crop waits for them.
+    pub fn apply_crop(&mut self) {
+        let Some(region) = self.crop.filter(|_| self.tool == ToolId::Crop) else {
+            return;
+        };
+        if self.edited_idle().is_none() {
+            return;
+        }
+        self.start_full_decode();
+        let e = self.edited.as_mut().expect("checked above");
+        if !e.doc.crop(region) {
+            e.queued_crop = Some(region);
+        }
+        self.set_tool(ToolId::Select);
+    }
+
+    /// Cancel (Esc) with the crop tool: drop the region and go back to the select tool.
+    pub fn cancel_crop(&mut self) {
+        if self.tool == ToolId::Crop && !self.pointer_down {
+            self.set_tool(ToolId::Select);
         }
     }
 
@@ -285,6 +349,11 @@ impl Editor {
     }
 
     /// The edited Image, when no pointer gesture is in progress.
+    /// Is a tool gesture (a drag) under way?
+    pub fn in_gesture(&self) -> bool {
+        self.edited.as_ref().is_some_and(|e| e.doc.in_gesture())
+    }
+
     fn edited_idle(&mut self) -> Option<&mut Edited> {
         self.edited.as_mut().filter(|e| !e.doc.in_gesture())
     }
@@ -314,6 +383,9 @@ impl Editor {
             // A failed full decode leaves editing on the display pixels; Flatten (#34) reports it.
             if let Ok(pixels) = result {
                 e.doc.set_full_resolution(Arc::new(pixels));
+            }
+            if let Some(region) = e.queued_crop.take() {
+                e.doc.crop(region);
             }
         }
     }
@@ -395,6 +467,7 @@ impl Editor {
         EditorPaint {
             composite,
             selection,
+            crop: self.crop.map(|r| layout.rect_to_screen(r)),
         }
     }
 
@@ -448,12 +521,14 @@ impl Editor {
             doc: &mut e.doc,
             style: &style,
             image_per_point: layout.image_per_point(),
+            crop: &mut self.crop,
         };
         f(self.behaviour.as_mut(), &mut cx);
     }
 
     /// Re-render the composite if the Document or the view changed. `None` while there are no
-    /// Annotations: the plain Image texture is drawn then (§7.2).
+    /// Annotations and the Image is the decoded file: the plain Image texture is drawn then (§7.2).
+    /// After an Image operation the composite always draws, from the Document's own pixels.
     fn update_composite(
         &mut self,
         ctx: &egui::Context,
@@ -461,7 +536,7 @@ impl Editor {
         display: DisplayPixels<'_>,
     ) -> Option<(egui::TextureId, egui::Rect)> {
         let e = self.edited.as_mut()?;
-        if e.doc.annotations().is_empty() {
+        if e.doc.annotations().is_empty() && e.doc.is_original_image() {
             e.composite = None;
             return None;
         }
@@ -475,15 +550,17 @@ impl Editor {
         let display_density = display.image.width() as f32 / e.doc.width() as f32;
         let wanted_density = px.width as f32 / region.width().max(1.0);
         let source = match e.doc.full_resolution() {
-            Some(full) if wanted_density > display_density => Source {
-                key: display.key * 2 + 1,
-                width: full.width,
-                height: full.height,
-                pixels: match &full.data {
-                    PixelData::Rgb(rgb) => SourcePixels::Rgb(rgb),
-                    PixelData::Rgba(rgba) => SourcePixels::Rgba(rgba),
-                },
-            },
+            Some(full) if wanted_density > display_density || !e.doc.is_original_image() => {
+                Source {
+                    key: source_key(display.key, e.doc.image_generation()),
+                    width: full.width,
+                    height: full.height,
+                    pixels: match &full.data {
+                        PixelData::Rgb(rgb) => SourcePixels::Rgb(rgb),
+                        PixelData::Rgba(rgba) => SourcePixels::Rgba(rgba),
+                    },
+                }
+            }
             _ => Source {
                 key: display.key * 2,
                 width: display.image.width() as u32,
@@ -522,4 +599,13 @@ impl Editor {
         let c = e.composite.as_ref()?;
         Some((c.texture.id(), c.dest))
     }
+}
+
+/// The renderer's cache key for the full-resolution pixels: unique per decode and per Image
+/// operation result (display-size decodes use even keys).
+fn source_key(display_key: u64, generation: u64) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (display_key, generation).hash(&mut h);
+    h.finish() | 1
 }

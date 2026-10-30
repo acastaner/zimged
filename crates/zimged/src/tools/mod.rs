@@ -8,11 +8,17 @@
 //!
 //! Tools work in Image pixels ([`zimged_core::Point`]); the canvas maps the pointer for them.
 
+mod crop;
 mod drag_box;
+mod drag_segment;
+mod ellipse;
+mod freehand;
 mod rectangle;
 pub mod select;
 
-use zimged_core::{Document, Point, PropertyKind, Rectangle, Style};
+use zimged_core::{
+    Arrow, Document, Ellipse, Freehand, Line, Point, PropertyKind, Rect, Rectangle, Style,
+};
 
 /// Every tool, in tool-strip order (§4.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -86,6 +92,11 @@ impl ToolId {
         match self {
             ToolId::Select => Some(Box::new(select::Select::default())),
             ToolId::Rectangle => Some(Box::new(rectangle::new())),
+            ToolId::Ellipse => Some(Box::new(ellipse::new())),
+            ToolId::Line => Some(Box::new(drag_segment::line())),
+            ToolId::Arrow => Some(Box::new(drag_segment::arrow())),
+            ToolId::Freehand => Some(Box::new(freehand::FreehandTool::default())),
+            ToolId::Crop => Some(Box::new(crop::Crop::default())),
             _ => None,
         }
     }
@@ -98,6 +109,10 @@ impl ToolId {
     pub fn properties(self) -> &'static [PropertyKind] {
         match self {
             ToolId::Rectangle => Rectangle::PROPERTIES,
+            ToolId::Ellipse => Ellipse::PROPERTIES,
+            ToolId::Line => Line::PROPERTIES,
+            ToolId::Arrow => Arrow::PROPERTIES,
+            ToolId::Freehand => Freehand::PROPERTIES,
             _ => &[],
         }
     }
@@ -106,6 +121,7 @@ impl ToolId {
     pub fn hint(self) -> &'static str {
         match self {
             ToolId::Select => "Click an Annotation to select it",
+            ToolId::Crop => "Drag the region to keep",
             _ => "",
         }
     }
@@ -126,6 +142,8 @@ pub struct ToolContext<'a> {
     /// Image pixels per screen point: converts on-screen sizes (handles, click slop) to Image
     /// pixels.
     pub image_per_point: f32,
+    /// The crop tool's region (§4.1 C), in Image pixels. Not a Document edit until applied.
+    pub crop: &'a mut Option<Rect>,
 }
 
 /// A tool's pointer handling. The canvas calls `press`, then `drag` for each move while the
