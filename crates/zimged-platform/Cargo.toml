@@ -11,8 +11,12 @@ publish.workspace = true
 [dependencies]
 clipboard-rs.workspace = true
 directories.workspace = true
+interprocess.workspace = true
 pollster.workspace = true
 rfd.workspace = true
 serde.workspace = true
 toml.workspace = true
 trash.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
