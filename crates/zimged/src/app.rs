@@ -796,16 +796,7 @@ impl ZimgedApp {
     }
 
     fn poll_open_dialog(&mut self) {
-        let Some(rx) = &self.open_dialog else {
-            return;
-        };
-        let chosen = match rx.try_recv() {
-            Ok(chosen) => chosen,
-            Err(mpsc::TryRecvError::Empty) => return,
-            Err(mpsc::TryRecvError::Disconnected) => None,
-        };
-        self.open_dialog = None;
-        if let Some(path) = chosen {
+        if let Some(Some(path)) = dialog_answer(&mut self.open_dialog) {
             self.execute(Command::Open(path));
         }
     }
@@ -902,16 +893,7 @@ impl ZimgedApp {
     }
 
     fn poll_save_dialog(&mut self) {
-        let Some(rx) = &self.save_dialog else {
-            return;
-        };
-        let chosen = match rx.try_recv() {
-            Ok(chosen) => chosen,
-            Err(mpsc::TryRecvError::Empty) => return,
-            Err(mpsc::TryRecvError::Disconnected) => None,
-        };
-        self.save_dialog = None;
-        if let Some(chosen) = chosen {
+        if let Some(Some(chosen)) = dialog_answer(&mut self.save_dialog) {
             let (target, format) = crate::save::chosen_target(chosen);
             self.save_to(target, format);
         }
@@ -1811,6 +1793,18 @@ fn file_name(path: &Path) -> String {
         .unwrap_or(path.as_os_str())
         .to_string_lossy()
         .into_owned()
+}
+
+/// The answer of the file dialog waited on in `slot`, once it has come: the path chosen, or
+/// `None` for Cancel (or a dialog that went away). `slot` is emptied then; `None` while it is up.
+fn dialog_answer(slot: &mut Option<mpsc::Receiver<Option<PathBuf>>>) -> Option<Option<PathBuf>> {
+    let chosen = match slot.as_ref()?.try_recv() {
+        Ok(chosen) => chosen,
+        Err(mpsc::TryRecvError::Empty) => return None,
+        Err(mpsc::TryRecvError::Disconnected) => None,
+    };
+    *slot = None;
+    Some(chosen)
 }
 
 /// Do `a` and `b` name the same file? (Save As may spell it differently.)
