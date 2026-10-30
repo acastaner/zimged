@@ -4,7 +4,9 @@
 //! ([`Prefetcher::want`]). A pool of decode threads works through them, the wanted Image first.
 //! Queued decodes that leave the window are cancelled before they start; results that arrive after
 //! their file has left the window are dropped. The cache holds about [`CACHE_CAP_BYTES`] of pixels
-//! and evicts the least recently used entries first, never the current Image.
+//! and evicts the least recently used entries first, never the current Image. Pixels the app holds
+//! outside the cache under the same budget (an animation's frames, [`Prefetcher::hold`]) count
+//! against the cap too.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -16,7 +18,8 @@ use zimged_codec::{DecodeError, DisplayImage, Pixels, Size};
 /// A display-size decode, shareable between the cache and the screen.
 pub type Decoded = Result<Arc<DisplayImage>, Arc<DecodeError>>;
 
-/// The cache cap (§1.2, §3.3): about 256 MB of display-size pixels.
+/// The cache cap (§1.2, §3.3): about 256 MB of display-size pixels, including those the app
+/// holds outside the cache ([`Prefetcher::hold`]).
 pub const CACHE_CAP_BYTES: usize = 256 * 1024 * 1024;
 
 /// The decode pool size (§3.3, §7.3): `min(4, cores ÷ 2)`, at least 1.
@@ -44,6 +47,8 @@ struct State {
     display_box: Option<Size>,
     cache: HashMap<PathBuf, Entry>,
     bytes: usize,
+    /// Bytes held outside the cache under the same cap ([`Prefetcher::hold`]).
+    held: usize,
     tick: u64,
     shutdown: bool,
 }
@@ -80,9 +85,10 @@ impl State {
         }
     }
 
-    /// Evict least-recently-used entries until under `cap`, never the current Image.
+    /// Evict least-recently-used entries until they and the held bytes are under `cap`, never the
+    /// current Image.
     fn evict(&mut self, cap: usize) {
-        while self.bytes > cap {
+        while self.bytes + self.held > cap {
             let victim = self
                 .cache
                 .iter()
@@ -205,6 +211,14 @@ impl Prefetcher {
         drop(state);
         self.shared.work.notify_all();
         cached
+    }
+
+    /// Count `bytes` the app holds outside the cache (an animation's frames, §3.4) against the
+    /// cap, evicting what no longer fits. Replaces the previous amount.
+    pub fn hold(&self, bytes: usize) {
+        let mut state = self.shared.lock();
+        state.held = bytes;
+        state.evict(self.shared.cap);
     }
 
     /// The cached decode of `path`, if it has arrived.

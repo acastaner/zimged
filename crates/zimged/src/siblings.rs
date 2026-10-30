@@ -34,6 +34,8 @@ pub struct Navigation {
     scan: Scan,
     prefetch: Option<Prefetcher>,
     cache_cap: usize,
+    /// Bytes held outside the cache under its cap (the shown animation, §3.4).
+    held: usize,
     direction: Direction,
     /// The Sibling being moved to while its decode is pending.
     target: Option<PathBuf>,
@@ -52,6 +54,7 @@ impl Navigation {
             scan: Scan::NotStarted,
             prefetch: None,
             cache_cap,
+            held: 0,
             direction: Direction::Forward,
             target: None,
             watcher: None,
@@ -83,6 +86,9 @@ impl Navigation {
                 self.cache_cap,
                 move || waker.request_repaint(),
             ));
+            if let Some(prefetch) = &self.prefetch {
+                prefetch.hold(self.held);
+            }
         }
         self.target = None;
         self.direction = Direction::Forward;
@@ -276,6 +282,22 @@ impl Navigation {
             || self.rescan.is_some()
             || self.target.is_some()
             || self.prefetch.as_ref().is_some_and(|p| !p.is_idle())
+    }
+
+    /// The display-size cache's cap (§1.2): the shown animation shares it.
+    pub fn cache_cap(&self) -> usize {
+        self.cache_cap
+    }
+
+    /// Count `bytes` held outside the cache (the shown animation) against its cap.
+    pub fn hold(&mut self, bytes: usize) {
+        if bytes == self.held {
+            return;
+        }
+        self.held = bytes;
+        if let Some(prefetch) = &self.prefetch {
+            prefetch.hold(bytes);
+        }
     }
 
     /// The files in the display-size cache and their total size in bytes.

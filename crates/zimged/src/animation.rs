@@ -7,6 +7,10 @@
 //! Dropping an [`Animation`] (a new Image replaces the shown one) stops its decode thread and frees
 //! its frames.
 //!
+//! Memory (§1.2): the frames share the display-size cache's budget. An animation decodes only the
+//! frames that fit the budget it is given, and loops over those; the app counts what it holds
+//! against the prefetch cache's cap, which evicts Siblings to make room.
+//!
 //! Freezing on the first edit (#38, `ShownImage::stop_animation`): drop the shown Image's
 //! `Animation`, put [`Animation::first_frame`]'s pixels back on screen, and show the frozen state in
 //! the status bar.
@@ -17,10 +21,6 @@ use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use zimged_codec::Size;
-
-/// Frames past this many bytes of pixels aren't decoded; the animation loops over those it has.
-/// Keeps a long or huge animation from exhausting memory.
-const FRAME_BUDGET: usize = 512 * 1024 * 1024;
 
 /// After a stall longer than this (the window was hidden, the machine slept), the animation goes
 /// on from the current frame instead of racing through the ones it missed.
@@ -37,6 +37,8 @@ pub struct Animation {
     rx: mpsc::Receiver<Message>,
     cancel: Arc<AtomicBool>,
     frames: Vec<(Arc<egui::ColorImage>, Duration)>,
+    /// The bytes of `frames`' pixels.
+    bytes: usize,
     decoding: bool,
     current: usize,
     /// When the current frame went on screen (egui time, seconds), once the first frame is in.
@@ -44,8 +46,9 @@ pub struct Animation {
 }
 
 impl Animation {
-    /// Start decoding the frames of `path`, reduced to fit `max` physical pixels.
-    pub fn spawn(path: PathBuf, max: Size, ctx: &egui::Context) -> Self {
+    /// Start decoding the frames of `path`, reduced to fit `max` physical pixels. Frames past
+    /// `budget` bytes of pixels aren't decoded: the animation loops over those it has.
+    pub fn spawn(path: PathBuf, max: Size, budget: usize, ctx: &egui::Context) -> Self {
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let thread_cancel = Arc::clone(&cancel);
@@ -53,7 +56,7 @@ impl Animation {
         std::thread::Builder::new()
             .name("animation".into())
             .spawn(move || {
-                decode(&path, max, &tx, &thread_cancel, &ctx);
+                decode(&path, max, budget, &tx, &thread_cancel, &ctx);
                 let _ = tx.send(Message::Done);
                 ctx.request_repaint();
             })
@@ -62,6 +65,7 @@ impl Animation {
             rx,
             cancel,
             frames: Vec::new(),
+            bytes: 0,
             decoding: true,
             current: 0,
             since: None,
@@ -88,6 +92,11 @@ impl Animation {
         self.frames.len()
     }
 
+    /// The bytes of pixels the decoded frames hold.
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+
     /// Frame 1's pixels, once decoded.
     pub fn first_frame(&self) -> Option<&Arc<egui::ColorImage>> {
         self.frames.first().map(|(pixels, _)| pixels)
@@ -97,7 +106,10 @@ impl Animation {
     pub fn receive(&mut self) {
         while let Ok(message) = self.rx.try_recv() {
             match message {
-                Message::Frame(pixels, delay) => self.frames.push((pixels, delay)),
+                Message::Frame(pixels, delay) => {
+                    self.bytes += frame_bytes(&pixels);
+                    self.frames.push((pixels, delay));
+                }
                 Message::Done => self.decoding = false,
             }
         }
@@ -152,6 +164,7 @@ impl Drop for Animation {
 fn decode(
     path: &std::path::Path,
     max: Size,
+    budget: usize,
     tx: &mpsc::Sender<Message>,
     cancel: &AtomicBool,
     ctx: &egui::Context,
@@ -169,8 +182,8 @@ fn decode(
             return;
         };
         let pixels = crate::app::color_image(&frame.image);
-        bytes += pixels.pixels.len() * 4;
-        if bytes > FRAME_BUDGET
+        bytes += frame_bytes(&pixels);
+        if bytes > budget
             || tx
                 .send(Message::Frame(Arc::new(pixels), frame.delay))
                 .is_err()
@@ -179,4 +192,9 @@ fn decode(
         }
         ctx.request_repaint();
     }
+}
+
+/// The bytes of pixels a frame holds (RGBA).
+pub fn frame_bytes(pixels: &egui::ColorImage) -> usize {
+    pixels.pixels.len() * 4
 }

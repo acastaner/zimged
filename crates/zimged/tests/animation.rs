@@ -116,6 +116,108 @@ fn moving_to_a_sibling_stops_the_animation_and_frees_its_frames() {
     assert_plays_its_own_timing(&changes);
 }
 
+// ---- Memory: the frames share the display-size cache's budget (§1.2) ----
+
+/// Six 64×48 frames of 100 ms, each one flat colour.
+const FRAME_COLOURS: [Color32; 6] = [
+    Color32::from_rgb(200, 40, 40),
+    Color32::from_rgb(40, 200, 40),
+    Color32::from_rgb(40, 40, 200),
+    Color32::from_rgb(200, 200, 40),
+    Color32::from_rgb(40, 200, 200),
+    Color32::from_rgb(200, 40, 200),
+];
+
+/// The bytes one 64×48 frame (or the display decode of the GIF) holds: RGBA.
+const FRAME_BYTES: usize = 64 * 48 * 4;
+
+/// Write a GIF of [`FRAME_COLOURS`] into `dir` as `name`.
+fn six_frame_gif(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
+    use image::codecs::gif::{GifEncoder, Repeat};
+    let path = dir.join(name);
+    let mut encoder = GifEncoder::new(std::fs::File::create(&path).unwrap());
+    encoder.set_repeat(Repeat::Infinite).unwrap();
+    let frames = FRAME_COLOURS.iter().map(|c| {
+        let [r, g, b, a] = c.to_array();
+        image::Frame::from_parts(
+            image::RgbaImage::from_pixel(64, 48, image::Rgba([r, g, b, a])),
+            0,
+            0,
+            image::Delay::from_numer_denom_ms(100, 1),
+        )
+    });
+    encoder.encode_frames(frames).unwrap();
+    path
+}
+
+/// The frame colours that appear at (8, 24) over two loops of the six frames.
+fn colours_shown(app: &mut TestApp) -> Vec<usize> {
+    let mut seen = Vec::new();
+    let mut t = app.harness.ctx.input(|i| i.time);
+    let end = t + 1.4;
+    while t < end {
+        let colour = app.pixel(8, 24).expect("a pixel");
+        let i = FRAME_COLOURS
+            .iter()
+            .position(|&f| close(f, colour))
+            .unwrap_or_else(|| panic!("unexpected colour {colour:?}"));
+        if !seen.contains(&i) {
+            seen.push(i);
+        }
+        t += 0.01;
+        app.harness.input_mut().time = Some(t);
+        app.harness.step();
+    }
+    seen.sort();
+    seen
+}
+
+#[test]
+fn an_animation_keeps_only_the_frames_that_fit_the_display_cache_budget() {
+    // Room for four frames' worth: the file's display decode plus three animation frames.
+    let mut app = TestApp::with_launch(|l| l.cache_cap = 4 * FRAME_BYTES);
+    let path = six_frame_gif(app.dir.path(), "six.gif");
+    app.open(path);
+    assert_eq!(app.status_field("Animation").as_deref(), Some(ANIMATED));
+
+    assert_eq!(
+        colours_shown(&mut app),
+        [0, 1, 2],
+        "it loops over the first three"
+    );
+}
+
+#[test]
+fn with_room_for_every_frame_the_whole_animation_plays() {
+    let mut app = TestApp::with_launch(|l| l.cache_cap = 7 * FRAME_BYTES);
+    let path = six_frame_gif(app.dir.path(), "six.gif");
+    app.open(path);
+
+    assert_eq!(colours_shown(&mut app), [0, 1, 2, 3, 4, 5]);
+}
+
+#[test]
+fn an_animations_frames_leave_less_room_for_prefetched_siblings() {
+    // Room for the GIF's display decode, its six frames and one 64×48 RGB Sibling, not two.
+    let cap = 7 * FRAME_BYTES + 64 * 48 * 3;
+    let mut app = TestApp::with_launch(|l| l.cache_cap = cap);
+    let gif = six_frame_gif(app.dir.path(), "1.gif");
+    for name in ["2.png", "3.png"] {
+        image::RgbImage::from_pixel(64, 48, image::Rgb([90, 90, 90]))
+            .save(app.dir.path().join(name))
+            .unwrap();
+    }
+    app.open(gif);
+    app.harness.step();
+
+    let (cached, _) = app.harness.state().cached_siblings();
+    let siblings = cached
+        .iter()
+        .filter(|p| p.extension().is_some_and(|e| e == "png"))
+        .count();
+    assert_eq!(siblings, 1, "{cached:?}");
+}
+
 #[test]
 fn a_still_webp_has_no_animation_state_and_stays_still() {
     let mut app = TestApp::open_fixture("webp-64x48.webp");

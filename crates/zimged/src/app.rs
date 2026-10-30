@@ -1460,7 +1460,12 @@ impl ZimgedApp {
         let Some(path) = shown.path.clone() else {
             return;
         };
-        shown.animation = Some(Animation::spawn(path, layout.area_px(), ctx));
+        // §1.2: the frames and the file's display decode share the display-size cache's budget.
+        let budget = self
+            .navigation
+            .cache_cap()
+            .saturating_sub(crate::animation::frame_bytes(&shown.display_pixels));
+        shown.animation = Some(Animation::spawn(path, layout.area_px(), budget, ctx));
     }
 
     /// How many frames of an animation are held (decoded, CPU pixels): 0 without one (§3.4).
@@ -1469,6 +1474,16 @@ impl ZimgedApp {
             .as_ref()
             .and_then(|s| s.animation.as_ref())
             .map_or(0, Animation::frame_count)
+    }
+
+    /// The bytes the shown animation holds under the display-size cache's cap (§1.2): its frames
+    /// and the file's display decode. 0 without one.
+    fn animation_bytes(&self) -> usize {
+        self.shown.as_ref().map_or(0, |shown| {
+            shown.animation.as_ref().map_or(0, |a| {
+                a.bytes() + crate::animation::frame_bytes(&shown.display_pixels)
+            })
+        })
     }
 
     /// Move the animation on to the frame due now (§3.4); forget it once it turns out to be a still.
@@ -1704,6 +1719,7 @@ impl eframe::App for ZimgedApp {
         self.poll_decode(&ctx);
         self.poll_upgrade(&ctx);
         self.play_animation(&ctx);
+        self.navigation.hold(self.animation_bytes());
         self.editor.poll(&ctx);
         self.expire_message(&ctx);
         self.drive_bench(&ctx);
