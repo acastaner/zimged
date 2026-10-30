@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::order::NameOrder;
+use crate::watch::{Change, DirWatcher};
 
 /// One Sibling: its path and the name it's ordered by.
 #[derive(Clone, Debug)]
@@ -50,6 +51,39 @@ impl SiblingList {
             .siblings
             .partition_point(|s| self.order.compare(&s.name, &name) != Ordering::Greater);
         Err(index)
+    }
+
+    /// Take `path` out of the list (it was trashed). Returns whether it was there.
+    pub fn remove(&mut self, path: &Path) -> bool {
+        let before = self.siblings.len();
+        self.siblings.retain(|s| s.path != path);
+        self.siblings.len() != before
+    }
+
+    /// Follow a file added to or removed from the directory (§3.2). Files that aren't Siblings are
+    /// ignored. Returns whether the list changed.
+    pub fn apply(&mut self, change: &Change) -> bool {
+        match change {
+            Change::Added(path) => {
+                let name = display_name(path);
+                if path.parent() != Some(self.dir.as_path()) || !is_candidate(&name, path) {
+                    return false;
+                }
+                let Err(index) = self.locate(path) else {
+                    return false;
+                };
+                self.siblings.insert(
+                    index,
+                    Sibling {
+                        path: path.clone(),
+                        name,
+                    },
+                );
+                true
+            }
+            Change::Removed(path) => self.remove(path),
+            Change::Rescan => false,
+        }
     }
 }
 
@@ -99,21 +133,29 @@ pub fn scan(dir: &Path, order: Arc<dyn NameOrder>) -> io::Result<SiblingList> {
     })
 }
 
-type ScanResult = io::Result<SiblingList>;
+/// What a [`PendingScan`] brings back.
+pub struct Scanned {
+    pub list: io::Result<SiblingList>,
+    /// The directory watcher, when one was asked for and could be started. It was started before
+    /// the directory was read, so no change falls between the scan and the watch.
+    pub watcher: Option<DirWatcher>,
+}
 
 /// A scan on the directory thread (§7.3), polled by the UI.
 pub struct PendingScan {
     dir: PathBuf,
-    slot: Arc<Mutex<Option<ScanResult>>>,
+    slot: Arc<Mutex<Option<Scanned>>>,
 }
 
 impl PendingScan {
     /// Scan `dir` on a new thread; `order` is built on that thread (opening a locale isn't free).
-    /// `wake` is called when the result is ready.
+    /// With `watch`, the thread first starts a [`DirWatcher`] on `dir`. `wake` is called when the
+    /// result is ready, and by the watcher whenever it has changes.
     pub fn spawn(
         dir: PathBuf,
+        watch: bool,
         order: impl FnOnce() -> Box<dyn NameOrder> + Send + 'static,
-        wake: impl FnOnce() + Send + 'static,
+        wake: impl Fn() + Clone + Send + 'static,
     ) -> Self {
         let slot = Arc::new(Mutex::new(None));
         let thread_slot = Arc::clone(&slot);
@@ -121,8 +163,13 @@ impl PendingScan {
         std::thread::Builder::new()
             .name("directory".into())
             .spawn(move || {
-                let result = scan(&thread_dir, Arc::from(order()));
-                *thread_slot.lock().unwrap() = Some(result);
+                // A directory that can't be watched (no inotify watches left, say) is still
+                // scanned; the list just doesn't follow changes.
+                let watcher = watch
+                    .then(|| DirWatcher::start(&thread_dir, wake.clone()).ok())
+                    .flatten();
+                let list = scan(&thread_dir, Arc::from(order()));
+                *thread_slot.lock().unwrap() = Some(Scanned { list, watcher });
                 wake();
             })
             .expect("spawn directory thread");
@@ -134,7 +181,7 @@ impl PendingScan {
     }
 
     /// The result, once the scan has finished.
-    pub fn take(&self) -> Option<ScanResult> {
+    pub fn take(&self) -> Option<Scanned> {
         self.slot.lock().unwrap().take()
     }
 }
