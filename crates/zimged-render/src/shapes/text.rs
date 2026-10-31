@@ -17,7 +17,8 @@ pub fn draw(canvas: &sk::Canvas, shape: &Text, style: &Style) {
         crate::color(style.line),
     );
     let origin = shape.text_origin();
-    with_shadow(canvas, style.shadow, |canvas| {
+    let bounds = super::outset(crate::rect(shape.bounds()), style.font_size);
+    with_shadow(canvas, style.shadow, bounds, |canvas| {
         if let Some(fill) = fill_paint(style) {
             canvas.draw_rect(crate::rect(shape.bounds()), &fill);
         }

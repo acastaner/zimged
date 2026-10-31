@@ -21,7 +21,7 @@ thread_local! {
 pub fn draw(canvas: &sk::Canvas, shape: &Inset, style: &Style) {
     let image = skia_image(&shape.pixels);
     let rect = crate::rect(shape.rect);
-    with_shadow(canvas, style.shadow, |canvas| {
+    with_shadow(canvas, style.shadow, super::outset(rect, style.thickness), |canvas| {
         canvas.draw_image_rect_with_sampling_options(
             &image,
             None,

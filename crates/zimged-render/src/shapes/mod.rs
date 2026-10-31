@@ -40,6 +40,12 @@ pub fn draw(canvas: &sk::Canvas, annotation: &Annotation, below: &Scene<'_>) {
     }
 }
 
+/// A shape's geometric bounds grown by `by` (its stroke's half-width, usually `style.thickness`,
+/// or an arrow's head reach) to give the drawn bounds `effects::with_shadow` bounds its layer to.
+pub(crate) fn outset(r: sk::Rect, by: f32) -> sk::Rect {
+    sk::Rect::from_ltrb(r.left - by, r.top - by, r.right + by, r.bottom + by)
+}
+
 /// An anti-aliased stroke paint for the Style's line.
 pub(crate) fn line_paint(style: &zimged_core::Style) -> sk::Paint {
     let mut paint = sk::Paint::default();

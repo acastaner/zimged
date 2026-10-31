@@ -6,7 +6,7 @@ use crate::effects::with_shadow;
 
 pub fn draw(canvas: &sk::Canvas, shape: &Ellipse, style: &Style) {
     let oval = crate::rect(shape.rect);
-    with_shadow(canvas, style.shadow, |canvas| {
+    with_shadow(canvas, style.shadow, super::outset(oval, style.thickness), |canvas| {
         if let Some(fill) = fill_paint(style) {
             canvas.draw_oval(oval, &fill);
         }

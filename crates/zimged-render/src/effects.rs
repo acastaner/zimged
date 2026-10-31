@@ -20,8 +20,15 @@ const SHADOW_OFFSET: (f32, f32) = (3.0, 3.0);
 const SHADOW_SIGMA: f32 = 2.0;
 const SHADOW_ALPHA: u8 = 110;
 
-/// Draw `draw` with a drop shadow under it when `shadow` is on.
-pub fn with_shadow(canvas: &sk::Canvas, shadow: bool, draw: impl FnOnce(&sk::Canvas)) {
+/// How far a shadow reaches past the shape it is under: its offset plus the blur's radius (~3σ).
+pub(crate) const SHADOW_SPREAD: f32 =
+    SHADOW_OFFSET.0 + 3.0 * SHADOW_SIGMA + 1.0;
+
+/// Draw `draw` with a drop shadow under it when `shadow` is on. `content` is the shape's drawn
+/// bounds (stroke included) in Image pixels: the shadow's offscreen layer is bounded to it plus
+/// [`SHADOW_SPREAD`], so Skia sizes and blurs a shape-sized layer. Without bounds `save_layer`
+/// takes the whole clip, i.e. the entire visible canvas — O(canvas) blur per shape every frame.
+pub fn with_shadow(canvas: &sk::Canvas, shadow: bool, content: sk::Rect, draw: impl FnOnce(&sk::Canvas)) {
     if !shadow {
         draw(canvas);
         return;
@@ -36,7 +43,13 @@ pub fn with_shadow(canvas: &sk::Canvas, shadow: bool, draw: impl FnOnce(&sk::Can
     );
     let mut paint = sk::Paint::default();
     paint.set_image_filter(filter);
-    canvas.save_layer(&sk::canvas::SaveLayerRec::default().paint(&paint));
+    let bounds = sk::Rect::from_ltrb(
+        content.left - SHADOW_SPREAD,
+        content.top - SHADOW_SPREAD,
+        content.right + SHADOW_SPREAD,
+        content.bottom + SHADOW_SPREAD,
+    );
+    canvas.save_layer(&sk::canvas::SaveLayerRec::default().bounds(&bounds).paint(&paint));
     draw(canvas);
     canvas.restore();
 }

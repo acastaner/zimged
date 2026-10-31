@@ -18,7 +18,8 @@ pub fn draw(canvas: &sk::Canvas, shape: &StepCounter, style: &Style, number: u32
     let disc = shape.disc(style);
     let centre = (shape.centre.x, shape.centre.y);
     let radius = disc.width() / 2.0;
-    with_shadow(canvas, style.shadow, |canvas| {
+    let bounds = super::outset(crate::rect(disc), style.thickness);
+    with_shadow(canvas, style.shadow, bounds, |canvas| {
         if let Some(fill) = super::fill_paint(style) {
             canvas.draw_circle(centre, radius, &fill);
         }

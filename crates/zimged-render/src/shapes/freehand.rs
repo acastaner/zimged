@@ -20,7 +20,8 @@ pub fn draw(canvas: &sk::Canvas, shape: &Freehand, style: &Style) {
     }
     path.line_to(crate::point(points[points.len() - 1]));
     let path = path.detach();
-    with_shadow(canvas, style.shadow, |canvas| {
+    let bounds = super::outset(*path.bounds(), style.thickness);
+    with_shadow(canvas, style.shadow, bounds, |canvas| {
         canvas.draw_path(&path, &paint);
     });
 }

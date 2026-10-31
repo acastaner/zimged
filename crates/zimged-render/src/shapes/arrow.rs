@@ -9,7 +9,15 @@ pub fn draw(canvas: &sk::Canvas, shape: &Arrow, style: &Style) {
     let length = shape.from.distance(shape.to);
     // Heads no longer than half the arrow each, so short arrows still show both.
     let head = Arrow::head_length(style.thickness).min(length / 2.0);
-    with_shadow(canvas, style.shadow, |canvas| {
+    // The heads sit at the endpoints and spread a head-length sideways; outset by that to cover them.
+    let bounds = sk::Rect::from_ltrb(
+        shape.from.x.min(shape.to.x),
+        shape.from.y.min(shape.to.y),
+        shape.from.x.max(shape.to.x),
+        shape.from.y.max(shape.to.y),
+    );
+    let reach = Arrow::head_length(style.thickness).max(style.thickness);
+    with_shadow(canvas, style.shadow, super::outset(bounds, reach), |canvas| {
         // The line stops inside each head, so its square end doesn't poke out beside the tip.
         let inset = head * 0.6;
         let mut from = shape.from;
