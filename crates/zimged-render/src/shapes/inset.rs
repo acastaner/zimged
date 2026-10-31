@@ -21,24 +21,29 @@ thread_local! {
 pub fn draw(canvas: &sk::Canvas, shape: &Inset, style: &Style) {
     let image = skia_image(&shape.pixels);
     let rect = crate::rect(shape.rect);
-    with_shadow(canvas, style.shadow, super::outset(rect, style.thickness), |canvas| {
-        canvas.draw_image_rect_with_sampling_options(
-            &image,
-            None,
-            rect,
-            sk::SamplingOptions::new(sk::FilterMode::Linear, sk::MipmapMode::Linear),
-            &sk::Paint::default(),
-        );
-        if let Some(border) = style.border {
-            let mut paint = sk::Paint::default();
-            paint.set_anti_alias(true);
-            paint.set_style(sk::PaintStyle::Stroke);
-            paint.set_stroke_width(style.thickness);
-            paint.set_stroke_join(sk::PaintJoin::Miter);
-            paint.set_color(crate::color(border));
-            canvas.draw_rect(rect, &paint);
-        }
-    });
+    with_shadow(
+        canvas,
+        style.shadow,
+        super::outset(rect, style.thickness),
+        |canvas| {
+            canvas.draw_image_rect_with_sampling_options(
+                &image,
+                None,
+                rect,
+                sk::SamplingOptions::new(sk::FilterMode::Linear, sk::MipmapMode::Linear),
+                &sk::Paint::default(),
+            );
+            if let Some(border) = style.border {
+                let mut paint = sk::Paint::default();
+                paint.set_anti_alias(true);
+                paint.set_style(sk::PaintStyle::Stroke);
+                paint.set_stroke_width(style.thickness);
+                paint.set_stroke_join(sk::PaintJoin::Miter);
+                paint.set_color(crate::color(border));
+                canvas.draw_rect(rect, &paint);
+            }
+        },
+    );
 }
 
 fn skia_image(pixels: &Arc<Pixels>) -> sk::Image {

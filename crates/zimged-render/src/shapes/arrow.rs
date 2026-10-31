@@ -17,30 +17,35 @@ pub fn draw(canvas: &sk::Canvas, shape: &Arrow, style: &Style) {
         shape.from.y.max(shape.to.y),
     );
     let reach = Arrow::head_length(style.thickness).max(style.thickness);
-    with_shadow(canvas, style.shadow, super::outset(bounds, reach), |canvas| {
-        // The line stops inside each head, so its square end doesn't poke out beside the tip.
-        let inset = head * 0.6;
-        let mut from = shape.from;
-        let mut to = shape.to;
-        if heads.at_start() {
-            from = towards(shape.from, shape.to, inset);
-        }
-        if heads.at_end() {
-            to = towards(shape.to, shape.from, inset);
-        }
-        let mut paint = line_paint(style);
-        paint.set_stroke_cap(sk::PaintCap::Butt);
-        canvas.draw_line(crate::point(from), crate::point(to), &paint);
+    with_shadow(
+        canvas,
+        style.shadow,
+        super::outset(bounds, reach),
+        |canvas| {
+            // The line stops inside each head, so its square end doesn't poke out beside the tip.
+            let inset = head * 0.6;
+            let mut from = shape.from;
+            let mut to = shape.to;
+            if heads.at_start() {
+                from = towards(shape.from, shape.to, inset);
+            }
+            if heads.at_end() {
+                to = towards(shape.to, shape.from, inset);
+            }
+            let mut paint = line_paint(style);
+            paint.set_stroke_cap(sk::PaintCap::Butt);
+            canvas.draw_line(crate::point(from), crate::point(to), &paint);
 
-        let mut fill = paint.clone();
-        fill.set_style(sk::PaintStyle::Fill);
-        if heads.at_start() {
-            canvas.draw_path(&head_path(shape.from, shape.to, head), &fill);
-        }
-        if heads.at_end() {
-            canvas.draw_path(&head_path(shape.to, shape.from, head), &fill);
-        }
-    });
+            let mut fill = paint.clone();
+            fill.set_style(sk::PaintStyle::Fill);
+            if heads.at_start() {
+                canvas.draw_path(&head_path(shape.from, shape.to, head), &fill);
+            }
+            if heads.at_end() {
+                canvas.draw_path(&head_path(shape.to, shape.from, head), &fill);
+            }
+        },
+    );
 }
 
 /// `p` moved `by` towards `q`.
