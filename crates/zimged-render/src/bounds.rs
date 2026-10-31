@@ -7,9 +7,10 @@
 //! save-layer to, so the two must grow a shape the same way; the shape goldens and the dirty-region
 //! equivalence tests guard that they do.
 
-use zimged_core::{Annotation, AnnotationShape, Arrow, HighlightMode, Rect, Shape, Style};
+use zimged_core::{Annotation, AnnotationShape, HighlightMode, Rect, Shape, Style};
 
 use crate::effects::SHADOW_SPREAD;
+use crate::shapes;
 
 /// The rectangle of Image pixels `annotation` can draw into (see the module docs). Conservative: a
 /// superset of the touched pixels is always safe for the dirty region.
@@ -39,22 +40,26 @@ pub fn is_opaque_effect(annotation: &Annotation) -> bool {
 }
 
 /// The bound each shape's `draw` grows its geometry to before the shadow — the rectangle passed to
-/// [`crate::effects::with_shadow`], matched here so the dirty region covers every drawn pixel.
+/// [`crate::effects::with_shadow`]. For every shape that both derives, the one per-shape
+/// `content_bounds` in its drawing module is the single source, so the dirty region and the shadow
+/// layer cannot drift apart.
 fn content_bounds(shape: &AnnotationShape, style: &Style) -> Rect {
     match shape {
-        AnnotationShape::Rectangle(s) => s.rect.expand(style.thickness),
-        AnnotationShape::Ellipse(s) => s.rect.expand(style.thickness),
-        AnnotationShape::Line(s) => Rect::from_corners(s.from, s.to).expand(style.thickness),
-        AnnotationShape::Arrow(s) => {
-            let reach = Arrow::head_length(style.thickness).max(style.thickness);
-            Rect::from_corners(s.from, s.to).expand(reach)
+        AnnotationShape::Rectangle(s) => {
+            crate::core_rect(shapes::rectangle::content_bounds(s, style))
         }
+        AnnotationShape::Ellipse(s) => crate::core_rect(shapes::ellipse::content_bounds(s, style)),
+        AnnotationShape::Line(s) => crate::core_rect(shapes::line::content_bounds(s, style)),
+        AnnotationShape::Arrow(s) => crate::core_rect(shapes::arrow::content_bounds(s, style)),
         // The smoothed path stays within the points' convex hull, so the points' bounds are a
-        // superset of the drawn curve's.
+        // superset of the drawn curve's: the draw site bounds its layer to the tighter path, so this
+        // deliberately differs and stays a separate (conservative) derivation.
         AnnotationShape::Freehand(s) => s.bounds().expand(style.thickness),
-        AnnotationShape::StepCounter(s) => s.disc(style).expand(style.thickness),
-        AnnotationShape::Text(s) => s.bounds().expand(style.font_size),
-        AnnotationShape::Inset(s) => s.rect.expand(style.thickness),
+        AnnotationShape::StepCounter(s) => {
+            crate::core_rect(shapes::step_counter::content_bounds(s, style))
+        }
+        AnnotationShape::Text(s) => crate::core_rect(shapes::text::content_bounds(s, style)),
+        AnnotationShape::Inset(s) => crate::core_rect(shapes::inset::content_bounds(s, style)),
         // Effects draw within their own box (clipped to the Image when composited).
         AnnotationShape::Highlight(s) => s.rect,
         AnnotationShape::Obfuscate(s) => s.rect,

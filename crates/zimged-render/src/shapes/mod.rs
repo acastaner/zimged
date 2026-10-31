@@ -3,16 +3,16 @@
 //! Adding a type: a module with `draw(canvas, shape, style)` and one arm in [`draw`]. Effect types
 //! (highlight, obfuscate) that act on what's beneath them also take `below` (see `effects`).
 
-mod arrow;
-mod ellipse;
+pub(crate) mod arrow;
+pub(crate) mod ellipse;
 mod freehand;
 mod highlight;
-mod inset;
-mod line;
+pub(crate) mod inset;
+pub(crate) mod line;
 mod obfuscate;
-mod rectangle;
-mod step_counter;
-mod text;
+pub(crate) mod rectangle;
+pub(crate) mod step_counter;
+pub(crate) mod text;
 
 use skia_safe as sk;
 use zimged_core::{Annotation, AnnotationShape};

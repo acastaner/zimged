@@ -189,3 +189,10 @@ pub(crate) fn point(p: zimged_core::Point) -> sk::Point {
 pub(crate) fn rect(r: Rect) -> sk::Rect {
     sk::Rect::from_ltrb(r.min.x, r.min.y, r.max.x, r.max.y)
 }
+
+pub(crate) fn core_rect(r: sk::Rect) -> Rect {
+    Rect::from_corners(
+        zimged_core::Point::new(r.left, r.top),
+        zimged_core::Point::new(r.right, r.bottom),
+    )
+}

@@ -18,19 +18,29 @@ pub fn draw(canvas: &sk::Canvas, shape: &StepCounter, style: &Style, number: u32
     let disc = shape.disc(style);
     let centre = (shape.centre.x, shape.centre.y);
     let radius = disc.width() / 2.0;
-    let bounds = super::outset(crate::rect(disc), style.thickness);
-    with_shadow(canvas, style.shadow, bounds, |canvas| {
-        if let Some(fill) = super::fill_paint(style) {
-            canvas.draw_circle(centre, radius, &fill);
-        }
-        draw_number(
-            canvas,
-            centre,
-            disc.width(),
-            number,
-            number_colour(style.fill),
-        );
-    });
+    with_shadow(
+        canvas,
+        style.shadow,
+        content_bounds(shape, style),
+        |canvas| {
+            if let Some(fill) = super::fill_paint(style) {
+                canvas.draw_circle(centre, radius, &fill);
+            }
+            draw_number(
+                canvas,
+                centre,
+                disc.width(),
+                number,
+                number_colour(style.fill),
+            );
+        },
+    );
+}
+
+/// The drawn content bounds (the disc grown by the stroke): the single source both `draw` (for the
+/// `with_shadow` layer) and [`crate::bounds`] (for the dirty region) consume, so they cannot drift.
+pub(crate) fn content_bounds(shape: &StepCounter, style: &Style) -> sk::Rect {
+    super::outset(crate::rect(shape.disc(style)), style.thickness)
 }
 
 /// White on dark fills, black on light ones (and without a fill).
