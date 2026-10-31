@@ -497,6 +497,34 @@ impl TestApp {
         self.settle();
     }
 
+    /// Drag (left button) on the canvas from one Image pixel to another and HOLD: press, a few
+    /// pointer moves, run a frame, and stop without releasing, so the gesture is still open. Lets a
+    /// test snapshot the composite (§7.2) mid-gesture, where the dirty-region fast path and the
+    /// opaque-effect freeze are observable (#46). The pointer is left down; the caller ends the
+    /// gesture itself (another drag, Escape, or stepping the harness) if it needs to.
+    pub fn drag_hold_px(&mut self, from: (f32, f32), to: (f32, f32)) {
+        let a = self.screen(from.0, from.1);
+        let b = self.screen(to.0, to.1);
+        let h = &self.harness;
+        h.hover_at(a);
+        h.event(egui::Event::PointerButton {
+            pos: a,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        for t in [0.25, 0.5, 0.75, 1.0] {
+            h.hover_at(a + (b - a) * t);
+        }
+        // Step a few frames (no release) so the editor processes the press and drag and recomposites
+        // mid-gesture. `run` can't be used: an open gesture repaints every frame (the drag keeps
+        // firing while the button is held), so it never settles. The pointer stays down and the
+        // gesture is still open afterwards.
+        for _ in 0..3 {
+            self.harness.step();
+        }
+    }
+
     /// Drag (left button) along a path of Image pixels, one pointer move per point, then settle.
     pub fn drag_path_px(&mut self, path: &[(f32, f32)]) {
         let points: Vec<egui::Pos2> = path.iter().map(|&(x, y)| self.screen(x, y)).collect();

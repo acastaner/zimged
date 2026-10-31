@@ -11,8 +11,8 @@ use std::sync::{Arc, mpsc};
 
 use zimged_codec::Size;
 use zimged_core::{
-    CopiedAnnotation, Document, HISTORY_PIXEL_CAP, Inset, PixelData, Pixels, Point, Property,
-    PropertyKind, Rect, Restack, Shape, Style, Vector,
+    AnnotationId, CopiedAnnotation, Document, HISTORY_PIXEL_CAP, Inset, PixelData, Pixels, Point,
+    Property, PropertyKind, Rect, Restack, Shape, Style, Vector,
 };
 use zimged_render::{Composite, Renderer, Source, SourcePixels, View};
 
@@ -56,6 +56,13 @@ struct CompositeTexture {
     texture: egui::TextureHandle,
     dest: egui::Rect,
     pixels: Composite,
+    /// Each Annotation's drawn bounds (Image pixels) as of this composite, in z-order: the
+    /// dirty-region fast path diffs them against the next frame's to find what changed (#46).
+    bounds: Vec<(AnnotationId, Rect)>,
+    /// An opaque neighbourhood effect was frozen during the current gesture, so one full re-render
+    /// is forced when the gesture ends to correct it. `commit_gesture` does not bump the Document
+    /// revision, so the flag (not the revision) is what triggers that correction (#46).
+    froze: bool,
 }
 
 /// A property-bar interaction in progress: changes to `kind` merge into one step once the first
@@ -963,36 +970,246 @@ impl Editor {
                 pixels: SourcePixels::RgbaPremultiplied(display.image.as_raw()),
             },
         };
-        let key = (e.doc.revision(), source.key, view);
-        if e.composite.as_ref().is_none_or(|c| c.key != key) {
-            let renderer = self.renderer.get_or_insert_with(Renderer::new);
-            // Re-rendering only the dirty region is a later optimisation (§7.2).
-            let pixels = renderer.composite(&e.doc, &source, view);
+        let revision = e.doc.revision();
+        let key = (revision, source.key, view);
+        let in_gesture = e.doc.in_gesture();
+
+        // Already up to date? A gesture that ended with a frozen effect region still needs one full
+        // re-render to correct it (the revision didn't change on commit), so don't short-circuit then.
+        if let Some(c) = &e.composite {
+            let correct_frozen = c.froze && !in_gesture;
+            if c.key == key && !correct_frozen {
+                return Some((c.texture.id(), c.dest));
+            }
+        }
+
+        let renderer = self.renderer.get_or_insert_with(Renderer::new);
+        let new_bounds: Vec<(AnnotationId, Rect)> = e
+            .doc
+            .annotations()
+            .iter()
+            .map(|a| (a.id, zimged_render::drawn_bounds(a)))
+            .collect();
+
+        // The fast path (#46): during a gesture, when only the Document changed (same source and
+        // view) and a previous composite is there to diff against, re-render and re-upload only the
+        // region that changed. Outside a gesture (undo/redo, property bar, paste, zoom/pan, Image
+        // ops) the full-region path below runs unchanged.
+        let fast = in_gesture
+            && e.composite
+                .as_ref()
+                .is_some_and(|c| c.key.1 == source.key && c.key.2 == view && c.key.0 != revision);
+        if fast {
+            let old = &e
+                .composite
+                .as_ref()
+                .expect("fast path has a composite")
+                .bounds;
+            let dirty =
+                dirty_region(old, &new_bounds).and_then(|d| device_rect(d, view).map(|s| (d, s)));
+            let Some((dirty_image, sub)) = dirty else {
+                // Nothing visible changed; keep the pixels, just mark the cache current.
+                let c = e.composite.as_mut().expect("fast path has a composite");
+                c.key = key;
+                c.dest = dest;
+                c.bounds = new_bounds;
+                return Some((c.texture.id(), c.dest));
+            };
+            let sub_view = subview(view, sub);
+            let mut sub_px = renderer.composite(&e.doc, &source, sub_view);
+            // Opaque neighbourhood effects that only partly overlap the change can't be recomputed
+            // from a slice, so freeze them: restore their pixels from the previous composite for
+            // this frame and mark the composite so the gesture end corrects them. An effect fully
+            // inside the dirty rectangle (e.g. the effect itself being moved) is recomputed live.
+            let frozen: Vec<Rect> = e
+                .doc
+                .annotations()
+                .iter()
+                .filter(|a| zimged_render::is_opaque_effect(a))
+                .map(zimged_render::drawn_bounds)
+                .filter(|eb| overlaps_partially(eb, &dirty_image))
+                .collect();
+            let c = e.composite.as_mut().expect("fast path has a composite");
+            for eb in &frozen {
+                restore_region(&mut sub_px, &c.pixels, *eb, view, sub);
+            }
+            // Write the sub-rect back into the cached pixels so the cache stays consistent, and
+            // upload only that sub-rect to the texture.
+            blit(&mut c.pixels, &sub_px, sub);
             let image = egui::ColorImage::from_rgba_premultiplied(
-                [pixels.width as usize, pixels.height as usize],
-                &pixels.rgba_premultiplied,
+                [sub_px.width as usize, sub_px.height as usize],
+                &sub_px.rgba_premultiplied,
             );
-            match &mut e.composite {
-                Some(c) => {
-                    c.texture.set(image, egui::TextureOptions::LINEAR);
-                    c.key = key;
-                    c.dest = dest;
-                    c.pixels = pixels;
-                }
-                None => {
-                    let texture =
-                        ctx.load_texture("composite", image, egui::TextureOptions::LINEAR);
-                    e.composite = Some(CompositeTexture {
-                        key,
-                        texture,
-                        dest,
-                        pixels,
-                    });
-                }
+            c.texture
+                .set_partial([sub.x0, sub.y0], image, egui::TextureOptions::LINEAR);
+            c.key = key;
+            c.dest = dest;
+            c.bounds = new_bounds;
+            c.froze |= !frozen.is_empty();
+            return Some((c.texture.id(), c.dest));
+        }
+
+        // Full path: render the whole visible region and reset the gesture's dirty-tracking state.
+        let pixels = renderer.composite(&e.doc, &source, view);
+        let image = egui::ColorImage::from_rgba_premultiplied(
+            [pixels.width as usize, pixels.height as usize],
+            &pixels.rgba_premultiplied,
+        );
+        match &mut e.composite {
+            Some(c) => {
+                c.texture.set(image, egui::TextureOptions::LINEAR);
+                c.key = key;
+                c.dest = dest;
+                c.pixels = pixels;
+                c.bounds = new_bounds;
+                c.froze = false;
+            }
+            None => {
+                let texture = ctx.load_texture("composite", image, egui::TextureOptions::LINEAR);
+                e.composite = Some(CompositeTexture {
+                    key,
+                    texture,
+                    dest,
+                    pixels,
+                    bounds: new_bounds,
+                    froze: false,
+                });
             }
         }
         let c = e.composite.as_ref()?;
         Some((c.texture.id(), c.dest))
+    }
+}
+
+/// A rectangle of composite (device) pixels: `[x0, x1) × [y0, y1)`.
+#[derive(Clone, Copy)]
+struct SubRect {
+    x0: usize,
+    y0: usize,
+    x1: usize,
+    y1: usize,
+}
+
+/// The region that changed between two sets of Annotation drawn bounds (Image pixels): the union of
+/// the bounds of every Annotation added, removed, or whose drawn bounds moved. `None` when nothing
+/// changed (#46).
+fn dirty_region(old: &[(AnnotationId, Rect)], new: &[(AnnotationId, Rect)]) -> Option<Rect> {
+    let mut dirty: Option<Rect> = None;
+    let mut mark = |r: Rect| dirty = Some(dirty.map_or(r, |d| d.union(&r)));
+    for (id, nb) in new {
+        match old.iter().find(|(oid, _)| oid == id) {
+            Some((_, ob)) if ob == nb => {}
+            Some((_, ob)) => {
+                mark(*ob);
+                mark(*nb);
+            }
+            None => mark(*nb),
+        }
+    }
+    for (id, ob) in old {
+        if !new.iter().any(|(nid, _)| nid == id) {
+            mark(*ob);
+        }
+    }
+    dirty
+}
+
+/// `effect` overlaps `dirty` but isn't wholly inside it: a sliced recompute of the effect would be
+/// wrong, so it must be frozen for the frame. (Wholly inside → recompute live; disjoint → untouched.)
+fn overlaps_partially(effect: &Rect, dirty: &Rect) -> bool {
+    let contained = dirty.min.x <= effect.min.x
+        && dirty.min.y <= effect.min.y
+        && dirty.max.x >= effect.max.x
+        && dirty.max.y >= effect.max.y;
+    effect.intersect(dirty).is_some() && !contained
+}
+
+/// The composite (device) pixels an Image-pixel rectangle maps to, aligned to the pixel grid and
+/// clamped to the view. `None` when it falls outside the visible region.
+fn device_rect(r: Rect, view: View) -> Option<SubRect> {
+    let (sx, sy) = view_scale(view);
+    let w = view.width as f32;
+    let h = view.height as f32;
+    let x0 = (((r.min.x - view.region.min.x) * sx).floor()).clamp(0.0, w);
+    let x1 = (((r.max.x - view.region.min.x) * sx).ceil()).clamp(0.0, w);
+    let y0 = (((r.min.y - view.region.min.y) * sy).floor()).clamp(0.0, h);
+    let y1 = (((r.max.y - view.region.min.y) * sy).ceil()).clamp(0.0, h);
+    (x1 > x0 && y1 > y0).then_some(SubRect {
+        x0: x0 as usize,
+        y0: y0 as usize,
+        x1: x1 as usize,
+        y1: y1 as usize,
+    })
+}
+
+/// The View for a pixel-grid-aligned sub-rectangle of `view`, so the sub-render's pixels land
+/// exactly where the full render's would (#46).
+fn subview(view: View, sub: SubRect) -> View {
+    let (sx, sy) = view_scale(view);
+    let region = Rect::from_min_size(
+        Point::new(
+            view.region.min.x + sub.x0 as f32 / sx,
+            view.region.min.y + sub.y0 as f32 / sy,
+        ),
+        (sub.x1 - sub.x0) as f32 / sx,
+        (sub.y1 - sub.y0) as f32 / sy,
+    );
+    View {
+        region,
+        width: (sub.x1 - sub.x0) as u32,
+        height: (sub.y1 - sub.y0) as u32,
+    }
+}
+
+/// Composite (device) pixels per Image pixel, as [`zimged_render::Renderer::composite`] scales.
+fn view_scale(view: View) -> (f32, f32) {
+    (
+        view.width as f32 / view.region.width().max(f32::EPSILON),
+        view.height as f32 / view.region.height().max(f32::EPSILON),
+    )
+}
+
+/// Copy `src` (sized to `at`) into `dst` at `at`'s top-left corner. Both are RGBA, row-major.
+fn blit(dst: &mut Composite, src: &Composite, at: SubRect) {
+    let dw = dst.width as usize;
+    let sw = src.width as usize;
+    let len = sw * 4;
+    for j in 0..(at.y1 - at.y0) {
+        let drow = ((at.y0 + j) * dw + at.x0) * 4;
+        let srow = j * len;
+        dst.rgba_premultiplied[drow..drow + len]
+            .copy_from_slice(&src.rgba_premultiplied[srow..srow + len]);
+    }
+}
+
+/// Restore the pixels of `region` (Image pixels) in the freshly rendered `sub` from the `previous`
+/// full composite — the freeze that keeps an opaque effect intact for a frame (#46). `sub` covers
+/// the device rectangle `at`; only the part of `region` inside it is restored.
+fn restore_region(
+    sub: &mut Composite,
+    previous: &Composite,
+    region: Rect,
+    view: View,
+    at: SubRect,
+) {
+    let Some(d) = device_rect(region, view) else {
+        return;
+    };
+    let x0 = d.x0.max(at.x0);
+    let y0 = d.y0.max(at.y0);
+    let x1 = d.x1.min(at.x1);
+    let y1 = d.y1.min(at.y1);
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    let pw = previous.width as usize;
+    let sw = sub.width as usize;
+    let len = (x1 - x0) * 4;
+    for y in y0..y1 {
+        let prow = (y * pw + x0) * 4;
+        let srow = ((y - at.y0) * sw + (x0 - at.x0)) * 4;
+        sub.rgba_premultiplied[srow..srow + len]
+            .copy_from_slice(&previous.rgba_premultiplied[prow..prow + len]);
     }
 }
 
