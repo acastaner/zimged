@@ -8,12 +8,14 @@
 //! Image at the window's resolution; Flatten (#34) is the same call with the whole Image at full
 //! resolution, so the screen and the file match.
 
+mod bounds;
 mod effects;
 mod resample;
 mod scene;
 mod shapes;
 pub mod text;
 
+pub use bounds::{drawn_bounds, is_opaque_effect};
 pub use resample::resample;
 
 use skia_safe as sk;
