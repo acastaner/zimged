@@ -65,7 +65,14 @@ const POINTS_PER_STEP: f32 = 50.0;
 /// The commands this frame's input asks for, in order. `canvas` is the canvas as of the last frame:
 /// Ctrl+wheel only zooms while the pointer is over it. `typing` is true while text is being typed
 /// (the text tool, a dialog's text field): it has the keyboard to itself, Ctrl+C/V/Z included.
-pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>, typing: bool) -> Vec<Command> {
+/// `pannable` is whether the Image is zoomed beyond Fit (§3.1): a plain wheel pans then ([`crate::pan`])
+/// instead of navigating Siblings. The arrow keys navigate in either state.
+pub fn commands(
+    ctx: &egui::Context,
+    canvas: Option<egui::Rect>,
+    typing: bool,
+    pannable: bool,
+) -> Vec<Command> {
     let mut commands = Vec::new();
     // A focused control (reached with Tab, §8.6) keeps the plain keys: the arrows move the focus,
     // Enter and Space press it, Esc lets go of it. Shortcuts with Ctrl (Cmd) still work.
@@ -129,7 +136,7 @@ pub fn commands(ctx: &egui::Context, canvas: Option<egui::Rect>, typing: bool) -
             }
         }
     });
-    wheel(ctx, &mut commands);
+    wheel(ctx, pannable, &mut commands);
     commands
 }
 
@@ -181,8 +188,12 @@ fn editor_keys(input: &mut egui::InputState, commands: &mut Vec<Command>) {
 }
 
 /// §3.1: wheel down is the next Sibling, wheel up the previous one. Ctrl+wheel zooms instead
-/// (above) and Shift+wheel pans ([`crate::pan`], #43).
-fn wheel(ctx: &egui::Context, commands: &mut Vec<Command>) {
+/// (above) and Shift+wheel pans ([`crate::pan`], #43). When the Image is `pannable` (zoomed beyond
+/// Fit), a plain wheel pans instead ([`crate::pan`], #50), so it navigates no Sibling here.
+fn wheel(ctx: &egui::Context, pannable: bool, commands: &mut Vec<Command>) {
+    if pannable {
+        return;
+    }
     let id = egui::Id::unique("zimged_wheel_points");
     let mut points: f32 = ctx.data(|d| d.get_temp(id)).unwrap_or(0.0);
     ctx.input(|input| {

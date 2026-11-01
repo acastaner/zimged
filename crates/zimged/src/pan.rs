@@ -1,9 +1,11 @@
-//! Panning a zoomed Image (#43): Space+left-drag, middle-drag and Shift+wheel.
+//! Panning a zoomed Image (#43): Space+left-drag, middle-drag and Shift+wheel, plus a plain scroll
+//! while the Image is zoomed beyond Fit (#50).
 //!
 //! Self-contained so it composes with the editor tools: a left-drag on the canvas belongs to the
 //! active tool unless Space is held, and middle-drag is always a pan. Tools ask
-//! [`PanGesture::owns_pointer`] before acting on the pointer. Plain wheel is left alone (Sibling
-//! navigation, §3.1); Ctrl+wheel is zoom ([`crate::input`]).
+//! [`PanGesture::owns_pointer`] before acting on the pointer. A plain wheel pans when the Image is
+//! pannable (zoomed beyond Fit, the same condition the grab cursor uses); at Fit it is left alone
+//! for Sibling navigation (§3.1, [`crate::input`]). Ctrl+wheel is zoom ([`crate::input`]).
 
 use egui::{Key, PointerButton};
 
@@ -18,8 +20,15 @@ pub struct PanGesture {
 
 impl PanGesture {
     /// The pan this frame's input asks for. `canvas` is the canvas as of the last frame: a pan drag
-    /// only starts on it, and Shift+wheel only pans over it.
-    pub fn commands(&mut self, ctx: &egui::Context, canvas: Option<egui::Rect>) -> Vec<Command> {
+    /// only starts on it, and the wheel only pans over it. `pannable` is whether the Image is
+    /// zoomed beyond Fit (the same notion the grab cursor uses, §3.1): only then does a plain scroll
+    /// pan rather than navigate Siblings (#50).
+    pub fn commands(
+        &mut self,
+        ctx: &egui::Context,
+        canvas: Option<egui::Rect>,
+        pannable: bool,
+    ) -> Vec<Command> {
         let space = space_held(ctx);
         let line = ctx.options(|o| o.input_options.line_scroll_speed);
         let mut commands = Vec::new();
@@ -42,8 +51,9 @@ impl PanGesture {
                 commands.push(Command::Pan(pointer.delta()));
             }
 
-            // Shift+wheel scrolls horizontally. Raw events, so the step isn't smoothed over frames
-            // and the plain wheel stays untouched for Sibling navigation.
+            // Wheel panning. Raw events, so the step isn't smoothed over frames. Shift+wheel always
+            // pans horizontally; a plain wheel pans on both axes only when the Image is pannable,
+            // otherwise it is left for Sibling navigation ([`crate::input`]).
             let over_canvas = matches!(
                 (input.pointer.hover_pos(), canvas),
                 (Some(at), Some(canvas)) if canvas.contains(at)
@@ -52,23 +62,33 @@ impl PanGesture {
                 return;
             }
             for event in &input.raw.events {
-                if let egui::Event::MouseWheel {
+                let egui::Event::MouseWheel {
                     unit,
                     delta,
                     modifiers,
                     ..
                 } = event
-                    && modifiers.shift_only()
-                {
-                    let step = match unit {
-                        egui::MouseWheelUnit::Point => 1.0,
-                        egui::MouseWheelUnit::Line => line,
-                        egui::MouseWheelUnit::Page => canvas.map_or(0.0, |c| c.width()),
-                    };
+                else {
+                    continue;
+                };
+                let step = match unit {
+                    egui::MouseWheelUnit::Point => 1.0,
+                    egui::MouseWheelUnit::Line => line,
+                    egui::MouseWheelUnit::Page => canvas.map_or(0.0, |c| c.width()),
+                };
+                if modifiers.shift_only() {
                     // Some platforms already turn Shift+wheel into a horizontal delta.
                     let dx = (delta.x + delta.y) * step;
                     if dx != 0.0 {
                         commands.push(Command::Pan(egui::vec2(dx, 0.0)));
+                    }
+                } else if pannable && !modifiers.any() {
+                    // A plain scroll pans the zoomed Image on both axes. The raw delta already
+                    // carries the platform's natural-scroll direction, so the content tracks the
+                    // gesture; out-of-bounds pans are clamped by the view.
+                    let pan = *delta * step;
+                    if pan != egui::Vec2::ZERO {
+                        commands.push(Command::Pan(pan));
                     }
                 }
             }
