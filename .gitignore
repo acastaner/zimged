@@ -5,3 +5,5 @@ __pycache__/
 /tools/bench/images/
 # Build output left by checking out the prototype/* branches.
 /prototype/
+# Claude Code local working directory (agent worktrees, local settings).
+/.claude/
