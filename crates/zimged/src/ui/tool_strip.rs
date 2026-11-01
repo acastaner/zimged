@@ -20,11 +20,11 @@ pub fn show(ui: &mut egui::Ui, active: ToolId, can_edit: bool) -> Option<Command
         .resizable(false)
         .show(ui, |ui| {
             ui.vertical(|ui| {
-                for tool in ToolId::ALL {
+                for tool in ToolId::all() {
                     let enabled = tool.is_available() && (can_edit || tool == ToolId::Select);
                     let button =
                         egui::Button::selectable(tool == active, "").min_size(vec2(BUTTON, BUTTON));
-                    let name = strings::tool_name(tool);
+                    let name = tool.name();
                     let tooltip = strings::with_shortcut(name, key_label(tool).unwrap_or(""));
                     let response = ui
                         .add_enabled(enabled, button)

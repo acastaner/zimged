@@ -15,15 +15,23 @@ use zimged_render::{Composite, Renderer, Source, SourcePixels, View};
 use crate::decode::{Pending, decode_full};
 use crate::strings;
 
-/// What to save, and where.
-pub(crate) struct SaveJob {
-    /// What is drawn: the size, the Annotations and (when decoded) the full-resolution pixels.
+/// What a save or copy Flattens (§7.2): the Document, plus where its full-resolution pixels come
+/// from when the Document hasn't got them yet. Shared by [`SaveJob`] and [`CopyJob`], which both
+/// start from the same input and differ only in where the result goes.
+pub(crate) struct FlattenInput {
+    /// The Document to Flatten: the size, the Annotations and (when decoded) the full-resolution
+    /// pixels.
     pub doc: Document,
     /// The file the Image came from: its pixels (when not yet decoded) and metadata.
     pub source: Option<PathBuf>,
     /// The display-size decode when it is the full resolution: used when the source can't be
     /// decoded any more (deleted or changed on disk, #21).
     pub fallback: Option<Arc<egui::ColorImage>>,
+}
+
+/// What to save, and where.
+pub(crate) struct SaveJob {
+    pub input: FlattenInput,
     pub target: PathBuf,
     pub format: SaveFormat,
     pub jpeg_quality: u8,
@@ -38,6 +46,36 @@ pub(crate) struct Saved {
 /// The `<reason>` of "Can't save <name>: <reason>" on failure.
 pub(crate) type SaveResult = Result<Saved, String>;
 
+/// Why Flattening the input failed (§7.2): the Document's full-resolution pixels couldn't be
+/// obtained, or the file changed underneath. Each maps to a fixed `<reason>` for the "Can't
+/// save/copy" message, so it converts straight into the `String` a [`SaveResult`] carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FlattenError {
+    /// A clipboard Image with no file to decode, and no fallback pixels (§3.5).
+    NoPixelsToSave,
+    /// The source file is gone and there are no fallback pixels (#21).
+    FileChangedOrGone,
+    /// The decoded (or fallback) pixels no longer match the Document's size (#21).
+    FileChanged,
+}
+
+impl FlattenError {
+    /// The `<reason>` this failure shows.
+    fn reason(self) -> &'static str {
+        match self {
+            FlattenError::NoPixelsToSave => strings::NO_PIXELS_TO_SAVE,
+            FlattenError::FileChangedOrGone => strings::FILE_CHANGED_OR_GONE,
+            FlattenError::FileChanged => strings::FILE_CHANGED,
+        }
+    }
+}
+
+impl From<FlattenError> for String {
+    fn from(error: FlattenError) -> Self {
+        error.reason().to_owned()
+    }
+}
+
 pub(crate) type PendingSave = Pending<SaveResult>;
 
 impl PendingSave {
@@ -49,12 +87,13 @@ impl PendingSave {
 }
 
 fn run(job: SaveJob) -> SaveResult {
-    let (flattened, decoded) = flatten_document(job.doc, job.source.as_deref(), &job.fallback)?;
     let info = job
+        .input
         .source
         .as_deref()
         .map(zimged_codec::source_info)
         .unwrap_or_default();
+    let (flattened, decoded) = flatten_document(job.input)?;
     let (pixels, size) = straight(&flattened);
     zimged_codec::save(
         &job.target,
@@ -70,9 +109,7 @@ fn run(job: SaveJob) -> SaveResult {
 
 /// What to copy to the clipboard (§6.2): the same as a save, without a target file.
 pub(crate) struct CopyJob {
-    pub doc: Document,
-    pub source: Option<PathBuf>,
-    pub fallback: Option<Arc<egui::ColorImage>>,
+    pub input: FlattenInput,
     pub clipboard: Arc<dyn zimged_platform::Clipboard>,
 }
 
@@ -86,7 +123,7 @@ impl PendingCopy {
 }
 
 fn copy(job: CopyJob) -> SaveResult {
-    let (flattened, decoded) = flatten_document(job.doc, job.source.as_deref(), &job.fallback)?;
+    let (flattened, decoded) = flatten_document(job.input)?;
     let (pixels, size) = straight(&flattened);
     let png =
         zimged_codec::encode_png_plain(&pixels, size).map_err(|e| strings::save_reason(&e))?;
@@ -210,31 +247,33 @@ fn trim_transparent(c: &Composite) -> Option<Composite> {
     })
 }
 
-/// Flatten `doc` at full resolution, decoding its pixels from `source` (or taking `fallback`)
-/// when the Document hasn't got them yet; those decoded pixels come back too.
-fn flatten_document(
-    mut doc: Document,
-    source: Option<&Path>,
-    fallback: &Option<Arc<egui::ColorImage>>,
-) -> Result<(Composite, Option<Arc<Pixels>>), String> {
+/// Flatten the input at full resolution, decoding its pixels from the source file (or taking the
+/// fallback) when the Document hasn't got them yet; those decoded pixels come back too.
+fn flatten_document(input: FlattenInput) -> Result<(Composite, Option<Arc<Pixels>>), FlattenError> {
+    let FlattenInput {
+        mut doc,
+        source,
+        fallback,
+    } = input;
     let (full, decoded) = match doc.full_resolution() {
         Some(full) => (full.clone(), None),
         None => {
             let decoded = source
-                .ok_or_else(|| strings::NO_PIXELS_TO_SAVE.to_owned())
-                .and_then(|source| decode_full(source).map_err(|e| e.to_string()))
+                .as_deref()
+                .ok_or(FlattenError::NoPixelsToSave)
+                .and_then(|source| decode_full(source).map_err(|_| FlattenError::FileChangedOrGone))
                 .ok()
                 .filter(|p| (p.width, p.height) == (doc.width(), doc.height()));
             let full = match (decoded, fallback) {
                 (Some(pixels), _) => Arc::new(pixels),
-                (None, Some(fallback)) => Arc::new(from_color_image(fallback)),
-                (None, None) => return Err(strings::FILE_CHANGED_OR_GONE.into()),
+                (None, Some(fallback)) => Arc::new(from_color_image(&fallback)),
+                (None, None) => return Err(FlattenError::FileChangedOrGone),
             };
             (full.clone(), Some(full))
         }
     };
     if (full.width, full.height) != (doc.width(), doc.height()) {
-        return Err(strings::FILE_CHANGED.into());
+        return Err(FlattenError::FileChanged);
     }
     doc.set_full_resolution(full.clone());
     Ok((flatten(&doc, &full), decoded))

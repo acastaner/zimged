@@ -1,9 +1,11 @@
 //! Every string the UI shows or announces (§8.6): one table, English only.
 //!
-//! Widgets, messages and dialogs take their text from here; nothing else in the crate spells out
-//! user-facing text. A fixed string is a `const`; text with a value in it (a file name, a reason, a
-//! shortcut formatted for the platform) is a function. Accessibility labels are the names screen
-//! readers announce and the headless tests find controls by, so changing one is a visible change.
+//! Widgets, messages and dialogs take their text from here; the only user-facing text elsewhere is
+//! each tool's name and hint, which sit with the rest of its data in the `TOOLS` table
+//! (`crate::tools`) so a new tool is one row. A fixed string is a `const`; text with a value in it
+//! (a file name, a reason, a shortcut formatted for the platform) is a function. Accessibility
+//! labels are the names screen readers announce and the headless tests find controls by, so
+//! changing one is a visible change.
 //!
 //! Not here: error details from libraries (codecs, the OS) that messages pass through as the
 //! `reason`, and the `config.toml` keys.
@@ -99,32 +101,8 @@ pub fn with_shortcut(label: &str, shortcut: &str) -> String {
 
 // ---- Tool strip (§4.1) ----
 
-/// A tool's name: its button's accessibility label.
-pub fn tool_name(tool: ToolId) -> &'static str {
-    match tool {
-        ToolId::Select => "Select",
-        ToolId::Rectangle => "Rectangle",
-        ToolId::Ellipse => "Ellipse",
-        ToolId::Line => "Line",
-        ToolId::Arrow => "Arrow",
-        ToolId::Freehand => "Freehand",
-        ToolId::Text => "Text",
-        ToolId::StepCounter => "Step counter",
-        ToolId::Highlight => "Highlight",
-        ToolId::Obfuscate => "Obfuscate",
-        ToolId::Crop => "Crop",
-        ToolId::Inset => "Inset",
-    }
-}
-
-/// The property bar's hint when the tool has no controls to show.
-pub fn tool_hint(tool: ToolId) -> &'static str {
-    match tool {
-        ToolId::Select => "Click an Annotation to select it",
-        ToolId::Crop => "Drag the region to keep",
-        _ => "",
-    }
-}
+// Tool names and hints are reached through `ToolId::name` / `ToolId::hint`, backed by the `TOOLS`
+// table (`crate::tools`); see this module's header.
 
 // Key names beside menu entries and in tooltips (written out: egui's arrow symbols aren't in the
 // fonts loaded at startup).
@@ -367,7 +345,7 @@ pub const DOES_ACTIVATE: &str = "Activate the focused control";
 
 /// "Select tool", "Rectangle tool", … in the shortcuts list.
 pub fn tool_shortcut(tool: ToolId) -> String {
-    format!("{} tool", tool_name(tool))
+    format!("{} tool", tool.name())
 }
 
 pub const KEYS_TAB: &str = "Tab, arrow keys";

@@ -179,7 +179,7 @@ impl Editor {
     /// A table that isn't a valid style leaves that tool on its defaults.
     pub fn with_tool_styles(saved: &BTreeMap<String, toml::Table>) -> Self {
         let mut editor = Self::new();
-        for tool in ToolId::STYLED {
+        for tool in ToolId::styled() {
             let Some(table) = saved.get(tool.config_key()) else {
                 continue;
             };

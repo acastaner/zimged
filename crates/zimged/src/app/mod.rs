@@ -4,6 +4,9 @@
 //! input mapping in `input.rs`, the editor (Document, tools, composite) in `editor.rs`, and domain
 //! state in `zimged-core`. `ui()` polls background work, then lays out the panels.
 
+mod copy;
+mod save;
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
@@ -17,20 +20,19 @@ use zimged_siblings::{Decoded, Direction};
 
 use crate::Command;
 use crate::animation::Animation;
+use crate::app::copy::CopyState;
+use crate::app::save::SaveState;
 use crate::config_save::ConfigSaver;
 use crate::decode::PendingDecode;
-use crate::editor::{DisplayPixels, Editor, ImageOp, MAX_EDIT_PIXELS, PanCursor, SaveStamp};
+use crate::editor::{DisplayPixels, Editor, ImageOp, MAX_EDIT_PIXELS, PanCursor};
 use crate::pan::PanGesture;
 use crate::paste::{Destination, Incoming, PendingIncoming};
-use crate::save::{AnnotationsCopyJob, CopyJob, PendingCopy, PendingSave, SaveJob};
 use crate::siblings::{Navigation, Step};
 use crate::strings;
 use crate::tools::ToolId;
 use crate::ui::help_dialog::{self, HelpDialog};
 use crate::ui::resize_dialog::{self, ResizeDialog};
-use crate::ui::{
-    canvas, menu_bar, overwrite_dialog, property_bar, status_bar, tool_strip, unsaved_dialog,
-};
+use crate::ui::{canvas, menu_bar, property_bar, status_bar, tool_strip, unsaved_dialog};
 use crate::view::{View, ZOOM_STEP, Zoom};
 
 /// The largest Image whose full-resolution pixels are decoded (§4.7). Larger ones are view-only and
@@ -211,12 +213,6 @@ struct Upgrade {
     pixels: Pixels,
 }
 
-/// A save running on the worker thread (#34).
-struct Saving {
-    pending: PendingSave,
-    stamp: SaveStamp,
-}
-
 /// What waits on the unsaved-changes prompt (#35, §6.4): done right away without unsaved changes,
 /// else after Save (once the file is written) or Discard.
 #[derive(Clone, Debug)]
@@ -226,17 +222,21 @@ enum Proceed {
     Close,
 }
 
-/// "Overwrite animated image?" while it is up (#38, §6.4), and the save it holds.
-struct OverwritePrompt {
-    file_name: String,
-    target: PathBuf,
-    format: zimged_codec::SaveFormat,
-}
-
 /// The unsaved-changes prompt while it is up.
 struct UnsavedPrompt {
     file_name: String,
     then: Proceed,
+}
+
+/// The F11 fullscreen state (§2): what's wanted, and what the window has been told and has
+/// reported, which [`ZimgedApp::sync_fullscreen`] reconciles.
+#[derive(Default)]
+struct Fullscreen {
+    /// Wanted fullscreen state (F11). Chrome is hidden while it's on.
+    wanted: bool,
+    /// The last fullscreen state sent to the window, and the last one the window reported.
+    sent: Option<bool>,
+    seen: Option<bool>,
 }
 
 /// Where the app is on the way to its first painted image (§1.3 steps 4 and 5).
@@ -265,11 +265,8 @@ pub struct ZimgedApp {
     view: View,
     /// The pan drag in progress (Space+left or middle button).
     pan: PanGesture,
-    /// Wanted fullscreen state (F11). Chrome is hidden while it's on.
-    fullscreen: bool,
-    /// The last fullscreen state sent to the window, and the last one the window reported.
-    fullscreen_sent: Option<bool>,
-    fullscreen_seen: Option<bool>,
+    /// F11 fullscreen, and what the window has been told and reported (§2).
+    fullscreen: Fullscreen,
     /// The canvas as laid out in the last frame.
     canvas: Option<canvas::Layout>,
     first_paint: FirstPaint,
@@ -283,17 +280,11 @@ pub struct ZimgedApp {
     /// Benchmark driver for Sibling switching (`tools/bench switch`).
     bench_nav: Option<crate::bench::NavBench>,
     editor: Editor,
-    /// The Save As dialog while it is up (#34).
-    save_dialog: Option<mpsc::Receiver<Option<PathBuf>>>,
-    saving: Option<Saving>,
-    /// A save asked for while the Document waits for its pixels (a queued crop): started then.
-    queued_save: Option<(PathBuf, zimged_codec::SaveFormat)>,
+    /// The save/export flow (#34, #35, #38): the Save As dialog, a running save, a queued save,
+    /// the overwrite prompt and the post-save action. See [`save`].
+    save: SaveState,
     /// "Save changes?" while it is up (#35).
     unsaved_prompt: Option<UnsavedPrompt>,
-    /// "Overwrite animated image?" while it is up (#38).
-    overwrite_prompt: Option<OverwritePrompt>,
-    /// The action the prompt's Save is holding until the save (and any Save As dialog) is done.
-    after_save: Option<Proceed>,
     /// The window is closing: a close request was let through, or sent after the prompt.
     closing: bool,
     /// The Resize dialog while it is up (modal, §6.4).
@@ -302,10 +293,8 @@ pub struct ZimgedApp {
     help_dialog: Option<HelpDialog>,
     /// A path another zimged process handed over (§8.4), waiting for a modal dialog to close.
     handed_over: Option<PathBuf>,
-    /// A copy running on the worker thread (§6.2), the Document it copies, and its message.
-    copying: Option<(PendingCopy, SaveStamp, &'static str)>,
-    /// A copy asked for while the Document waits for its pixels (a queued Image operation).
-    queued_copy: bool,
+    /// The clipboard-copy flow (§6.2): a running copy and a queued copy. See [`copy`].
+    copy: CopyState,
     /// A pasted or Ctrl+dropped image being read and decoded (§4.6, §6.3).
     incoming: Option<PendingIncoming>,
 }
@@ -342,9 +331,7 @@ impl ZimgedApp {
             upgrade: None,
             view: View::fit(),
             pan: PanGesture::default(),
-            fullscreen: false,
-            fullscreen_sent: None,
-            fullscreen_seen: None,
+            fullscreen: Fullscreen::default(),
             canvas: None,
             first_paint: FirstPaint::Waiting,
             open_dialog: None,
@@ -353,18 +340,13 @@ impl ZimgedApp {
             trashed: None,
             bench_nav: crate::bench::NavBench::from_env(),
             editor,
-            save_dialog: None,
-            saving: None,
-            queued_save: None,
+            save: SaveState::default(),
             unsaved_prompt: None,
-            overwrite_prompt: None,
-            after_save: None,
             closing: false,
             resize_dialog: None,
             help_dialog: None,
             handed_over: None,
-            copying: None,
-            queued_copy: false,
+            copy: CopyState::default(),
             incoming: None,
         };
         if from_clipboard {
@@ -386,7 +368,7 @@ impl ZimgedApp {
             Command::ZoomAround { factor, around } => self.zoom(factor, Some(around)),
             Command::Pan(delta) => self.pan_by(delta),
             Command::ZoomFit => self.view = View::fit(),
-            Command::ToggleFullscreen => self.fullscreen = !self.fullscreen,
+            Command::ToggleFullscreen => self.fullscreen.wanted = !self.fullscreen.wanted,
             Command::SetAllowMultipleInstances(allow) => {
                 self.update_config(|config| config.allow_multiple_instances = allow);
             }
@@ -558,14 +540,14 @@ impl ZimgedApp {
                 .is_some_and(|s| s.animation.as_ref().is_some_and(Animation::is_decoding))
             || self.editor.is_busy()
             || self.navigation.is_busy()
-            || self.save_dialog.is_some()
-            || self.saving.is_some()
-            || self.queued_save.is_some()
-            || self.copying.is_some()
-            || self.queued_copy
+            || self.save.dialog.is_some()
+            || self.save.saving.is_some()
+            || self.save.queued.is_some()
+            || self.copy.in_progress.is_some()
+            || self.copy.queued
             || self.incoming.is_some()
             || self.trashed.as_ref().is_some_and(|t| t.waits_for_scan)
-            || self.after_save.is_some()
+            || self.save.after_save.is_some()
     }
 
     /// Does the Image have unsaved changes (` •` after the file name)? Edits to the Document, or a
@@ -588,7 +570,7 @@ impl ZimgedApp {
     fn dialog_up(&self) -> bool {
         self.unsaved_prompt.is_some()
             || self.resize_dialog.is_some()
-            || self.overwrite_prompt.is_some()
+            || self.save.overwrite_prompt.is_some()
             || self.help_dialog.is_some()
     }
 
@@ -597,7 +579,7 @@ impl ZimgedApp {
     /// Do `then` now, or, with unsaved changes, ask Save / Discard / Cancel first. Asked again while
     /// the prompt is up (or its save runs), nothing happens.
     fn proceed_or_ask(&mut self, then: Proceed) {
-        if self.unsaved_prompt.is_some() || self.after_save.is_some() {
+        if self.unsaved_prompt.is_some() || self.save.after_save.is_some() {
             return;
         }
         let leaves = match &then {
@@ -664,7 +646,7 @@ impl ZimgedApp {
         if !ctx.input(|i| i.viewport().close_requested()) || self.closing {
             return;
         }
-        if self.is_modified() || self.unsaved_prompt.is_some() || self.after_save.is_some() {
+        if self.is_modified() || self.unsaved_prompt.is_some() || self.save.after_save.is_some() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.proceed_or_ask(Proceed::Close);
         } else {
@@ -685,7 +667,7 @@ impl ZimgedApp {
             unsaved_dialog::Answer::Cancel => {}
             unsaved_dialog::Answer::Discard => self.proceed(prompt.then),
             unsaved_dialog::Answer::Save => {
-                self.after_save = Some(prompt.then);
+                self.save.after_save = Some(prompt.then);
                 self.save();
             }
         }
@@ -694,19 +676,19 @@ impl ZimgedApp {
     /// Once the prompt's save is over: proceed if it left nothing unsaved; else (it failed, or
     /// Save As was cancelled) stay put.
     fn poll_after_save(&mut self) {
-        if self.after_save.is_none()
-            || self.saving.is_some()
-            || self.save_dialog.is_some()
-            || self.queued_save.is_some()
-            || self.overwrite_prompt.is_some()
+        if self.save.after_save.is_none()
+            || self.save.saving.is_some()
+            || self.save.dialog.is_some()
+            || self.save.queued.is_some()
+            || self.save.overwrite_prompt.is_some()
         {
             return;
         }
         // After Save As the window shows the new file: move on from it once its folder is known.
-        if matches!(self.after_save, Some(Proceed::Go(_))) && !self.navigation.is_scanned() {
+        if matches!(self.save.after_save, Some(Proceed::Go(_))) && !self.navigation.is_scanned() {
             return;
         }
-        let then = self.after_save.take().expect("checked above");
+        let then = self.save.after_save.take().expect("checked above");
         if !self.is_modified() {
             self.proceed(then);
         }
@@ -731,7 +713,7 @@ impl ZimgedApp {
 
     /// Is the window fullscreen (or about to be)?
     pub fn is_fullscreen(&self) -> bool {
-        self.fullscreen
+        self.fullscreen.wanted
     }
 
     fn zoom(&mut self, factor: f32, around: Option<egui::Pos2>) {
@@ -815,9 +797,9 @@ impl ZimgedApp {
                 viewport.minimized,
             )
         });
-        // `self.fullscreen` covers the frames before the window reports entering fullscreen; the
-        // viewport flag covers those before it reports leaving it.
-        if self.fullscreen || fullscreen == Some(true) || minimised == Some(true) {
+        // `self.fullscreen.wanted` covers the frames before the window reports entering fullscreen;
+        // the viewport flag covers those before it reports leaving it.
+        if self.fullscreen.wanted || fullscreen == Some(true) || minimised == Some(true) {
             return;
         }
         self.update_config(|config| {
@@ -912,152 +894,6 @@ impl ZimgedApp {
         self.message = Some((message.into(), Instant::now()));
     }
 
-    // ---- Save (#34, §5.1, §5.3) ----
-
-    /// Ctrl+S: write the Image back in its own format; Save As (defaulting to PNG) for a read-only
-    /// one (§5.1) or a clipboard image (§6.1).
-    fn save(&mut self) {
-        let Some(shown) = &self.shown else {
-            return;
-        };
-        let Some(path) = shown.path.clone() else {
-            self.show_save_dialog();
-            return;
-        };
-        match crate::save::in_place_format(&path) {
-            Some(format) => self.save_to(path, format),
-            None => self.show_save_dialog(),
-        }
-    }
-
-    /// Ctrl+Shift+S, or Ctrl+S on a read-only format. One save (or dialog) at a time.
-    fn show_save_dialog(&mut self) {
-        if self.save_dialog.is_some() || self.saving.is_some() {
-            return;
-        }
-        let Some(shown) = &self.shown else {
-            return;
-        };
-        let suggested = crate::save::suggestion(shown.path.as_deref());
-        let (tx, rx) = mpsc::channel();
-        self.save_dialog = Some(rx);
-        let ctx = self.ctx.clone();
-        self.platform.dialogs.save_image(
-            strings::SAVE_AS_DIALOG_TITLE,
-            &suggested,
-            Box::new(move |chosen| {
-                let _ = tx.send(chosen);
-                ctx.request_repaint();
-            }),
-        );
-    }
-
-    fn poll_save_dialog(&mut self) {
-        if let Some(Some(chosen)) = dialog_answer(&mut self.save_dialog) {
-            let (target, format) = crate::save::chosen_target(chosen);
-            self.save_to(target, format);
-        }
-    }
-
-    /// Save the Image to `target`. Over its own animated file, ask "Overwrite animated image?"
-    /// first (§3.4, §6.4): the file written is a still image.
-    fn save_to(&mut self, target: PathBuf, format: zimged_codec::SaveFormat) {
-        if self.saving.is_some() || self.overwrite_prompt.is_some() {
-            return;
-        }
-        if let Some(shown) = &self.shown
-            && shown.is_animation()
-            && shown
-                .path
-                .as_deref()
-                .is_some_and(|own| same_file(own, &target))
-        {
-            self.overwrite_prompt = Some(OverwritePrompt {
-                file_name: shown.file_name.clone(),
-                target,
-                format,
-            });
-            return;
-        }
-        self.write_to(target, format);
-    }
-
-    /// The overwrite prompt, while it is up, and the user's answer.
-    fn overwrite_prompt(&mut self, ctx: &egui::Context) {
-        let Some(prompt) = &self.overwrite_prompt else {
-            return;
-        };
-        let Some(answer) = overwrite_dialog::show(ctx, &prompt.file_name) else {
-            return;
-        };
-        let prompt = self.overwrite_prompt.take().expect("checked above");
-        match answer {
-            overwrite_dialog::Answer::Cancel => {}
-            overwrite_dialog::Answer::SaveAs => self.show_save_dialog(),
-            overwrite_dialog::Answer::Overwrite => self.write_to(prompt.target, prompt.format),
-        }
-    }
-
-    /// Flatten and write the Image to `target` on the worker thread (§7.3).
-    fn write_to(&mut self, target: PathBuf, format: zimged_codec::SaveFormat) {
-        if self.saving.is_some() {
-            return;
-        }
-        if self.editor.save_waits() {
-            self.queued_save = Some((target, format));
-            return;
-        }
-        // A text box being edited is finished first, so it is saved (#28).
-        self.editor.finish_text_editing();
-        let Some(source) = self.editor.save_source() else {
-            return;
-        };
-        let job = SaveJob {
-            doc: source.doc,
-            source: source.path,
-            fallback: self.full_size_display_pixels(),
-            target,
-            format,
-            jpeg_quality: self.config.jpeg_quality,
-        };
-        let pending = PendingSave::spawn_save(job);
-        pending.wake(&self.ctx);
-        self.saving = Some(Saving {
-            pending,
-            stamp: source.stamp,
-        });
-    }
-
-    fn poll_save(&mut self, ctx: &egui::Context) {
-        if self.queued_save.is_some() && !self.editor.save_waits() {
-            let (target, format) = self.queued_save.take().expect("checked above");
-            self.write_to(target, format);
-        }
-        let Some(saving) = &self.saving else {
-            return;
-        };
-        saving.pending.wake(ctx);
-        let Some(result) = saving.pending.take() else {
-            return;
-        };
-        let saving = self.saving.take().expect("checked above");
-        let target = saving.pending.path().to_owned();
-        match result {
-            Ok(saved) => {
-                self.editor.saved(saving.stamp, &target, saved.decoded);
-                // What was written is a still image (§3.4): the file on screen is one now.
-                if let Some(shown) = &mut self.shown {
-                    shown.stop_animation();
-                    shown.frozen = false;
-                }
-                self.saved_as(ctx, &target);
-            }
-            Err(reason) => {
-                self.post_message(strings::cant_save(&file_name(&target), &reason));
-            }
-        }
-    }
-
     /// The display-size decode, when it is the full resolution: what a save or copy uses when the
     /// file can't be decoded any more (deleted or changed on disk, #21).
     fn full_size_display_pixels(&self) -> Option<Arc<egui::ColorImage>> {
@@ -1071,72 +907,6 @@ impl ZimgedApp {
     }
 
     // ---- Clipboard (#36, §3.5, §4.6, §6.2, §6.3) ----
-
-    /// Ctrl+C, from the worker thread (§7.3). With Annotations selected, they are copied as
-    /// clipboard JSON and a PNG of them, together (§6.2). With nothing selected, the Flattened Image
-    /// goes to the clipboard as PNG.
-    fn copy(&mut self) {
-        if self.shown.is_none() || self.copying.is_some() || self.editor.in_gesture() {
-            return;
-        }
-        if self.editor.save_waits() {
-            self.queued_copy = true;
-            return;
-        }
-        let Some(source) = self.editor.save_source() else {
-            return;
-        };
-        let selection = self
-            .document()
-            .map(|d| d.selection().to_vec())
-            .unwrap_or_default();
-        let (pending, message) = if selection.is_empty() {
-            let job = CopyJob {
-                doc: source.doc,
-                source: source.path,
-                fallback: self.full_size_display_pixels(),
-                clipboard: self.platform.clipboard.clone(),
-            };
-            (PendingCopy::spawn_copy(job), strings::IMAGE_COPIED)
-        } else {
-            let job = AnnotationsCopyJob {
-                doc: source.doc,
-                ids: selection,
-                clipboard: self.platform.clipboard.clone(),
-            };
-            (
-                PendingCopy::spawn_copy_annotations(job),
-                strings::ANNOTATIONS_COPIED,
-            )
-        };
-        pending.wake(&self.ctx);
-        self.copying = Some((pending, source.stamp, message));
-    }
-
-    fn poll_copy(&mut self, ctx: &egui::Context) {
-        if self.queued_copy && !self.editor.save_waits() {
-            self.queued_copy = false;
-            self.copy();
-        }
-        let Some((pending, _, _)) = &self.copying else {
-            return;
-        };
-        pending.wake(ctx);
-        let Some(result) = pending.take() else {
-            return;
-        };
-        let (_, stamp, message) = self.copying.take().expect("checked above");
-        match result {
-            Ok(copied) => {
-                self.editor.keep_decoded(stamp, copied.decoded);
-                self.post_message(message);
-            }
-            Err(reason) if message == strings::IMAGE_COPIED => {
-                self.post_message(strings::cant_copy_image(&reason))
-            }
-            Err(reason) => self.post_message(strings::cant_copy_annotations(&reason)),
-        }
-    }
 
     /// Ctrl+V: the clipboard image becomes an Inset (§6.3), or the Image in the empty window
     /// (§3.5). The clipboard is read, and the image decoded, off the UI thread.
@@ -1584,21 +1354,22 @@ impl ZimgedApp {
     fn sync_fullscreen(&mut self, ctx: &egui::Context) {
         let seen = ctx.input(|i| i.viewport().fullscreen);
         if let Some(seen) = seen
-            && self.fullscreen_seen != Some(seen)
+            && self.fullscreen.seen != Some(seen)
         {
-            self.fullscreen_seen = Some(seen);
+            self.fullscreen.seen = Some(seen);
             // Only when it isn't the window catching up with an F11 not yet applied.
             if self
-                .fullscreen_sent
-                .is_none_or(|sent| sent == self.fullscreen)
+                .fullscreen
+                .sent
+                .is_none_or(|sent| sent == self.fullscreen.wanted)
             {
-                self.fullscreen = seen;
-                self.fullscreen_sent = Some(seen);
+                self.fullscreen.wanted = seen;
+                self.fullscreen.sent = Some(seen);
             }
         }
-        if self.fullscreen_sent != Some(self.fullscreen) {
-            self.fullscreen_sent = Some(self.fullscreen);
-            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen));
+        if self.fullscreen.sent != Some(self.fullscreen.wanted) {
+            self.fullscreen.sent = Some(self.fullscreen.wanted);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.fullscreen.wanted));
         }
     }
 
@@ -1791,7 +1562,7 @@ impl eframe::App for ZimgedApp {
         self.config_saver.poll(&ctx, &self.config);
 
         // Fullscreen hides all chrome (§2): the menu bar, property bar, tool strip and status bar.
-        if !self.fullscreen {
+        if !self.fullscreen.wanted {
             let doc = self.document();
             let menu = menu_bar::MenuBar {
                 allow_multiple_instances: self.config.allow_multiple_instances,

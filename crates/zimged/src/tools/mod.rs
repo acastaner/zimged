@@ -1,11 +1,11 @@
 //! The editor's tools (§4.1): the tool strip's entries and what each does with the pointer.
 //!
-//! Adding a tool:
-//! 1. a module here with a type implementing [`Tool`] (for a drag-a-box shape, reuse
-//!    [`drag_box::DragBox`] as `rectangle.rs` does),
-//! 2. one arm in [`ToolId::create`] (that is what enables its button and key),
-//! 3. its §4.3 property list in [`ToolId::properties`],
-//! 4. for a tool that creates a new Annotation type, an arm in [`ToolId::for_shape`].
+//! Everything static about a tool lives in one row of the [`TOOLS`] table — its config key, name,
+//! hint, shortcut key, property list and constructor. Adding a tool is one entry there plus its
+//! module here (a type implementing [`Tool`]; for a drag-a-box shape, reuse [`drag_box::DragBox`]
+//! as `rectangle.rs` does). A tool that creates a new Annotation type also gets an arm in
+//! [`ToolId::for_shape`], the one tool fact keyed by shape rather than by tool, and a painted icon
+//! in [`crate::ui::tool_strip`].
 //!
 //! Tools work in Image pixels ([`zimged_core::Point`]); the canvas maps the pointer for them.
 
@@ -45,59 +45,198 @@ pub enum ToolId {
     Inset,
 }
 
+/// One row of the tool descriptor table: everything static about a tool, so a new tool is one
+/// entry here plus its module. Behaviour (`create`, `default_style`) is held as a constructor
+/// pointer rather than inline, since trait objects and styles aren't `const`.
+struct ToolInfo {
+    id: ToolId,
+    /// The tool's key under `tools` in `config.toml` (§8.3): `tools.rectangle`, ….
+    config_key: &'static str,
+    /// The tool's name: its button's accessibility label.
+    name: &'static str,
+    /// The property bar's hint when the tool has no controls to show.
+    hint: &'static str,
+    /// The single-key shortcut (Greenshot's). `None` for the Inset, which isn't in the tool strip.
+    key: Option<egui::Key>,
+    /// Shown in the tool strip, in this order (§4.1). The Inset is pasted or dropped, not drawn
+    /// (§4.6), so it is styled but not in the strip.
+    in_strip: bool,
+    /// The property-bar controls for this tool's defaults when nothing is selected (§4.3).
+    properties: &'static [PropertyKind],
+    /// Builds the tool's behaviour; `None` while it isn't built yet (its button is disabled).
+    create: Option<fn() -> Box<dyn Tool>>,
+    /// The tool's style before the user changes any of its properties (§4.3, §8.3); `None` means
+    /// [`Style::default`].
+    default_style: Option<fn() -> Style>,
+}
+
+/// Every tool, in tool-strip order then the Inset (§4.1, §4.3). The single source for each tool's
+/// static data; [`ToolId::ALL`] and [`ToolId::STYLED`] are derived from it.
+const TOOLS: &[ToolInfo] = &[
+    ToolInfo {
+        id: ToolId::Select,
+        config_key: "select",
+        name: "Select",
+        hint: "Click an Annotation to select it",
+        key: Some(egui::Key::Escape),
+        in_strip: true,
+        properties: &[],
+        create: Some(|| Box::new(select::Select::default())),
+        default_style: None,
+    },
+    ToolInfo {
+        id: ToolId::Rectangle,
+        config_key: "rectangle",
+        name: "Rectangle",
+        hint: "",
+        key: Some(egui::Key::R),
+        in_strip: true,
+        properties: Rectangle::PROPERTIES,
+        create: Some(|| Box::new(rectangle::new())),
+        default_style: None,
+    },
+    ToolInfo {
+        id: ToolId::Ellipse,
+        config_key: "ellipse",
+        name: "Ellipse",
+        hint: "",
+        key: Some(egui::Key::E),
+        in_strip: true,
+        properties: Ellipse::PROPERTIES,
+        create: Some(|| Box::new(ellipse::new())),
+        default_style: None,
+    },
+    ToolInfo {
+        id: ToolId::Line,
+        config_key: "line",
+        name: "Line",
+        hint: "",
+        key: Some(egui::Key::L),
+        in_strip: true,
+        properties: Line::PROPERTIES,
+        create: Some(|| Box::new(drag_segment::line())),
+        default_style: None,
+    },
+    ToolInfo {
+        id: ToolId::Arrow,
+        config_key: "arrow",
+        name: "Arrow",
+        hint: "",
+        key: Some(egui::Key::A),
+        in_strip: true,
+        properties: Arrow::PROPERTIES,
+        create: Some(|| Box::new(drag_segment::arrow())),
+        default_style: None,
+    },
+    ToolInfo {
+        id: ToolId::Freehand,
+        config_key: "freehand",
+        name: "Freehand",
+        hint: "",
+        key: Some(egui::Key::F),
+        in_strip: true,
+        properties: Freehand::PROPERTIES,
+        create: Some(|| Box::new(freehand::FreehandTool::default())),
+        default_style: None,
+    },
+    ToolInfo {
+        id: ToolId::Text,
+        config_key: "text",
+        name: "Text",
+        hint: "",
+        key: Some(egui::Key::T),
+        in_strip: true,
+        properties: Text::PROPERTIES,
+        create: Some(|| Box::new(text::TextTool)),
+        default_style: None,
+    },
+    ToolInfo {
+        id: ToolId::StepCounter,
+        config_key: "step_counter",
+        name: "Step counter",
+        hint: "",
+        key: Some(egui::Key::I),
+        in_strip: true,
+        properties: StepCounter::PROPERTIES,
+        create: Some(|| Box::new(step_counter::PlaceCounter::default())),
+        default_style: Some(step_counter::default_style),
+    },
+    ToolInfo {
+        id: ToolId::Highlight,
+        config_key: "highlight",
+        name: "Highlight",
+        hint: "",
+        key: Some(egui::Key::H),
+        in_strip: true,
+        properties: Highlight::PROPERTIES,
+        create: Some(|| Box::new(highlight::new())),
+        default_style: None,
+    },
+    ToolInfo {
+        id: ToolId::Obfuscate,
+        config_key: "obfuscate",
+        name: "Obfuscate",
+        hint: "",
+        key: Some(egui::Key::O),
+        in_strip: true,
+        properties: Obfuscate::PROPERTIES,
+        create: Some(|| Box::new(obfuscate::new())),
+        default_style: None,
+    },
+    ToolInfo {
+        id: ToolId::Crop,
+        config_key: "crop",
+        name: "Crop",
+        hint: "Drag the region to keep",
+        key: Some(egui::Key::C),
+        in_strip: true,
+        properties: &[],
+        create: Some(|| Box::new(crop::Crop::default())),
+        default_style: None,
+    },
+    ToolInfo {
+        id: ToolId::Inset,
+        config_key: "inset",
+        name: "Inset",
+        hint: "",
+        key: None,
+        in_strip: false,
+        properties: Inset::PROPERTIES,
+        create: None,
+        default_style: None,
+    },
+];
+
 impl ToolId {
-    /// §4.1 order: the tool strip shows them in this order.
-    pub const ALL: [ToolId; 11] = [
-        ToolId::Select,
-        ToolId::Rectangle,
-        ToolId::Ellipse,
-        ToolId::Line,
-        ToolId::Arrow,
-        ToolId::Freehand,
-        ToolId::Text,
-        ToolId::StepCounter,
-        ToolId::Highlight,
-        ToolId::Obfuscate,
-        ToolId::Crop,
-    ];
+    /// This tool's row in [`TOOLS`].
+    fn info(self) -> &'static ToolInfo {
+        TOOLS
+            .iter()
+            .find(|info| info.id == self)
+            .expect("every ToolId has a TOOLS row")
+    }
+
+    /// §4.1 order: the tools the strip shows, in order.
+    pub fn all() -> impl Iterator<Item = ToolId> {
+        TOOLS
+            .iter()
+            .filter(|info| info.in_strip)
+            .map(|info| info.id)
+    }
 
     /// Every tool with a style of its own (§4.3, §8.3): the tool strip's, and the Inset's.
-    pub const STYLED: [ToolId; 12] = [
-        ToolId::Select,
-        ToolId::Rectangle,
-        ToolId::Ellipse,
-        ToolId::Line,
-        ToolId::Arrow,
-        ToolId::Freehand,
-        ToolId::Text,
-        ToolId::StepCounter,
-        ToolId::Highlight,
-        ToolId::Obfuscate,
-        ToolId::Crop,
-        ToolId::Inset,
-    ];
+    pub fn styled() -> impl Iterator<Item = ToolId> {
+        TOOLS.iter().map(|info| info.id)
+    }
 
     /// The tool's name: its button's accessibility label.
     pub fn name(self) -> &'static str {
-        crate::strings::tool_name(self)
+        self.info().name
     }
 
     /// The tool's key under `tools` in `config.toml` (§8.3): `tools.rectangle`, ….
     pub fn config_key(self) -> &'static str {
-        match self {
-            ToolId::Select => "select",
-            ToolId::Rectangle => "rectangle",
-            ToolId::Ellipse => "ellipse",
-            ToolId::Line => "line",
-            ToolId::Arrow => "arrow",
-            ToolId::Freehand => "freehand",
-            ToolId::Text => "text",
-            ToolId::StepCounter => "step_counter",
-            ToolId::Highlight => "highlight",
-            ToolId::Obfuscate => "obfuscate",
-            ToolId::Crop => "crop",
-            ToolId::Inset => "inset",
-        }
+        self.info().config_key
     }
 
     /// The tool that creates this kind of Annotation: restyling an Annotation also sets that
@@ -119,73 +258,34 @@ impl ToolId {
 
     /// The single-key shortcut (Greenshot's). `None` for the Inset, which isn't in the tool strip.
     pub fn key(self) -> Option<egui::Key> {
-        use egui::Key;
-        Some(match self {
-            ToolId::Select => Key::Escape,
-            ToolId::Rectangle => Key::R,
-            ToolId::Ellipse => Key::E,
-            ToolId::Line => Key::L,
-            ToolId::Arrow => Key::A,
-            ToolId::Freehand => Key::F,
-            ToolId::Text => Key::T,
-            ToolId::StepCounter => Key::I,
-            ToolId::Highlight => Key::H,
-            ToolId::Obfuscate => Key::O,
-            ToolId::Crop => Key::C,
-            ToolId::Inset => return None,
-        })
+        self.info().key
     }
 
     /// The tool's behaviour, or `None` while it isn't built yet (its button is disabled).
     pub fn create(self) -> Option<Box<dyn Tool>> {
-        match self {
-            ToolId::Select => Some(Box::new(select::Select::default())),
-            ToolId::Rectangle => Some(Box::new(rectangle::new())),
-            ToolId::StepCounter => Some(Box::new(step_counter::PlaceCounter::default())),
-            ToolId::Text => Some(Box::new(text::TextTool)),
-            ToolId::Ellipse => Some(Box::new(ellipse::new())),
-            ToolId::Line => Some(Box::new(drag_segment::line())),
-            ToolId::Arrow => Some(Box::new(drag_segment::arrow())),
-            ToolId::Freehand => Some(Box::new(freehand::FreehandTool::default())),
-            ToolId::Highlight => Some(Box::new(highlight::new())),
-            ToolId::Obfuscate => Some(Box::new(obfuscate::new())),
-            ToolId::Crop => Some(Box::new(crop::Crop::default())),
-            _ => None,
-        }
+        self.info().create.map(|make| make())
     }
 
     pub fn is_available(self) -> bool {
-        self.create().is_some()
+        self.info().create.is_some()
     }
 
     /// The property-bar controls for this tool's defaults when nothing is selected (§4.3).
     pub fn properties(self) -> &'static [PropertyKind] {
-        match self {
-            ToolId::Rectangle => Rectangle::PROPERTIES,
-            ToolId::StepCounter => StepCounter::PROPERTIES,
-            ToolId::Text => Text::PROPERTIES,
-            ToolId::Ellipse => Ellipse::PROPERTIES,
-            ToolId::Line => Line::PROPERTIES,
-            ToolId::Arrow => Arrow::PROPERTIES,
-            ToolId::Freehand => Freehand::PROPERTIES,
-            ToolId::Highlight => Highlight::PROPERTIES,
-            ToolId::Obfuscate => Obfuscate::PROPERTIES,
-            ToolId::Inset => Inset::PROPERTIES,
-            _ => &[],
-        }
+        self.info().properties
     }
 
     /// The tool's style before the user changes any of its properties (§4.3, §8.3).
     pub fn default_style(self) -> Style {
-        match self {
-            ToolId::StepCounter => step_counter::default_style(),
-            _ => Style::default(),
+        match self.info().default_style {
+            Some(style) => style(),
+            None => Style::default(),
         }
     }
 
     /// The property bar's hint when the tool has no controls to show.
     pub fn hint(self) -> &'static str {
-        crate::strings::tool_hint(self)
+        self.info().hint
     }
 }
 

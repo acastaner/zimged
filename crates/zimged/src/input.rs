@@ -178,7 +178,7 @@ fn editor_keys(input: &mut egui::InputState, commands: &mut Vec<Command>) {
     if input.consume_key(Modifiers::NONE, Key::Enter) {
         commands.push(Command::ApplyCrop);
     }
-    for tool in ToolId::ALL {
+    for tool in ToolId::all() {
         if let Some(key) = tool.key()
             && input.consume_key(Modifiers::NONE, key)
         {

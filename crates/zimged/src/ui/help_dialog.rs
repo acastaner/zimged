@@ -94,7 +94,7 @@ pub fn shortcuts(ctx: &egui::Context) -> Vec<(String, String)> {
     .into_iter()
     .map(|(keys, does)| (keys, does.to_owned()))
     .collect();
-    for tool in ToolId::ALL {
+    for tool in ToolId::all() {
         if let Some(key) = crate::ui::tool_strip::key_label(tool) {
             rows.push((key.to_owned(), strings::tool_shortcut(tool)));
         }
