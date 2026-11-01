@@ -16,4 +16,5 @@ Decided in [Scroll-to-pan a zoomed Image](https://github.com/acastaner/zimged/is
 
 - While zoomed, a scroll (notched wheel included) no longer changes Siblings; it pans. A mouse-wheel user who wants the next Sibling while zoomed uses → / ← (or zooms back to Fit). This is the accepted trade-off of a predictable, device-independent, zoom-state rule.
 - "Pannable" stays a single shared notion (zoomed beyond Fit): the scroll router and the grab cursor read the same condition, so there is no second definition to drift.
+- "Pannable" is global, not per-axis: the Image is pannable when it is larger than the canvas on *either* axis. When it is larger on one axis only, a plain scroll on the other axis neither pans (that axis already fits) nor navigates Siblings; the arrow keys still navigate. This is the accepted consequence of keeping one global condition rather than routing scroll per axis.
 - Out-of-bounds scrolls are clamped by the view, exactly as the other pan inputs are, so panning stops where the Image edge meets the canvas edge.
