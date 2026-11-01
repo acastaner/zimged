@@ -760,6 +760,9 @@ impl ZimgedApp {
     /// The grab cursor appears only then, so it never promises a pan that can't happen (#48).
     fn is_pannable(&self) -> bool {
         self.canvas.is_some_and(|c| {
+            // The `+ 0.5` is sub-pixel slop: an Image sitting exactly at Fit (its size rounded to
+            // the canvas) isn't treated as pannable, so float rounding can't make it flap between
+            // pannable and not-pannable right at the Fit zoom.
             c.image.is_some_and(|image| {
                 image.width() > c.area.width() + 0.5 || image.height() > c.area.height() + 0.5
             })

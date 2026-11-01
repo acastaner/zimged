@@ -741,11 +741,11 @@ impl Editor {
         }
     }
 
-    /// The selection or crop handle under the pointer, for the hover highlight (#49): the same
-    /// "which handle is under this point" query the Select tool and the cursor (#48) use, so there
-    /// is one notion of the hovered handle. Only the tools whose press grabs a handle highlight one
-    /// (Select for the selection, Crop for its region), matching what the cursor shows; purely
-    /// presentational, so it changes no hit radius and nothing a press does.
+    /// The selection or crop handle under the pointer, for the hover highlight (#49). It delegates
+    /// to [`Self::handle_under`], the one hit-test the cursor (#48) also uses, so the highlight and
+    /// the cursor always agree on which handle the pointer is over. Only the tools whose press grabs
+    /// a handle highlight one (Select for the selection, Crop for its region), matching what the
+    /// cursor shows; purely presentational, so it changes no hit radius and nothing a press does.
     fn hovered_handle(&self, layout: &Layout, response: &egui::Response) -> Option<Handle> {
         if !self.can_edit() {
             return None;
@@ -754,12 +754,24 @@ impl Editor {
         if !layout.image.is_some_and(|image| image.contains(hover)) {
             return None;
         }
-        let bounds = match self.tool {
-            ToolId::Crop => self.crop?,
-            ToolId::Select => self.document()?.selection_bounds()?,
-            _ => return None,
+        if !matches!(self.tool, ToolId::Select | ToolId::Crop) {
+            return None;
+        }
+        self.handle_under(layout.image_point(hover), layout.image_per_point())
+    }
+
+    /// Which selection or crop handle is under `p` (Image pixels): the crop region when the Crop
+    /// tool is active, else the current selection's bounds, hit-tested with [`select::handle_at`].
+    /// The single "which handle is under the pointer" query, shared by the cursor's decision (#48)
+    /// and the hover highlight (#49) so both derive the handle the same way. `None` when there are
+    /// no such bounds or no handle lies under the pointer.
+    fn handle_under(&self, p: Point, image_per_point: f32) -> Option<Handle> {
+        let bounds = if self.tool == ToolId::Crop {
+            self.crop?
+        } else {
+            self.document()?.selection_bounds()?
         };
-        select::handle_at(bounds, layout.image_point(hover), layout.image_per_point())
+        select::handle_at(bounds, p, image_per_point)
     }
 
     /// The cursor to show this frame (#48, §4): a single decider driven by the same hit-testing the
@@ -800,7 +812,7 @@ impl Editor {
             return Some(CursorIcon::Text);
         }
         Some(match self.tool {
-            ToolId::Select => select_cursor(doc, p, image_per_point),
+            ToolId::Select => self.select_cursor(doc, p, image_per_point),
             ToolId::Crop => self.crop_cursor(p, image_per_point),
             // Text places or edits a box: the I-beam, not a drawing crosshair (story 6).
             ToolId::Text => CursorIcon::Text,
@@ -821,15 +833,29 @@ impl Editor {
     /// The crop tool's cursor at `p` (story 10): its region's handles resize it (the same glyphs as
     /// the selection's), a press inside the region moves it, and a press elsewhere draws a new one.
     fn crop_cursor(&self, p: Point, image_per_point: f32) -> CursorIcon {
-        if let Some(region) = self.crop {
-            if let Some(handle) = select::handle_at(region, p, image_per_point) {
-                return resize_cursor(handle);
-            }
-            if region.contains(p) {
-                return CursorIcon::Move;
-            }
+        if let Some(handle) = self.handle_under(p, image_per_point) {
+            return resize_cursor(handle);
+        }
+        if let Some(region) = self.crop
+            && region.contains(p)
+        {
+            return CursorIcon::Move;
         }
         CursorIcon::Crosshair
+    }
+
+    /// The Select tool's cursor at `p` (story 1–4, 11): a handle's resize glyph (handles win, as the
+    /// press does), Move over the body of a selected Annotation, the pointing hand over a selectable
+    /// one, and the plain arrow over empty space.
+    fn select_cursor(&self, doc: &Document, p: Point, image_per_point: f32) -> CursorIcon {
+        if let Some(handle) = self.handle_under(p, image_per_point) {
+            return resize_cursor(handle);
+        }
+        match doc.hit_test(p, select::HIT_SLOP * image_per_point) {
+            Some(id) if doc.is_selected(id) => CursorIcon::Move,
+            Some(_) => CursorIcon::PointingHand,
+            None => CursorIcon::Default,
+        }
     }
 
     fn pointer(&mut self, ctx: &egui::Context, layout: &Layout, response: &egui::Response) {
@@ -1352,22 +1378,6 @@ impl ImageOp {
             ImageOp::Flip { horizontal } => doc.flip(horizontal),
             ImageOp::Resize { width, height } => doc.resize(width, height, zimged_render::resample),
         }
-    }
-}
-
-/// The Select tool's cursor at `p` (story 1–4, 11): a handle's resize glyph (handles win, as the
-/// press does), Move over the body of a selected Annotation, the pointing hand over a selectable
-/// one, and the plain arrow over empty space.
-fn select_cursor(doc: &Document, p: Point, image_per_point: f32) -> CursorIcon {
-    if let Some(bounds) = doc.selection_bounds()
-        && let Some(handle) = select::handle_at(bounds, p, image_per_point)
-    {
-        return resize_cursor(handle);
-    }
-    match doc.hit_test(p, select::HIT_SLOP * image_per_point) {
-        Some(id) if doc.is_selected(id) => CursorIcon::Move,
-        Some(_) => CursorIcon::PointingHand,
-        None => CursorIcon::Default,
     }
 }
 
