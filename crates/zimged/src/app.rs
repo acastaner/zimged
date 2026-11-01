@@ -1758,8 +1758,11 @@ impl eframe::App for ZimgedApp {
         let typing = self.editor.editing_text() || ctx.text_edit_focused();
         crate::input::arrows_move_focus(&ctx, typing);
         if !self.dialog_up() {
-            let mut commands = crate::input::commands(&ctx, canvas_area, typing);
-            commands.extend(self.pan.commands(&ctx, canvas_area));
+            // Zoomed beyond Fit: a plain scroll pans the Image rather than navigating Siblings
+            // (§3.1, #50). The same notion drives the grab cursor (#48).
+            let pannable = self.is_pannable();
+            let mut commands = crate::input::commands(&ctx, canvas_area, typing, pannable);
+            commands.extend(self.pan.commands(&ctx, canvas_area, pannable));
             for command in commands {
                 self.execute(command);
             }

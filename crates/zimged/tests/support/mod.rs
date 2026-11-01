@@ -408,6 +408,21 @@ impl TestApp {
         self.settle();
     }
 
+    /// A trackpad two-finger scroll over `pos`: a point-unit wheel carrying `delta` points on both
+    /// axes, no modifiers. Unlike [`Self::wheel_at`] (notched line scrolling), this is the smooth
+    /// gesture a laptop user pans a zoomed Image with.
+    pub fn scroll_at(&mut self, pos: egui::Pos2, delta: egui::Vec2) {
+        self.harness.hover_at(pos);
+        self.harness.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta,
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Trackpad,
+            modifiers: egui::Modifiers::NONE,
+        });
+        self.settle();
+    }
+
     /// Resize (or maximise) the window the way the OS does: the new size and maximised state arrive
     /// as viewport info with the next frame, which this runs.
     pub fn resize_window(&mut self, size: egui::Vec2, maximised: bool) {
