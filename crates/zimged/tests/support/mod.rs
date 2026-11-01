@@ -598,6 +598,25 @@ impl TestApp {
         self.settle();
     }
 
+    /// Press the secondary (right) mouse button on the canvas at an Image pixel, then release and
+    /// settle. Right-click returns to the Select tool (#47); it is acted on at press, so the
+    /// release carries no meaning.
+    pub fn secondary_press_px(&mut self, at: (f32, f32)) {
+        let p = self.screen(at.0, at.1);
+        let h = &self.harness;
+        h.hover_at(p);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.remove_cursor();
+        self.settle();
+    }
+
     /// The selected Annotations' bounds, in Image pixels, rounded.
     pub fn selection_bounds(&self) -> Option<[i32; 4]> {
         self.doc().selection_bounds().map(|r| {

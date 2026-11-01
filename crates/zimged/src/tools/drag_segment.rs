@@ -37,8 +37,9 @@ impl DragSegment {
 }
 
 /// The end of a segment dragged from `start` to `to`; with Shift, at the same length but on the
-/// nearest multiple of 15°.
-fn dragged_end(start: Point, to: Pointer) -> Point {
+/// nearest multiple of 15°. Shared with the select tool, whose endpoint handles (#50) snap the
+/// dragged end around the fixed one with exactly this rule.
+pub(super) fn dragged_end(start: Point, to: Pointer) -> Point {
     if !to.modifiers.shift {
         return to.pos;
     }

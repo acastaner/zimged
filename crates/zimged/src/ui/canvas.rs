@@ -5,7 +5,7 @@ use zimged_codec::Size;
 use zimged_core::{Handle, Point, Rect};
 
 use crate::app::ShownImage;
-use crate::tools::select::HANDLE_SIZE;
+use crate::tools::select::{End, HANDLE_SIZE};
 use crate::view::View;
 
 /// The side of the handle under the pointer, grown from [`HANDLE_SIZE`] so the hovered handle reads
@@ -30,8 +30,12 @@ pub struct Layout {
 pub struct EditorPaint {
     /// The Skia composite of the visible region, and where it goes (§7.2).
     pub composite: Option<(egui::TextureId, egui::Rect)>,
-    /// The selection's bounds, in points: drawn as a dashed box with 8 handles.
+    /// The selection's bounds, in points: drawn as a dashed box with 8 handles. `None` for a lone
+    /// line/arrow, which uses `endpoints` instead (#50).
     pub selection: Option<egui::Rect>,
+    /// A lone line/arrow's two endpoints `[from, to]`, in points: drawn as two handles with no box
+    /// (#50). Mutually exclusive with `selection`.
+    pub endpoints: Option<[egui::Pos2; 2]>,
     /// Painted last, on top of everything (the text caret, #28).
     pub overlay: Vec<egui::Shape>,
     /// The crop tool's region, in points: the rest of the Image is dimmed.
@@ -41,6 +45,9 @@ pub struct EditorPaint {
     /// The selection or crop handle under the pointer: drawn with the hover variant (#49). Purely
     /// presentational — it changes no hit radius and nothing a press does.
     pub hovered_handle: Option<Handle>,
+    /// The endpoint handle of a lone line/arrow under the pointer: drawn with the same hover variant
+    /// (#50). Purely presentational, like `hovered_handle`.
+    pub hovered_end: Option<End>,
 }
 
 impl Layout {
@@ -166,6 +173,9 @@ pub fn show(
             if let Some(selection) = paint.selection {
                 paint_selection(&painter, selection, paint.hovered_handle);
             }
+            if let Some(endpoints) = paint.endpoints {
+                paint_endpoints(&painter, endpoints, paint.hovered_end);
+            }
             painter.extend(paint.overlay);
             if let Some(band) = paint.rubber_band {
                 paint_dashed_box(&painter, band);
@@ -228,20 +238,38 @@ fn paint_selection(painter: &egui::Painter, r: egui::Rect, hovered: Option<Handl
     for handle in Handle::ALL {
         let (u, v) = handle.anchor();
         let center = egui::pos2(r.min.x + u * r.width(), r.min.y + v * r.height());
-        // Growing the hovered handle is the whole cue: the fill and the border are unchanged, so
-        // the handle reads brighter (more white, proportionally less border) with no colour shift.
-        let side = if hovered == Some(handle) {
-            HANDLE_HOVER_SIZE
-        } else {
-            HANDLE_SIZE
-        };
-        let square = egui::Rect::from_center_size(center, egui::vec2(side, side));
-        painter.rect(
-            square,
-            0.0,
-            egui::Color32::WHITE,
-            dark,
-            egui::StrokeKind::Inside,
-        );
+        paint_handle(painter, center, hovered == Some(handle), dark);
     }
+}
+
+/// A lone line/arrow's endpoint handles (#50): the same white squares `paint_selection` draws, one
+/// at each end, with no dashed box. The hovered end grows like a box handle. `endpoints` is
+/// `[from, to]`, in points.
+fn paint_endpoints(painter: &egui::Painter, endpoints: [egui::Pos2; 2], hovered: Option<End>) {
+    // The dark border that `paint_dashed_box` gives the box handles; endpoint handles share it so
+    // they read identically, without a box to draw it from.
+    let dark = egui::Stroke::new(1.0, egui::Color32::from_rgb(20, 20, 20));
+    let [from, to] = endpoints;
+    paint_handle(painter, from, hovered == Some(End::From), dark);
+    paint_handle(painter, to, hovered == Some(End::To), dark);
+}
+
+/// One selection handle: a filled white square with the dark border, centred on `center`. Grown to
+/// the hover size when `hovered` (#49) — growing it is the whole cue: the fill and the border are
+/// unchanged, so the handle reads brighter (more white, proportionally less border) with no colour
+/// shift. Shared by the bounding box's 8 handles and a line/arrow's 2 endpoint handles (#50).
+fn paint_handle(painter: &egui::Painter, center: egui::Pos2, hovered: bool, border: egui::Stroke) {
+    let side = if hovered {
+        HANDLE_HOVER_SIZE
+    } else {
+        HANDLE_SIZE
+    };
+    let square = egui::Rect::from_center_size(center, egui::vec2(side, side));
+    painter.rect(
+        square,
+        0.0,
+        egui::Color32::WHITE,
+        border,
+        egui::StrokeKind::Inside,
+    );
 }

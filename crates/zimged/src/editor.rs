@@ -18,6 +18,7 @@ use zimged_core::{
 use zimged_render::{Composite, Renderer, Source, SourcePixels, View};
 
 use crate::decode::PendingFullDecode;
+use crate::tools::select::End;
 use crate::tools::text::{TextSession, text_at};
 use crate::tools::{Pointer, Tool, ToolContext, ToolId, select};
 use crate::ui::canvas::{EditorPaint, Layout};
@@ -434,6 +435,16 @@ impl Editor {
         self.behaviour = tool.create().expect("an available tool");
     }
 
+    /// A secondary (right) press on the canvas returns to the Select tool, cancelling any
+    /// in-progress draw and dropping a pending crop (#47, ADR 0006). In Select it does nothing — no
+    /// menu, and the current selection is left untouched. Going through `select_tool` (not raw
+    /// `set_tool`) keeps it on the same path as the tool strip and Esc.
+    fn on_secondary_press(&mut self) {
+        if self.tool != ToolId::Select {
+            self.select_tool(ToolId::Select);
+        }
+    }
+
     pub fn undo(&mut self) {
         if let Some(e) = self.edited_idle() {
             e.doc.undo();
@@ -721,23 +732,39 @@ impl Editor {
             ctx.request_repaint();
         }
         let composite = display.and_then(|d| self.update_composite(ctx, layout, d));
-        let selection = self
+        // A lone line/arrow is reshaped by two endpoint handles, not the dashed box (#50); any
+        // other selection keeps its bounding box.
+        let endpoints = self
             .document()
-            .and_then(|d| d.selection_bounds())
-            .map(|r| layout.rect_to_screen(r));
+            .and_then(select::line_endpoints)
+            .map(|(from, to)| [layout.screen_point(from), layout.screen_point(to)]);
+        let selection = if endpoints.is_some() {
+            None
+        } else {
+            self.document()
+                .and_then(|d| d.selection_bounds())
+                .map(|r| layout.rect_to_screen(r))
+        };
         self.selection_box = selection;
         let rubber_band = self
             .behaviour
             .rubber_band()
             .map(|r| layout.rect_to_screen(r));
         self.rubber_band = rubber_band;
+        let (hovered_handle, hovered_end) = match self.hovered_grab(layout, response) {
+            Some(select::Grab::Handle(h)) => (Some(h), None),
+            Some(select::Grab::Endpoint(e)) => (None, Some(e)),
+            None => (None, None),
+        };
         EditorPaint {
             composite,
             selection,
+            endpoints,
             overlay,
             crop: self.crop.map(|r| layout.rect_to_screen(r)),
             rubber_band,
-            hovered_handle: self.hovered_handle(layout, response),
+            hovered_handle,
+            hovered_end,
         }
     }
 
@@ -746,7 +773,7 @@ impl Editor {
     /// the cursor always agree on which handle the pointer is over. Only the tools whose press grabs
     /// a handle highlight one (Select for the selection, Crop for its region), matching what the
     /// cursor shows; purely presentational, so it changes no hit radius and nothing a press does.
-    fn hovered_handle(&self, layout: &Layout, response: &egui::Response) -> Option<Handle> {
+    fn hovered_grab(&self, layout: &Layout, response: &egui::Response) -> Option<select::Grab> {
         if !self.can_edit() {
             return None;
         }
@@ -757,21 +784,22 @@ impl Editor {
         if !matches!(self.tool, ToolId::Select | ToolId::Crop) {
             return None;
         }
-        self.handle_under(layout.image_point(hover), layout.image_per_point())
+        self.grab_under(layout.image_point(hover), layout.image_per_point())
     }
 
-    /// Which selection or crop handle is under `p` (Image pixels): the crop region when the Crop
-    /// tool is active, else the current selection's bounds, hit-tested with [`select::handle_at`].
-    /// The single "which handle is under the pointer" query, shared by the cursor's decision (#48)
-    /// and the hover highlight (#49) so both derive the handle the same way. `None` when there are
-    /// no such bounds or no handle lies under the pointer.
-    fn handle_under(&self, p: Point, image_per_point: f32) -> Option<Handle> {
-        let bounds = if self.tool == ToolId::Crop {
-            self.crop?
-        } else {
-            self.document()?.selection_bounds()?
-        };
-        select::handle_at(bounds, p, image_per_point)
+    /// What is under `p` (Image pixels): the crop region's handle when the Crop tool is active,
+    /// else the Select tool's grab — a bounding-box handle, or an endpoint of a lone line/arrow
+    /// (#50) — from [`select::grab_at`]. The single "what is under the pointer" query, shared by
+    /// the cursor's decision (#48) and the hover highlight (#49) so both derive it the same way.
+    /// `None` when nothing grabbable lies under the pointer.
+    fn grab_under(&self, p: Point, image_per_point: f32) -> Option<select::Grab> {
+        if self.tool == ToolId::Crop {
+            return self
+                .crop
+                .and_then(|region| select::handle_at(region, p, image_per_point))
+                .map(select::Grab::Handle);
+        }
+        select::grab_at(self.document()?, p, image_per_point)
     }
 
     /// The cursor to show this frame (#48, §4): a single decider driven by the same hit-testing the
@@ -833,7 +861,9 @@ impl Editor {
     /// The crop tool's cursor at `p` (story 10): its region's handles resize it (the same glyphs as
     /// the selection's), a press inside the region moves it, and a press elsewhere draws a new one.
     fn crop_cursor(&self, p: Point, image_per_point: f32) -> CursorIcon {
-        if let Some(handle) = self.handle_under(p, image_per_point) {
+        if let Some(region) = self.crop
+            && let Some(handle) = select::handle_at(region, p, image_per_point)
+        {
             return resize_cursor(handle);
         }
         if let Some(region) = self.crop
@@ -848,8 +878,14 @@ impl Editor {
     /// press does), Move over the body of a selected Annotation, the pointing hand over a selectable
     /// one, and the plain arrow over empty space.
     fn select_cursor(&self, doc: &Document, p: Point, image_per_point: f32) -> CursorIcon {
-        if let Some(handle) = self.handle_under(p, image_per_point) {
-            return resize_cursor(handle);
+        match select::grab_at(doc, p, image_per_point) {
+            Some(select::Grab::Handle(handle)) => return resize_cursor(handle),
+            Some(select::Grab::Endpoint(end)) => {
+                let (from, to) = select::line_endpoints(doc)
+                    .expect("an endpoint grab implies a lone line/arrow");
+                return endpoint_cursor(from, to, end);
+            }
+            None => {}
         }
         match doc.hit_test(p, select::HIT_SLOP * image_per_point) {
             Some(id) if doc.is_selected(id) => CursorIcon::Move,
@@ -859,6 +895,15 @@ impl Editor {
     }
 
     fn pointer(&mut self, ctx: &egui::Context, layout: &Layout, response: &egui::Response) {
+        // A secondary (right) press on the canvas returns to the Select tool (#47, ADR 0006), acted
+        // on the moment the button goes down so it feels instant. It wins over the tools' own press
+        // handling below, so it is checked first; a following right-drag then carries no meaning.
+        if response.contains_pointer()
+            && ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary))
+        {
+            self.on_secondary_press();
+            return;
+        }
         let modifiers = ctx.input(|i| i.modifiers);
         let at = |pos: egui::Pos2| Pointer {
             pos: layout.image_point(pos),
@@ -1389,6 +1434,28 @@ fn resize_cursor(handle: Handle) -> CursorIcon {
         Handle::TopRight | Handle::BottomLeft => CursorIcon::ResizeNeSw,
         Handle::Left | Handle::Right => CursorIcon::ResizeHorizontal,
         Handle::Top | Handle::Bottom => CursorIcon::ResizeVertical,
+    }
+}
+
+/// The resize glyph for a lone line/arrow's endpoint handle (#50): one of the four the box handles
+/// use, chosen from the segment's direction at `end`, so dragging the end reads as a resize
+/// pointing the same way. (Image y grows down, so a down-right segment is the "⤡" NW–SE diagonal.)
+fn endpoint_cursor(from: Point, to: Point, end: End) -> CursorIcon {
+    let (tip, other) = match end {
+        End::From => (from, to),
+        End::To => (to, from),
+    };
+    let v = tip - other;
+    // Fold onto a half-circle (0..180): a direction and its opposite resize the same way.
+    let degrees = v.y.atan2(v.x).to_degrees().rem_euclid(180.0);
+    if !(22.5..157.5).contains(&degrees) {
+        CursorIcon::ResizeHorizontal
+    } else if degrees < 67.5 {
+        CursorIcon::ResizeNwSe
+    } else if degrees < 112.5 {
+        CursorIcon::ResizeVertical
+    } else {
+        CursorIcon::ResizeNeSw
     }
 }
 

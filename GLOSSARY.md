@@ -18,3 +18,8 @@ _Avoid_: image annotation, picture (confusable with Image).
 
 **Sibling**: another image file in the same directory as the open Image. Moving to the next/previous Sibling is how zimged works as a viewer.
 _Avoid_: neighbour, adjacent file.
+
+**Handle**: a grab point drawn on a selected Annotation for reshaping it. Most Annotations show a ring of handles around a bounding box, and dragging one resizes the whole shape.
+_Avoid_: anchor, grabber, knob.
+
+**Endpoint handle**: the Handle at each end of a selected Line or Arrow. A lone selected Line or Arrow shows one Endpoint handle at each end instead of the bounding box, so dragging an end moves only that end.
