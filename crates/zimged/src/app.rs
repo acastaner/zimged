@@ -19,7 +19,7 @@ use crate::Command;
 use crate::animation::Animation;
 use crate::config_save::ConfigSaver;
 use crate::decode::PendingDecode;
-use crate::editor::{DisplayPixels, Editor, ImageOp, MAX_EDIT_PIXELS, SaveStamp};
+use crate::editor::{DisplayPixels, Editor, ImageOp, MAX_EDIT_PIXELS, PanCursor, SaveStamp};
 use crate::pan::PanGesture;
 use crate::paste::{Destination, Incoming, PendingIncoming};
 use crate::save::{AnnotationsCopyJob, CopyJob, PendingCopy, PendingSave, SaveJob};
@@ -754,6 +754,30 @@ impl ZimgedApp {
     /// (Space and the middle button take precedence over tools).
     pub fn pan_owns_pointer(&self) -> bool {
         self.pan.owns_pointer(&self.ctx)
+    }
+
+    /// Is the Image pannable: zoomed beyond Fit so it is larger than the canvas on some axis (§3.1)?
+    /// The grab cursor appears only then, so it never promises a pan that can't happen (#48).
+    fn is_pannable(&self) -> bool {
+        self.canvas.is_some_and(|c| {
+            c.image.is_some_and(|image| {
+                image.width() > c.area.width() + 0.5 || image.height() > c.area.height() + 0.5
+            })
+        })
+    }
+
+    /// The panning affordance the cursor shows this frame (#48), from the pan gesture and the zoom.
+    /// Only a pannable Image shows a hand, so the cursor never promises a pan that can't happen.
+    fn pan_cursor(&self) -> PanCursor {
+        if !self.is_pannable() {
+            PanCursor::None
+        } else if self.pan.is_dragging() {
+            PanCursor::Active
+        } else if self.pan_owns_pointer() {
+            PanCursor::Ready
+        } else {
+            PanCursor::None
+        }
     }
 
     /// A magnification chosen in the property bar (for the selection or the tool) is persisted as
@@ -1787,6 +1811,7 @@ impl eframe::App for ZimgedApp {
         let message = self.canvas_message();
         // Space and the middle button pan; the tools leave the pointer alone meanwhile (#43).
         let tools_get_pointer = !self.pan_owns_pointer();
+        let pan_cursor = self.pan_cursor();
         let image_size = self.image_size();
         let editing_text = self.editor.editing_text();
         let editor = &mut self.editor;
@@ -1802,7 +1827,14 @@ impl eframe::App for ZimgedApp {
             message.as_deref(),
             editing_text,
             |ui, layout, response| {
-                editor.canvas(ui.ctx(), layout, response, display, tools_get_pointer)
+                editor.canvas(
+                    ui.ctx(),
+                    layout,
+                    response,
+                    display,
+                    tools_get_pointer,
+                    pan_cursor,
+                )
             },
         ));
         self.view = view;

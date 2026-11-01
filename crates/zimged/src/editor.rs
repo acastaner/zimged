@@ -9,17 +9,32 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
 
+use egui::CursorIcon;
 use zimged_codec::Size;
 use zimged_core::{
-    AnnotationId, CopiedAnnotation, Document, HISTORY_PIXEL_CAP, Inset, PixelData, Pixels, Point,
-    Property, PropertyKind, Rect, Restack, Shape, Style, Vector,
+    AnnotationId, CopiedAnnotation, Document, HISTORY_PIXEL_CAP, Handle, Inset, PixelData, Pixels,
+    Point, Property, PropertyKind, Rect, Restack, Shape, Style, Vector,
 };
 use zimged_render::{Composite, Renderer, Source, SourcePixels, View};
 
 use crate::decode::PendingFullDecode;
 use crate::tools::text::{TextSession, text_at};
-use crate::tools::{Pointer, Tool, ToolContext, ToolId};
+use crate::tools::{Pointer, Tool, ToolContext, ToolId, select};
 use crate::ui::canvas::{EditorPaint, Layout};
+
+/// The panning affordance the cursor shows (#43, #48), which the app reads from the pan gesture: a
+/// pan drag under way is [`PanCursor::Active`] (the closed hand), and Space held over a pannable
+/// Image is [`PanCursor::Ready`] (the open hand). Panning is possible only when the Image is zoomed
+/// beyond Fit (§3.1), so the grab cursor never promises a pan that can't happen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PanCursor {
+    /// No panning affordance at the pointer.
+    None,
+    /// A pan could start now (Space held over a pannable Image): the open hand.
+    Ready,
+    /// A pan drag is under way: the closed hand.
+    Active,
+}
 
 /// Editing needs the full-resolution decode, allowed up to 100 MP (§4.7).
 pub const MAX_EDIT_PIXELS: u64 = 100_000_000;
@@ -682,7 +697,8 @@ impl Editor {
 
     // ---- Canvas ----
 
-    /// Handle the pointer on the canvas and say what to paint (§7.2).
+    /// Handle the pointer on the canvas and say what to paint (§7.2). `pan` is the panning
+    /// affordance (#43) the app reads from the pan gesture, for the grab cursor.
     pub fn canvas(
         &mut self,
         ctx: &egui::Context,
@@ -690,10 +706,15 @@ impl Editor {
         response: &egui::Response,
         display: Option<DisplayPixels<'_>>,
         pointer_is_ours: bool,
+        pan: PanCursor,
     ) -> EditorPaint {
         let revision = self.document().map(|d| d.revision());
         if self.can_edit() && (pointer_is_ours || self.pointer_down) {
             self.pointer(ctx, layout, response);
+        }
+        // The cursor (#48) reflects what a press would do now, from the state the pointer left.
+        if let Some(icon) = self.cursor(layout, response, pan) {
+            ctx.set_cursor_icon(icon);
         }
         let overlay = self.text_input(ctx, layout, response);
         if self.document().map(|d| d.revision()) != revision {
@@ -717,6 +738,76 @@ impl Editor {
             crop: self.crop.map(|r| layout.rect_to_screen(r)),
             rubber_band,
         }
+    }
+
+    /// The cursor to show this frame (#48, §4): a single decider driven by the same hit-testing the
+    /// tools use — the handle-at, the Annotation hit-test, the active tool, the text-edit state and
+    /// the panning affordance. The glyph answers "what would a press here do right now," so handles
+    /// win over an Annotation body (as the Select tool's press does) and a drawing tool draws over
+    /// everything. `None` leaves the chrome's own cursors (the tool buttons' hand) untouched.
+    fn cursor(
+        &self,
+        layout: &Layout,
+        response: &egui::Response,
+        pan: PanCursor,
+    ) -> Option<CursorIcon> {
+        // A pan drag owns the pointer wherever it goes: the closed hand (story 8).
+        if pan == PanCursor::Active {
+            return Some(CursorIcon::Grabbing);
+        }
+        let hover = response.hover_pos()?;
+        if !layout.image.is_some_and(|image| image.contains(hover)) {
+            // Over the canvas but off the Image: a press does nothing special (story 11).
+            return Some(CursorIcon::Default);
+        }
+        // Space over a pannable Image: the open hand that advertises panning (story 7, 9).
+        if pan == PanCursor::Ready {
+            return Some(CursorIcon::Grab);
+        }
+        // Without an editable Image the tools do nothing, so the plain arrow stands.
+        let doc = match self.document() {
+            Some(doc) if self.can_edit() => doc,
+            _ => return Some(CursorIcon::Default),
+        };
+        let image_per_point = layout.image_per_point();
+        let p = layout.image_point(hover);
+        // An active text caret: the I-beam over its box (§4.4, story 6).
+        if let Some(session) = &self.text
+            && session.contains(doc, p, TEXT_SLOP * image_per_point)
+        {
+            return Some(CursorIcon::Text);
+        }
+        Some(match self.tool {
+            ToolId::Select => select_cursor(doc, p, image_per_point),
+            ToolId::Crop => self.crop_cursor(p, image_per_point),
+            // Text places or edits a box: the I-beam, not a drawing crosshair (story 6).
+            ToolId::Text => CursorIcon::Text,
+            // Every shape-drawing tool draws over the canvas, Annotations included (story 5).
+            ToolId::Rectangle
+            | ToolId::Ellipse
+            | ToolId::Line
+            | ToolId::Arrow
+            | ToolId::Freehand
+            | ToolId::StepCounter
+            | ToolId::Highlight
+            | ToolId::Obfuscate => CursorIcon::Crosshair,
+            // The Inset isn't in the tool strip (§4.6), so it is never the active tool.
+            ToolId::Inset => CursorIcon::Default,
+        })
+    }
+
+    /// The crop tool's cursor at `p` (story 10): its region's handles resize it (the same glyphs as
+    /// the selection's), a press inside the region moves it, and a press elsewhere draws a new one.
+    fn crop_cursor(&self, p: Point, image_per_point: f32) -> CursorIcon {
+        if let Some(region) = self.crop {
+            if let Some(handle) = select::handle_at(region, p, image_per_point) {
+                return resize_cursor(handle);
+            }
+            if region.contains(p) {
+                return CursorIcon::Move;
+            }
+        }
+        CursorIcon::Crosshair
     }
 
     fn pointer(&mut self, ctx: &egui::Context, layout: &Layout, response: &egui::Response) {
@@ -1239,6 +1330,33 @@ impl ImageOp {
             ImageOp::Flip { horizontal } => doc.flip(horizontal),
             ImageOp::Resize { width, height } => doc.resize(width, height, zimged_render::resample),
         }
+    }
+}
+
+/// The Select tool's cursor at `p` (story 1–4, 11): a handle's resize glyph (handles win, as the
+/// press does), Move over the body of a selected Annotation, the pointing hand over a selectable
+/// one, and the plain arrow over empty space.
+fn select_cursor(doc: &Document, p: Point, image_per_point: f32) -> CursorIcon {
+    if let Some(bounds) = doc.selection_bounds()
+        && let Some(handle) = select::handle_at(bounds, p, image_per_point)
+    {
+        return resize_cursor(handle);
+    }
+    match doc.hit_test(p, select::HIT_SLOP * image_per_point) {
+        Some(id) if doc.is_selected(id) => CursorIcon::Move,
+        Some(_) => CursorIcon::PointingHand,
+        None => CursorIcon::Default,
+    }
+}
+
+/// The one mapping from a handle to its resize glyph, shared by the selection and crop handles
+/// (#48): a diagonal for each corner, horizontal for the side handles and vertical for the ends.
+fn resize_cursor(handle: Handle) -> CursorIcon {
+    match handle {
+        Handle::TopLeft | Handle::BottomRight => CursorIcon::ResizeNwSe,
+        Handle::TopRight | Handle::BottomLeft => CursorIcon::ResizeNeSw,
+        Handle::Left | Handle::Right => CursorIcon::ResizeHorizontal,
+        Handle::Top | Handle::Bottom => CursorIcon::ResizeVertical,
     }
 }
 

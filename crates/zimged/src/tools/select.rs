@@ -13,8 +13,9 @@ use super::{Pointer, Tool, ToolContext};
 pub const HANDLE_SIZE: f32 = 9.0;
 /// How far from a handle's centre a press still grabs it, in points.
 const HANDLE_GRAB: f32 = 7.0;
-/// How far from a thin line a press still hits it, in points.
-const HIT_SLOP: f32 = 4.0;
+/// How far from a thin line a press still hits it, in points. The cursor decider (#48) reuses it
+/// so the pointing-hand appears exactly where a press would select.
+pub const HIT_SLOP: f32 = 4.0;
 
 #[derive(Default)]
 pub struct Select {
