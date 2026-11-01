@@ -23,4 +23,4 @@ mod view;
 
 pub use app::{Launch, ZimgedApp};
 pub use commands::Command;
-pub use startup::run;
+pub use startup::{WINDOW_ICON_PNG, run};

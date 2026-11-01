@@ -23,6 +23,10 @@ use crate::decode::PendingDecode;
 /// JPEG decodes in well under this on the reference machine.
 const FIRST_FRAME_WAIT: Duration = Duration::from_millis(400);
 
+/// zimged's own window / title-bar icon, rendered from `packaging/linux/zimged.svg` by
+/// `packaging/make_icons.py`. Embedding it stops eframe substituting its default icon.
+pub const WINDOW_ICON_PNG: &[u8] = include_bytes!("../icon/zimged-256.png");
+
 pub fn run() -> eframe::Result {
     crate::bench::mark("main");
     let arg = std::env::args_os().nth(1);
@@ -84,12 +88,18 @@ pub fn run() -> eframe::Result {
         }
         None => crate::strings::window_title(None),
     };
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_app_id("zimged")
+        .with_title(title)
+        .with_inner_size(window_size)
+        .with_maximized(maximised);
+    // The decoded PNG is valid (a test guards the embedded bytes); if it ever weren't, keep eframe's
+    // default icon rather than failing startup.
+    if let Ok(icon) = eframe::icon_data::from_png_bytes(WINDOW_ICON_PNG) {
+        viewport = viewport.with_icon(std::sync::Arc::new(icon));
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_app_id("zimged")
-            .with_title(title)
-            .with_inner_size(window_size)
-            .with_maximized(maximised),
+        viewport,
         renderer: eframe::Renderer::Glow,
         // Ctrl+C / Ctrl+V reach the app as keys: zimged talks to the clipboard itself (§8.1).
         clipboard_shortcuts: false,
