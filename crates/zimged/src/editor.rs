@@ -737,7 +737,29 @@ impl Editor {
             overlay,
             crop: self.crop.map(|r| layout.rect_to_screen(r)),
             rubber_band,
+            hovered_handle: self.hovered_handle(layout, response),
         }
+    }
+
+    /// The selection or crop handle under the pointer, for the hover highlight (#49): the same
+    /// "which handle is under this point" query the Select tool and the cursor (#48) use, so there
+    /// is one notion of the hovered handle. Only the tools whose press grabs a handle highlight one
+    /// (Select for the selection, Crop for its region), matching what the cursor shows; purely
+    /// presentational, so it changes no hit radius and nothing a press does.
+    fn hovered_handle(&self, layout: &Layout, response: &egui::Response) -> Option<Handle> {
+        if !self.can_edit() {
+            return None;
+        }
+        let hover = response.hover_pos()?;
+        if !layout.image.is_some_and(|image| image.contains(hover)) {
+            return None;
+        }
+        let bounds = match self.tool {
+            ToolId::Crop => self.crop?,
+            ToolId::Select => self.document()?.selection_bounds()?,
+            _ => return None,
+        };
+        select::handle_at(bounds, layout.image_point(hover), layout.image_per_point())
     }
 
     /// The cursor to show this frame (#48, §4): a single decider driven by the same hit-testing the

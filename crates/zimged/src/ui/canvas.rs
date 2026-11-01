@@ -8,6 +8,10 @@ use crate::app::ShownImage;
 use crate::tools::select::HANDLE_SIZE;
 use crate::view::View;
 
+/// The side of the handle under the pointer, grown from [`HANDLE_SIZE`] so the hovered handle reads
+/// as "grab me" (#49).
+const HANDLE_HOVER_SIZE: f32 = 12.0;
+
 /// Where the canvas and the Image ended up this frame, in points, and the mapping between screen
 /// points and Image pixels.
 #[derive(Clone, Copy, Debug)]
@@ -34,6 +38,9 @@ pub struct EditorPaint {
     pub crop: Option<egui::Rect>,
     /// The select tool's rubber band, in points: a dashed box without handles.
     pub rubber_band: Option<egui::Rect>,
+    /// The selection or crop handle under the pointer: drawn with the hover variant (#49). Purely
+    /// presentational — it changes no hit radius and nothing a press does.
+    pub hovered_handle: Option<Handle>,
 }
 
 impl Layout {
@@ -154,10 +161,10 @@ pub fn show(
                 ui.centered_and_justified(|ui| ui.label(message));
             }
             if let (Some(crop), Some(image)) = (paint.crop, layout.image) {
-                paint_crop(&painter, image, crop);
+                paint_crop(&painter, image, crop, paint.hovered_handle);
             }
             if let Some(selection) = paint.selection {
-                paint_selection(&painter, selection);
+                paint_selection(&painter, selection, paint.hovered_handle);
             }
             painter.extend(paint.overlay);
             if let Some(band) = paint.rubber_band {
@@ -168,8 +175,14 @@ pub fn show(
         .inner
 }
 
-/// The crop region (§4.1 C): the Image outside it dimmed, and a box with 8 handles.
-fn paint_crop(painter: &egui::Painter, image: egui::Rect, crop: egui::Rect) {
+/// The crop region (§4.1 C): the Image outside it dimmed, and a box with 8 handles. `hovered` is the
+/// crop handle under the pointer, grown like the selection's (#49).
+fn paint_crop(
+    painter: &egui::Painter,
+    image: egui::Rect,
+    crop: egui::Rect,
+    hovered: Option<Handle>,
+) {
     let dim = egui::Color32::from_black_alpha(140);
     let strips = [
         egui::Rect::from_min_max(image.min, egui::pos2(image.max.x, crop.min.y)),
@@ -188,7 +201,7 @@ fn paint_crop(painter: &egui::Painter, image: egui::Rect, crop: egui::Rect) {
             painter.rect_filled(strip, 0.0, dim);
         }
     }
-    paint_selection(painter, crop);
+    paint_selection(painter, crop, hovered);
 }
 
 /// A dashed box, visible on light and dark Images. Returns its dark stroke.
@@ -207,13 +220,22 @@ fn paint_dashed_box(painter: &egui::Painter, r: egui::Rect) -> egui::Stroke {
     dark
 }
 
-/// The selection box (§2): dashed, with 8 handles.
-fn paint_selection(painter: &egui::Painter, r: egui::Rect) {
+/// The selection box (§2): dashed, with 8 handles. The handle under the pointer (`hovered`) is drawn
+/// larger so the user can see which one a press will grab (#49); the box and the other handles are
+/// drawn exactly as before.
+fn paint_selection(painter: &egui::Painter, r: egui::Rect, hovered: Option<Handle>) {
     let dark = paint_dashed_box(painter, r);
     for handle in Handle::ALL {
         let (u, v) = handle.anchor();
         let center = egui::pos2(r.min.x + u * r.width(), r.min.y + v * r.height());
-        let square = egui::Rect::from_center_size(center, egui::vec2(HANDLE_SIZE, HANDLE_SIZE));
+        // Growing the hovered handle is the whole cue: the fill and the border are unchanged, so
+        // the handle reads brighter (more white, proportionally less border) with no colour shift.
+        let side = if hovered == Some(handle) {
+            HANDLE_HOVER_SIZE
+        } else {
+            HANDLE_SIZE
+        };
+        let square = egui::Rect::from_center_size(center, egui::vec2(side, side));
         painter.rect(
             square,
             0.0,
