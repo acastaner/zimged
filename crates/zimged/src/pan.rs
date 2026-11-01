@@ -81,6 +81,12 @@ impl PanGesture {
     pub fn owns_pointer(&self, ctx: &egui::Context) -> bool {
         self.dragging.is_some() || space_held(ctx)
     }
+
+    /// Is a pan drag actually under way (Space+left or middle button down)? The cursor shows the
+    /// closed grabbing hand while it is (#48).
+    pub fn is_dragging(&self) -> bool {
+        self.dragging.is_some()
+    }
 }
 
 /// Space is the pan modifier, except while a text field (the text tool, a dialog) has the keyboard.

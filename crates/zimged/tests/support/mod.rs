@@ -331,6 +331,15 @@ impl TestApp {
         self.settle();
     }
 
+    /// Hover `pos` (points) and return the cursor the editor asks the platform to show this frame:
+    /// the single per-frame cursor decider writes it to the frame's platform output (#48, §4). Read
+    /// like [`editor_text`]'s `platform_output.ime`; what the user actually sees over the canvas.
+    pub fn cursor_at(&mut self, pos: egui::Pos2) -> egui::CursorIcon {
+        self.harness.hover_at(pos);
+        self.harness.run();
+        self.harness.output().platform_output.cursor_icon
+    }
+
     /// Ctrl+wheel with the pointer at `pos` (points): `notches` up (positive, zoom in) or down.
     pub fn ctrl_wheel_at(&mut self, pos: egui::Pos2, notches: f32) {
         self.harness.hover_at(pos);
